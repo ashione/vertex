@@ -1,0 +1,16 @@
+# Ollama API 交互依赖
+requests>=2.28.2
+
+# Web UI 依赖
+gradio>=3.50.0
+
+# 环境配置
+python-dotenv>=0.21.0
+
+# 实用工具(可选)
+tqdm>=4.65.0
+openai>=1.0.0
+
+# LangChain相关依赖
+langchain-core>=0.1.0
+langchain-community>=0.0.1
