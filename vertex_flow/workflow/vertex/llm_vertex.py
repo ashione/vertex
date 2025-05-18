@@ -17,6 +17,14 @@ from vertex_flow.workflow.utils import (
     var_str,
     compatiable_env_str,
 )
+from vertex_flow.workflow.constants import (
+    MODEL,
+    SYSTEM,
+    USER,
+    PREPROCESS,
+    POSTPROCESS,
+    ENABLE_STREAM,
+)
 
 logging = LoggerUtil.get_logger()
 
@@ -38,16 +46,17 @@ class LLMVertex(Vertex[T]):
         self.user_messages = []
         self.preprocess = None
         self.postprocess = None
+        self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
 
         if task is None:
             logging.info("Use llm chat in task executing.")
-            self.model = params["model"]
-            self.system_message = params["system"] if "system" in params else ""
-            self.user_messages = params["user"] if "user" in params else []
+            self.model = params[MODEL]  # 使用常量 MODEL
+            self.system_message = params[SYSTEM] if SYSTEM in params else ""  # 使用常量 SYSTEM
+            self.user_messages = params[USER] if USER in params else []  # 使用常量 USER
             task = self.chat
-            self.preprocess = params["preprocess"] if "preprocess" in params else None
+            self.preprocess = params[PREPROCESS] if PREPROCESS in params else None  # 使用常量 PREPROCESS
             self.postprocess = (
-                params["postprocess"] if "postprocess" in params else None
+                params[POSTPROCESS] if POSTPROCESS in params else None  # 使用常量 POSTPROCESS
             )
         super().__init__(id=id, name=name, task_type="LLM", task=task, params=params)
 
@@ -126,28 +135,27 @@ class LLMVertex(Vertex[T]):
 
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         finish_reason = None
+        # 根据 enable_stream 参数决定是否流式
+        if self.enable_stream and hasattr(self.model, "chat_stream"):
+            for msg in self.model.chat_stream(self.messages):
+                # 产出 messages 事件
+                if self.workflow:
+                    self.workflow.emit_event("messages", {"vertex_id": self.id, "message": msg})
+            self.output = None  # 流式模式下可选
+            return
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages)
             finish_reason = choice.finish_reason
-            if finish_reason == "tool_calls":  # <-- 判断当前返回内容是否包含 tool_calls
+            if finish_reason == "tool_calls":
                 self.messages.append(choice.message)
-                for (
-                    tool_call
-                ) in choice.message.tool_calls:  # <-- tool_calls 可能是多个，因此我们使用循环逐个执行
+                for tool_call in choice.message.tool_calls:
                     tool_call_name = tool_call.function.name
-                    tool_call_arguments = json.loads(
-                        tool_call.function.arguments
-                    )  # <-- arguments 是序列化后的 JSON Object，我们需要使用 json.loads 反序列化一下
+                    tool_call_arguments = json.loads(tool_call.function.arguments)
                     if tool_call_name == "$web_search":
                         tool_result = self.model.search_impl(tool_call_arguments)
                     else:
-                        tool_result = (
-                            f"Error: unable to find tool by name '{tool_call_name}'"
-                        )
+                        tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
 
-                    # 使用函数执行结果构造一个 role=tool 的 message，以此来向模型展示工具调用的结果；
-                    # 注意，我们需要在 message 中提供 tool_call_id 和 name 字段，以便 Kimi 大模型
-                    # 能正确匹配到对应的 tool_call。
                     self.messages.append(
                         {
                             "role": "tool",
@@ -156,11 +164,11 @@ class LLMVertex(Vertex[T]):
                             "content": json.dumps(tool_result),
                         }
                     )
-        result = (
-            choice.message.content
-            if self.postprocess is None
-            else self.postprocess(choice.message.content, input, context)
-        )
-        logging.debug(f"chat bot response : {result}")
+            result = (
+                choice.message.content
+                if self.postprocess is None
+                else self.postprocess(choice.message.content, inputs, context)
+            )
+            logging.debug(f"chat bot response : {result}")
 
-        return result
+            return result

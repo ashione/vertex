@@ -37,9 +37,35 @@ class ChatModel(abc.ABC):
             "provider": self.provider,
         }
 
-    @abc.abstractmethod
+    def _create_completion(self, messages, option: Dict[str, Any], stream: bool) -> Choice:
+        default_option = {
+            "temperature": 1.0,
+            "max_tokens": 4096,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "stream": stream,
+            "response_format": {"type": "text"},
+        }
+        if option:
+            default_option.update(option)
+        completion = self.client.chat.completions.create(
+            model=self.name, messages=messages, **default_option
+        )
+        return completion
+
     def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
-        pass
+        completion = self._create_completion(messages, option, stream=False)
+        return completion.choices[0]
+
+    def chat_stream(self, messages, option: Dict[str, Any] = None):
+        completion = self._create_completion(messages, option, stream=True)
+        for chunk in completion:
+            # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
+            if hasattr(chunk, 'choices') and chunk.choices[0].delta:
+                yield chunk.choices[0].delta.content
+            else:
+                logging.error("Chunk object does not have 'choices' attribute or delta is missing.")
 
     def model_name(self) -> str:
         return self.name
@@ -50,9 +76,6 @@ class ChatModel(abc.ABC):
     # search 工具的具体实现，这里我们只需要返回参数即可
     def search_impl(self, arguments: Dict[str, Any]) -> Any:
         """
-        在使用 Moonshot AI 提供的 search 工具的场合，只需要原封不动返回 arguments 即可，
-        不需要额外的处理逻辑。
-
         但如果你想使用其他模型，并保留联网搜索的功能，那你只需要修改这里的实现（例如调用搜索
         和获取网页内容等），函数签名不变，依然是 work 的。
 
@@ -71,15 +94,13 @@ class MoonshotChat(ChatModel):
             name=name, sk=sk, base_url="https://api.moonshot.cn/v1", provider="moonshot"
         )
 
-    def __str__(self):
-        return MoonshotChat.model_name()
-
     @timer_decorator
     def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
         completion = self.client.chat.completions.create(
             model="moonshot-v1-128k",
             messages=messages,
             temperature=0.8,
+            stream=True,
             tools=[
                 {
                     "type": "builtin_function",
@@ -89,7 +110,9 @@ class MoonshotChat(ChatModel):
                 }
             ],
         )
-        return completion.choices[0]
+        for chunk in completion:
+            # 确保正确处理生成器对象的内容
+            yield chunk.choices[0].delta.content if chunk.choices[0].delta else ""
 
 
 class DeepSeek(ChatModel):
@@ -98,56 +121,11 @@ class DeepSeek(ChatModel):
             name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek"
         )
 
-    def __str__(self):
-        return self.model_name()
-
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
-        default_option = {
-            "temperature": 1.0,
-            "max_tokens": 4096,
-            "top_p": 1.0,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-            "stream": False,
-            "response_format": {"type": "text"},
-        }
-        if option:
-            default_option.update(option)
-        completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
-        )
-        return completion.choices[0]
-
-
 class Tongyi(ChatModel):
     def __init__(self, name="qwen-max", sk=""):
         super().__init__(
-            name=name,
-            sk=sk,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            provider="tongyi",
+            name=name, sk=sk, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", provider="tongyi"
         )
-
-    def __str__(self):
-        return self.model_name()
-
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
-        default_option = {
-            "temperature": 1.0,
-            "max_tokens": 4096,
-            "top_p": 1.0,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-            "stream": False,
-            "response_format": {"type": "text"},
-        }
-        if option:
-            default_option.update(option)
-        completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
-        )
-        return completion.choices[0]
-
 
 class OpenRouter(ChatModel):
     def __init__(self, name="openrouter-chat", sk=""):
@@ -157,23 +135,3 @@ class OpenRouter(ChatModel):
             base_url="https://openrouter.ai/api/v1",
             provider="openrouter"
         )
-
-    def __str__(self):
-        return self.model_name()
-
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
-        default_option = {
-            "temperature": 1.0,
-            "max_tokens": 4096,
-            "top_p": 1.0,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-            "stream": False,
-            "response_format": {"type": "text"},
-        }
-        if option:
-            default_option.update(option)
-        completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
-        )
-        return completion.choices[0]

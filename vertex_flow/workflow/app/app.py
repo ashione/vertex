@@ -20,6 +20,8 @@ from typing import Dict, List
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
 
+from fastapi.responses import StreamingResponse
+
 logger = LoggerUtil.get_logger()
 
 vertex_flow = FastAPI()
@@ -59,6 +61,7 @@ class WorkflowInput(BaseModel):
     env_vars: Dict[str, Any] = {}
     user_vars: Dict[str, Any] = {}
     content: str = ""
+    stream: bool = False  # 新增参数，用于指定是否为流式模式
 
 
 class WorkflowOutput(BaseModel):
@@ -121,23 +124,43 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         logger.info("Build new workflow from code")
         workflow = get_default_workflow(input_data=input_data)
 
-    # 执行工作流
-    try:
-        workflow.execute_workflow(input_data.user_vars)
-        return {
-            "output": list(workflow.result().values())[0],
-            "status": True,
-            "vertices_status": workflow.status(),
-        }
-    except BaseException as e:
-        logger.info(f"workflow run exception {e}")
-        traceback.print_exc()
-        return {
-            "output": "error",
-            "status": False,
-            "message": str(e),
-            "vertices_status": workflow.status(),
-        }
+    if input_data.stream:
+        async def result_generator():
+            try:
+                async for result in workflow.execute_workflow(input_data.user_vars, stream=True):
+                    yield {
+                        "output": result,
+                        "status": True,
+                        "vertices_status": workflow.status(),
+                    }
+            except BaseException as e:
+                logger.info(f"workflow run exception {e}")
+                traceback.print_exc()
+                yield {
+                    "output": "error",
+                    "status": False,
+                    "message": str(e),
+                    "vertices_status": workflow.status(),
+                }
+
+        return StreamingResponse(result_generator(), media_type="application/json")
+    else:
+        try:
+            workflow.execute_workflow(input_data.user_vars, stream=False)
+            return {
+                "output": list(workflow.result().values())[0],
+                "status": True,
+                "vertices_status": workflow.status(),
+            }
+        except BaseException as e:
+            logger.info(f"workflow run exception {e}")
+            traceback.print_exc()
+            return {
+                "output": "error",
+                "status": False,
+                "message": str(e),
+                "vertices_status": workflow.status(),
+            }
 
 
 @vertex_flow.get("/workflow", response_model=WorkflowOutput)
