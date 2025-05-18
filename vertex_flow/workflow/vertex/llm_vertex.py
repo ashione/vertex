@@ -135,13 +135,16 @@ class LLMVertex(Vertex[T]):
 
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         finish_reason = None
-        # 根据 enable_stream 参数决定是否流式
+        # 在流式输出时触发 messages 事件
         if self.enable_stream and hasattr(self.model, "chat_stream"):
+            full_content = ""
             for msg in self.model.chat_stream(self.messages):
-                # 产出 messages 事件
                 if self.workflow:
-                    self.workflow.emit_event("messages", {"vertex_id": self.id, "message": msg})
-            self.output = None  # 流式模式下可选
+                    self.workflow.emit_event("messages", {"vertex_id": self.id, "message": msg, "status" : "running"})
+                full_content += msg
+
+            self.output = full_content # 流式模式下可选
+            self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status" : "end"})
             return
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages)

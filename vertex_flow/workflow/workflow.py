@@ -122,6 +122,10 @@ class Workflow(Generic[T]):
     def subscribe(self, event_type: str, callback):
         self.event_channel.subscribe(event_type, callback)
 
+    async def astream(self, event_type: str):
+        """代理到 EventChannel 的 astream 方法"""
+        async for event_data in self.event_channel.astream(event_type):
+            yield event_data
     def add_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         self.vertices[vertex.id] = vertex
         vertex.workflow = self

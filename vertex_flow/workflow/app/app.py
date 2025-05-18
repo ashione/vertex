@@ -1,10 +1,12 @@
+import json
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from vertex_flow.workflow.constants import ENABLE_STREAM
 from vertex_flow.workflow.utils import default_config_path
 from pydantic import BaseModel
+import threading
 import argparse
-import logging
 import traceback
 from vertex_flow.workflow.workflow import (
     Workflow,
@@ -15,7 +17,6 @@ from vertex_flow.workflow.workflow import (
     Any,
 )
 from vertex_flow.workflow.service import VertexFlowService
-import os
 from typing import Dict, List
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
@@ -94,6 +95,7 @@ def get_default_workflow(input_data):
             "model": vertex_service.get_chatmodel(),
             "system": "你是一个热情的聊天机器人。",
             "user": [input_data.content],
+            ENABLE_STREAM : input_data.stream,
         },
     )
     sink = SinkVertex(
@@ -110,6 +112,18 @@ def get_default_workflow(input_data):
     llm | sink
     return workflow
 
+# 定义一个函数来执行您希望在新线程中运行的任务
+def execute_in_thread(workflow, user_vars):
+    try:
+        workflow.execute_workflow(user_vars, stream=True)
+        logger.info("Workflow executed successfully in a separate thread.")
+    except Exception as e:
+        logger.error(f"Error executing workflow in thread: {e}")
+
+# 在您的代码中创建并启动一个新线程
+def execute_workflow_in_thread(workflow, user_vars):
+    thread = threading.Thread(target=execute_in_thread, args=(workflow, user_vars))
+    thread.start()
 
 @vertex_flow.post("/workflow", response_model=WorkflowOutput)
 async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput):
@@ -125,23 +139,26 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         workflow = get_default_workflow(input_data=input_data)
 
     if input_data.stream:
+
+        execute_workflow_in_thread(workflow, input_data.user_vars)
         async def result_generator():
             try:
-                async for result in workflow.execute_workflow(input_data.user_vars, stream=True):
-                    yield {
+                async for result in workflow.astream("messages"):
+                    logger.info(f"workflow result {result}")
+                    yield json.dumps({
                         "output": result,
                         "status": True,
                         "vertices_status": workflow.status(),
-                    }
+                    })
             except BaseException as e:
                 logger.info(f"workflow run exception {e}")
                 traceback.print_exc()
-                yield {
+                yield json.dumps({
                     "output": "error",
                     "status": False,
                     "message": str(e),
                     "vertices_status": workflow.status(),
-                }
+                })
 
         return StreamingResponse(result_generator(), media_type="application/json")
     else:
@@ -150,7 +167,6 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             return {
                 "output": list(workflow.result().values())[0],
                 "status": True,
-                "vertices_status": workflow.status(),
             }
         except BaseException as e:
             logger.info(f"workflow run exception {e}")
