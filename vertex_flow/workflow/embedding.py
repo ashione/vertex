@@ -13,6 +13,7 @@ logging = LoggerUtil.get_logger(__name__)
 API_KEY = os.getenv("DASHSCOPE_API_KEY")
 MODEL_NAME = os.getenv("DASHSCOPE_MODEL_NAME", "text-embedding-v1")
 
+
 # Abstract base class defining the interface for text embedding providers.
 @factory_creator
 class TextEmbeddingProvider(ABC):

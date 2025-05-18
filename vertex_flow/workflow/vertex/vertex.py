@@ -244,9 +244,9 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         for var_def in self.variables:
             source_value = get_variable_value(var_def=var_def)
-            resolved_values[
-                var_def.get("local_var") or var_def["source_var"]
-            ] = source_value
+            resolved_values[var_def.get("local_var") or var_def["source_var"]] = (
+                source_value
+            )
         return resolved_values
 
     @property
@@ -396,6 +396,11 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         在顶点成功完成任务时调用的方法。
         子类可以重写此方法以执行特定的完成逻辑。
         """
+        # 在执行后触发 values 事件
+        if self.workflow:
+            self.workflow.emit_event(
+                "values", {"vertex_id": self.id, "output": self.output}
+            )
         pass
 
     def on_failed(self):
@@ -403,6 +408,11 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         在顶点任务失败时调用的方法。
         子类可以重写此方法以执行特定的失败处理逻辑。
         """
+        # 在状态变化时触发 updates 事件
+        if self.workflow:
+            self.workflow.emit_event(
+                "updates", {"vertex_id": self.id, "status": "failed"}
+            )
         pass
 
     def on_workflow_finished(self):

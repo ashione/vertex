@@ -4,6 +4,7 @@ from .vertex import (
     T,
 )
 from vertex_flow.workflow.vector import VectorEngine
+from vertex_flow.workflow.constants import DOCS, QUERY, STATUS, SUCCESS
 from typing import Callable, Dict, Any
 from vertex_flow.utils.logger import LoggerUtil
 from abc import abstractmethod
@@ -29,7 +30,7 @@ class VectorVertex(Vertex[T]):
 
 
 class VectorStoreVertex(VectorVertex):
-    DEFAULT_INPUT_KEY = "docs"
+    DEFAULT_INPUT_KEY = DOCS
 
     def __init__(
         self,
@@ -66,21 +67,19 @@ class VectorStoreVertex(VectorVertex):
 
         docs = local_inputs[self.input_key]
         try:
-            # TODO(zuolingxuan): 这里仅仅只是把向量写进去，如果涉及到fields和id
-            # 需要根据新的API文档来进行修改。
             self.vector_engine.insert(docs)
             self.output = {
-                "status": "success",
+                STATUS: SUCCESS,
                 "message": "Documents inserted successfully.",
             }
         except Exception as e:
             logging.error(f"Error storing vectors in VectorStoreVertex {self.id}: {e}")
-            self.output = {"status": "error", "message": str(e)}
+            self.output = {STATUS: "error", "message": str(e)}
             raise e
 
 
 class VectorQueryVertex(VectorVertex):
-    DEFAULT_INPUT_KEY = "query"
+    DEFAULT_INPUT_KEY = QUERY
 
     def __init__(
         self,
@@ -119,8 +118,8 @@ class VectorQueryVertex(VectorVertex):
 
         try:
             results = self.vector_engine.search(query, top_k=top_k, filter=filter)
-            self.output = {"results": results, "status": "success"}
+            self.output = {"results": results, STATUS: SUCCESS}
         except Exception as e:
             logging.error(f"Error querying vectors in VectorQueryVertex {self.id}: {e}")
-            self.output = {"status": "error", "message": str(e)}
+            self.output = {STATUS: "error", "message": str(e)}
             raise e
