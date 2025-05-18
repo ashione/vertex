@@ -79,6 +79,14 @@ def main():
             model = gr.Textbox(label="模型名称", value=args.model,
                              placeholder="输入模型名称 (local-qwen表示本地模型)")
         
+        # 新增 system_prompt 输入框
+        system_prompt_box = gr.Textbox(
+            label="System Prompt",
+            value=system_prompt,
+            placeholder="自定义系统提示词（可选）",
+            lines=2
+        )
+        
         api_params = gr.Accordion("API参数配置", open=False, visible=False)
         with api_params:
             api_key = gr.Textbox(label="API密钥", type="password", value="")
@@ -108,24 +116,27 @@ def main():
         
         chatbot = gr.Chatbot(height=500)
         msg = gr.Textbox(placeholder="输入您的问题...", lines=3, interactive=True)
+        send = gr.Button("发送")  # 新增发送按钮
         clear = gr.Button("清除对话")
         
         context_state = gr.State([])
         
-        def process_message(message, history, context, model, api_key, api_base):
+        # 修改 process_message，增加 system_prompt 参数
+        def process_message(message, history, context, model, api_key, api_base, user_system_prompt):
             logger.info(f"收到用户消息: {message[:50]}..., model : {model}")
             try:
+                # 使用用户自定义的 system_prompt，如果未填写则用默认
+                sys_prompt = user_system_prompt if user_system_prompt.strip() else system_prompt
                 if model == "local-qwen":
                     client = OllamaClient(host=args.host, model="qwen:7b")
-                    gen = chat(message, history, context, client=client, use_system_prompt=True)
+                    gen = chat(message, history, context, client=client, use_system_prompt=True, sys_prompt=sys_prompt)
                 else:
                     if not api_key:
                         yield "错误: 请提供API密钥", history, context
                         return
                     client = ModelClient(api_key=api_key, base_url=api_base, model=model)
-                    gen = chat(message, history, context, client=client, use_system_prompt=False)
+                    gen = chat(message, history, context, client=client, use_system_prompt=False, sys_prompt=sys_prompt)
                 
-                # 处理生成器的所有响应
                 for msg_out, history_out, context_out in gen:
                     yield msg_out, history_out, context_out
                 
@@ -136,19 +147,49 @@ def main():
             except StopIteration:
                 logger.warning("生成回复时遇到StopIteration")
                 return "", history, context
-        
+
+        # 修改 chat 函数，支持 sys_prompt 参数
+        def chat(message, history, context=None, client=None, use_system_prompt=False, sys_prompt=None):
+            if not message.strip():
+                return "", history, context
+            
+            full_history = []
+            if history:
+                full_history = history.copy()
+            
+            history_prompt = format_history(full_history) if full_history else ""
+            full_prompt = f"{history_prompt}\n\nHuman: {message}\nAssistant: " if history_prompt else f"Human: {message}\nAssistant: "
+            
+            response = ""
+            if use_system_prompt:
+                for chunk in client.generate(full_prompt, system=sys_prompt, context=context):
+                    response = chunk
+                    yield "", history + [(message, response)], context
+            else:
+                for chunk in client.generate(full_prompt, history):
+                    response = chunk
+                    yield "", history + [(message, response)], context
+
+        # 修改 submit 和 click 事件，增加 system_prompt_box 作为输入
         msg_submit = msg.submit(
             fn=process_message,
-            inputs=[msg, chatbot, context_state, current_mode, api_key, api_base],
+            inputs=[msg, chatbot, context_state, current_mode, api_key, api_base, system_prompt_box],
             outputs=[msg, chatbot, context_state],
             api_name="chat"
         ).then(
-            lambda: None,  # No-op to allow streaming
+            lambda: None,
             None,
             None,
             queue=False
         )
-        
+
+        send.click(
+            fn=process_message,
+            inputs=[msg, chatbot, context_state, current_mode, api_key, api_base, system_prompt_box],
+            outputs=[msg, chatbot, context_state],
+            api_name="chat"
+        )
+
         clear.click(lambda: ([], []), None, [chatbot, context_state], queue=False)
     
     # 启动 Gradio 界面

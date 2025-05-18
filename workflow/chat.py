@@ -1,0 +1,149 @@
+import abc
+from openai import OpenAI
+from openai.types.chat.chat_completion import Choice
+from typing import *
+from vertex_flow.workflow.utils import timer_decorator, factory_creator
+from vertex_flow.utils.logger import LoggerUtil
+
+logging = LoggerUtil.get_logger()
+
+
+@factory_creator
+class ChatModel(abc.ABC):
+    """
+    这是一个抽象基类示例。
+    """
+
+    def __init__(self, name: str, sk: str, base_url: str, provider: str):
+        self.name = name
+        self.sk = sk
+        self.provider = provider
+        logging.info(
+            f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}."
+        )
+        # 为序列化保存.
+        self._base_url = base_url
+        self.client = OpenAI(
+            base_url=self._base_url,
+            api_key=sk,
+        )
+
+    def __get_state__(self):
+        return {
+            "class_name": self.__class__.__name__.lower(),
+            "base_url": self._base_url,
+            "name": self.name,
+            "sk": self.sk,
+            "provider": self.provider,
+        }
+
+    @abc.abstractmethod
+    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+        pass
+
+    def model_name(self) -> str:
+        return self.name
+
+    def __str__(self):
+        return self.model_name()
+
+    # search 工具的具体实现，这里我们只需要返回参数即可
+    def search_impl(self, arguments: Dict[str, Any]) -> Any:
+        """
+        在使用 Moonshot AI 提供的 search 工具的场合，只需要原封不动返回 arguments 即可，
+        不需要额外的处理逻辑。
+
+        但如果你想使用其他模型，并保留联网搜索的功能，那你只需要修改这里的实现（例如调用搜索
+        和获取网页内容等），函数签名不变，依然是 work 的。
+
+        这最大程度保证了兼容性，允许你在不同的模型间切换，并且不需要对代码有破坏性的修改。
+        """
+        return arguments
+
+
+class MoonshotChat(ChatModel):
+    def __init__(
+        self,
+        name="moonshot-v1-128k",
+        sk="sk-qVjPbeY9anw3W2BvWKJzApMQkqMk1czHeAJTPHznvgBKoVx2",
+    ):
+        super().__init__(
+            name=name, sk=sk, base_url="https://api.moonshot.cn/v1", provider="moonshot"
+        )
+
+    def __str__(self):
+        return MoonshotChat.model_name()
+
+    @timer_decorator
+    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+        completion = self.client.chat.completions.create(
+            model="moonshot-v1-128k",
+            messages=messages,
+            temperature=0.8,
+            tools=[
+                {
+                    "type": "builtin_function",  # <-- 使用 builtin_function 声明 $web_search 函数，请在每次请求都完整地带上 tools 声明
+                    "function": {
+                        "name": "$web_search",
+                    },
+                }
+            ],
+        )
+        return completion.choices[0]
+
+
+class DeepSeek(ChatModel):
+    def __init__(self, name="deepseek-chat", sk=""):
+        super().__init__(
+            name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek"
+        )
+
+    def __str__(self):
+        return self.model_name()
+
+    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+        default_option = {
+            "temperature": 1.0,
+            "max_tokens": 4096,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "stream": False,
+            "response_format": {"type": "text"},
+        }
+        if option:
+            default_option.update(option)
+        completion = self.client.chat.completions.create(
+            model=self.name, messages=messages, **default_option
+        )
+        return completion.choices[0]
+
+
+class Tongyi(ChatModel):
+    def __init__(self, name="qwen-max", sk=""):
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            provider="tongyi",
+        )
+
+    def __str__(self):
+        return self.model_name()
+
+    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+        default_option = {
+            "temperature": 1.0,
+            "max_tokens": 4096,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "stream": False,
+            "response_format": {"type": "text"},
+        }
+        if option:
+            default_option.update(option)
+        completion = self.client.chat.completions.create(
+            model=self.name, messages=messages, **default_option
+        )
+        return completion.choices[0]

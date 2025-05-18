@@ -1,0 +1,57 @@
+
+# 通过docker env可以注入相关的配置，作为修改值
+# 例如ll.deepseek.sk，则通过llm_deepseek_sk环境变量
+# 在docker启动时设置-e llm_deepseek_sk=?
+llm:
+  moonshoot:
+    sk: ${llm.moonshoot.sk:-}
+    enabled: false
+    model-name: moonshot-v1-128k
+  deepseek:
+    sk: ${llm.deepseek.sk:-}
+    enabled: false
+    model-name: deepseek-chat
+  tongyi:
+    sk: ${llm.tongyi.sk:-}
+    enabled: false
+    model-name: qwen-max
+  openrouter:
+    sk: ${llm.openrouter.sk:-}
+    enabled: true
+    model-name: deepseek/deepseek-chat-v3-0324:free
+
+workflow:
+  dify:
+    root-path: config/
+    instances:
+    - name: if_else_test
+      path: if-else-test.yml
+
+web:
+  port: 8999
+  host: 0.0.0.0
+  workers: 8
+
+vector:
+  dashvector:
+    api-key: ${vector.dashvector.api_key:sk-}
+    endpoint: ${vector.dashvector.endpoint:-}
+    cluster: ${vector.dashvector.cluster:tender-vector}
+    collection: ${vector.dashvector.collection:-}
+    image-collection: ${vector.dashvector.image_collection:-}
+
+embedding:
+  dashscope:
+    endpoint: ${embedding.dashscope.endpoint:default}
+    api-key: ${embedding.dashscope.api_key:-}
+    model-name: ${embedding.dashscope.model_name:text-embedding-v1}
+  bce:
+    api-key: ${embedding.bce.api_key:-}
+    endpoint: ${embedding.bce.endpoint:https://api.siliconflow.cn/v1/embeddings}
+    model-name: ${embedding.bce.model_name:netease-youdao/bce-embedding-base_v1}
+
+rerank:
+  bce:
+    api-key: ${rerank.bce.api_key:-}
+    endpoint: ${rerank.bce.endpoint:https://api.siliconflow.cn/v1/rerank}
+    model-name: ${rerank.bce.model_name:netease-youdao/bce-reranker-base_v1}
