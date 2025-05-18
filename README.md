@@ -1,30 +1,176 @@
-# Vertex Workflow
+# Vertex - LLM/GraphLLM 工具
 
-本项目是一个基于 Vertex Flow 的本地化大模型工作流系统，支持多种 LLM、嵌入、向量检索与重排序能力，适用于本地智能应用开发和流程自动化。
+Vertex 是一个支持本地和云端大语言模型（LLM）推理与工作流编排的工具，提供简洁易用的 Web 聊天界面和强大的 VertexFlow 工作流引擎。支持本地 Ollama 部署的 Qwen-7B 模型，也可通过 API 调用外部模型，支持多模型协同、知识库检索、嵌入与重排序等高级能力。
 
-## 主要特性
+## 功能特性
 
-- **灵活的工作流引擎**：支持自定义顶点（Vertex）、边（Edge）、条件分支、函数节点、LLM 节点等，满足复杂流程编排需求。
-- **多模型支持**：可集成多种主流大语言模型（如 Qwen、OpenAI、BCE 等），并可灵活切换。
-- **嵌入与向量检索**：内置 DashVector、BCEEmbedding、DashScopeEmbedding 等主流向量引擎与嵌入模型。
-- **重排序能力**：支持 BCE 等主流重排序模型，提升检索结果相关性。
-- **本地化部署**：所有核心能力均可本地运行，保护数据隐私，适合企业/个人本地智能应用开发。
-- **兼容 Dify 工作流**：可直接加载 Dify 工作流定义，便于迁移与扩展。
+- 支持本地 Ollama 部署的 Qwen-7B 模型（chatbox 聊天界面）
+- 支持通过 API 方式调用 DeepSeek、OpenRouter 等外部模型
+- Web UI 聊天体验，支持上下文多轮对话
+- 可扩展的客户端架构，便于集成更多模型
+- 支持流式输出，实时显示生成内容
+- 支持 VertexFlow 工作流编排与多模型协同
+- 支持自定义 System Prompt
+- 支持 DashVector 等多种向量引擎与知识库检索
+- 支持多种嵌入与 Rerank 配置
+- 兼容 Dify 工作流定义，便于迁移与扩展
 
-## 目录结构
+## 环境要求
 
-- `vertex_flow/`：核心框架代码
-  - `src/`：应用入口与客户端示例
-  - `workflow/`：工作流相关模块（顶点、边、执行器、嵌入、重排序等）
-  - `utils/`：日志与工具函数
-- `config/`：示例工作流与配置
-- `scripts/`：辅助脚本
+- Python 3.8 及以上
+- Ollama（本地模型推理，详见 https://ollama.com ）
 
-## 快速开始
+## 安装步骤
 
-1. 安装依赖
+1. 安装 Ollama
+
+   - 访问 [https://ollama.com/download](https://ollama.com/download)
+   - 下载并安装适用于您系统的 Ollama
+
+2. 克隆本仓库
+
+   ```bash
+   git clone git@github.com:ashione/vertex.git
+   cd vertex
+   ```
+
+3. 安装依赖
 
    ```bash
    pip install -r requirements.txt
    pip install -e .
    ```
+
+## 快速启动
+
+### 方式一：命令行启动（推荐）
+
+```bash
+vertex
+```
+
+### 方式二：直接运行主程序
+
+```bash
+python src/app.py
+```
+
+### 方式三：开发模式运行
+
+```bash
+python -m src.app
+```
+
+### 方式四：VertexFlow 工作流模式
+
+```bash
+python -m vertex_flow.src.app
+```
+
+启动后，浏览器访问 [http://localhost:7860](http://localhost:7860) 进入 Web 聊天界面（支持工作流与多模型）。
+
+## 可选参数
+
+- `--host`：Ollama 服务地址（默认：http://localhost:11434）
+- `--port`：Web UI 端口（默认：7860）
+- `--model`：模型名称（local-qwen 表示本地模型，其他为 API 模型）
+- `--api-key`：外部 API 密钥（如调用 DeepSeek 时必填）
+- `--api-base`：外部 API 基础 URL
+- `--config`：VertexFlow 工作流配置文件（如 llm.yml）
+- `system_prompt`：支持在 Web UI 中自定义 System Prompt
+
+## Ollama 本地模型准备
+
+如需自动拉取和配置本地 Qwen-7B 模型，可运行：
+
+```bash
+python scripts/setup_ollama.py
+```
+
+该脚本会自动检测 Ollama 安装、服务状态，并拉取所需模型。
+
+## 示例代码
+
+### 构建与执行一个简单工作流
+
+```python
+from vertex_flow.workflow.vertex.vertex import SourceVertex, SinkVertex
+from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+
+def source_func(inputs, context):
+    return {"text": "Hello, Vertex Flow!"}
+
+def sink_func(inputs, context):
+    print("Workflow output:", inputs["source"])
+
+context = WorkflowContext()
+workflow = Workflow(context)
+source = SourceVertex(id="source", task=source_func)
+sink = SinkVertex(id="sink", task=sink_func)
+workflow.add_vertex(source)
+workflow.add_vertex(sink)
+source | sink
+workflow.execute_workflow()
+```
+
+## API 文档说明
+
+- `Workflow.add_vertex(vertex)`：添加顶点到工作流。
+- `vertex1 | vertex2`：连接两个顶点，自动添加边。
+- `Workflow.execute_workflow(source_inputs)`：执行工作流，可传入初始输入。
+- `Workflow.result()`：获取 SINK 顶点的输出结果。
+- `WorkflowContext`：用于管理环境参数、用户参数和顶点输出。
+
+## Dify 工作流兼容说明
+
+- 支持 Dify 风格的变量占位符（如 `{{#env.xxx#}}`、`{{user.var.xxx}}`）。
+- `WorkflowContext` 支持环境参数和用户参数，便于与 Dify 工作流参数体系对接。
+- 顶点类型（如 LLM、Embedding、Rerank、IfElse）可直接映射 Dify 工作流节点。
+- `IfElseVertex` 支持多条件分支，兼容 Dify 的条件跳转逻辑。
+- 支持 YAML 工作流结构的序列化与反序列化，便于与 Dify 工作流配置文件互通。
+
+## 常见问题
+
+- 启动报错"无法连接到 Ollama 服务"：请确保 Ollama 已安装并启动，可手动打开 Ollama 应用或运行 `python scripts/setup_ollama.py`。
+- 需要调用外部模型时，请在 Web UI 配置 API Key 和 Base URL。
+- 如遇到 API 连接问题，请检查网络连接和 API 密钥是否正确。
+- VertexFlow 工作流模式下，建议参考 `config/llm.yml` 配置多模型与知识库参数。
+- 如需自定义 system prompt，可在 Web UI 中直接填写。
+
+## 目录结构说明
+
+```
+vertex/
+├── src/
+│   ├── app.py              # 主应用入口
+│   ├── native_client.py    # 本地 Ollama 客户端
+│   ├── model_client.py     # 通用 API 客户端
+│   ├── langchain_client.py # LangChain 客户端
+│   ├── chat_util.py        # 聊天历史格式化工具
+│   └── utils/
+│       └── logger.py       # 日志工具
+├── vertex_flow/
+│   ├── src/                # VertexFlow 工作流主程序
+│   ├── workflow/           # 工作流与 LLM 顶点定义
+│   ├── utils/              # 工具与日志
+├── scripts/
+│   └── setup_ollama.py     # Ollama 环境与模型自动配置脚本
+├── requirements.txt
+├── setup.py
+└── README.md
+```
+（VertexFlow 相关目录已集成，支持高级工作流与多模型协同）
+
+## 开发计划
+
+- [ ] 支持更多本地模型（如 LLaMA、Mistral 等）
+- [ ] 添加知识库检索功能
+- [ ] 支持文档上传和分析
+- [ ] 增加图表生成功能
+- [ ] 提供 API 服务接口
+- [ ] 工作流可视化与多模型协同
+- [ ] 支持自定义工具调用与插件扩展
+
+## 贡献指南
+
+欢迎提交 Pull Request 或 Issue 来帮助改进项目。贡献前请先查看现有 Issue，确保不会重复工作。

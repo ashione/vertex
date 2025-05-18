@@ -36,7 +36,7 @@ vector:
   dashvector:
     api-key: ${vector.dashvector.api_key:sk-}
     endpoint: ${vector.dashvector.endpoint:-}
-    cluster: ${vector.dashvector.cluster:tender-vector}
+    cluster: ${vector.dashvector.cluster:vertex-vector}
     collection: ${vector.dashvector.collection:-}
     image-collection: ${vector.dashvector.image_collection:-}
 
