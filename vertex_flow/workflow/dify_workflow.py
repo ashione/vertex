@@ -319,12 +319,12 @@ class Graph:
             else:
                 raise ValueError(f"Unsupported node type: {node.type}")
 
-            vertex_flow.workflow.ensure_vertex_added(vertex)
+            workflow.ensure_vertex_added(vertex)
 
         # 将Graph中的边转换为Workflow中的边
         for edge in self.get_edges():
-            source_vertex = vertex_flow.workflow.vertices[edge.source.id]
-            target_vertex = vertex_flow.workflow.vertices[edge.target.id]
+            source_vertex = workflow.vertices[edge.source.id]
+            target_vertex = workflow.vertices[edge.target.id]
             if isinstance(edge.source, IfElseNode):
                 source_vertex.to(
                     target_vertex, Condition(id=edge.source_handle.lower())
@@ -420,7 +420,7 @@ def get_dify_workflow_instances(
             # 打印图信息
             print_graph(graph)
             workflow = graph.to_workflow(vertex_service=vertex_service)
-            vertex_flow.workflow.show_graph(include_dependencies=True)
+            workflow.show_graph(include_dependencies=True)
             return workflow
 
         instances[instance_config["name"]] = {"graph": graph, "builder": build_workflow}

@@ -216,7 +216,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                         f"No local inputs in {self.task_type}-{self.id} to search non-scope variable {var_def}"
                     )
             else:
-                source_vertex = self.vertex_flow.workflow.get_vertice_by_id(var_def["source_scope"])
+                source_vertex = self.workflow.get_vertice_by_id(var_def["source_scope"])
                 if source_vertex is None:
                     raise ValueError(
                         f"Source Vertex {var_def['source_scope']} not found."
@@ -365,7 +365,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             vertex_id = match.group(1)
             var_name = match.group(2)
             logging.debug(f"match {vertex_id}, {var_name}, {match.group(0)}")
-            for vertex in self.vertex_flow.workflow.vertices.values():
+            for vertex in self.workflow.vertices.values():
                 if vertex.id != vertex_id:
                     continue
                 if vertex is None:

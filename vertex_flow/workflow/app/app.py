@@ -118,6 +118,7 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         instance = dify_workflow_instances[input_data.workflow_name]
         workflow = instance["builder"](instance["graph"])
     else:
+        logger.info("Build new workflow from code")
         workflow = get_default_workflow(input_data=input_data)
 
     # 执行工作流
@@ -195,7 +196,7 @@ async def on_startup():
     vertex_service = VertexFlowService(chatmodel_config)
     global dify_workflow_instances
     dify_workflow_instances = get_dify_workflow_instances(vertex_service=vertex_service)
-    logger.info("Application startup...")
+    logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
 
 
 def main():
