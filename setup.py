@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="vertex",  # 修改项目名称
+    name="vertex_flow",  # 项目名称改为 vertex_flow
     version="0.1.0",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    packages=find_packages(),  # 手动添加 workflow
+    include_package_data=True,
     install_requires=[
         "requests>=2.28.2",
         "gradio>=3.50.0",
@@ -15,7 +15,8 @@ setup(
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "vertex=app:main",
+            "vertex=vertex_flow.src.app:main",
+            "vertex-workflow=vertex_flow.workflow.app.app:main",  # 新增 entrypoint
         ],
     },
 )
