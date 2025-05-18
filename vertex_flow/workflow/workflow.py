@@ -126,6 +126,7 @@ class Workflow(Generic[T]):
         """代理到 EventChannel 的 astream 方法"""
         async for event_data in self.event_channel.astream(event_type):
             yield event_data
+
     def add_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         self.vertices[vertex.id] = vertex
         vertex.workflow = self
@@ -305,7 +306,9 @@ class Workflow(Generic[T]):
 
     @around_workflow
     @timer_decorator
-    def execute_workflow(self, source_inputs: Dict[str, Any] = {}, stream: bool = False):
+    def execute_workflow(
+        self, source_inputs: Dict[str, Any] = {}, stream: bool = False
+    ):
         self.validate_workflow()  # 在执行之前先验证图的正确性
         self.topological_sort()
         self.executed = True
@@ -316,7 +319,15 @@ class Workflow(Generic[T]):
             checked_futures = set()
 
             for vertex in self.topological_order:
-                self.execute_vertex(vertex, source_inputs, futures, checked_futures, filtered_vertices, executor, stream)
+                self.execute_vertex(
+                    vertex,
+                    source_inputs,
+                    futures,
+                    checked_futures,
+                    filtered_vertices,
+                    executor,
+                    stream,
+                )
 
             if not stream:
                 self.process_results(futures, checked_futures)
@@ -324,7 +335,16 @@ class Workflow(Generic[T]):
         logging.info("workflow finished.")
         return True
 
-    def execute_vertex(self, vertex, source_inputs, futures, checked_futures, filtered_vertices, executor, stream):
+    def execute_vertex(
+        self,
+        vertex,
+        source_inputs,
+        futures,
+        checked_futures,
+        filtered_vertices,
+        executor,
+        stream,
+    ):
         logging.info(
             f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}."
         )
@@ -351,11 +371,7 @@ class Workflow(Generic[T]):
 
         future = executor.submit(
             vertex.execute,
-            (
-                dependency_outputs
-                if vertex not in self.get_sources()
-                else source_inputs
-            ),
+            (dependency_outputs if vertex not in self.get_sources() else source_inputs),
             self.context,
         )
 
@@ -372,9 +388,7 @@ class Workflow(Generic[T]):
 
         if not dependencies_finished:
             for dep_id in vertex._dependencies:
-                dep_future = [
-                    item for item in futures.items() if item[1]._id == dep_id
-                ]
+                dep_future = [item for item in futures.items() if item[1]._id == dep_id]
                 for item in dep_future:
                     f, v = item[0], item[1]
                     try:

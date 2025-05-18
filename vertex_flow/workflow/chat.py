@@ -37,7 +37,9 @@ class ChatModel(abc.ABC):
             "provider": self.provider,
         }
 
-    def _create_completion(self, messages, option: Dict[str, Any], stream: bool) -> Choice:
+    def _create_completion(
+        self, messages, option: Dict[str, Any], stream: bool
+    ) -> Choice:
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -62,10 +64,12 @@ class ChatModel(abc.ABC):
         completion = self._create_completion(messages, option, stream=True)
         for chunk in completion:
             # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
-            if hasattr(chunk, 'choices') and chunk.choices[0].delta:
+            if hasattr(chunk, "choices") and chunk.choices[0].delta:
                 yield chunk.choices[0].delta.content
             else:
-                logging.error("Chunk object does not have 'choices' attribute or delta is missing.")
+                logging.error(
+                    "Chunk object does not have 'choices' attribute or delta is missing."
+                )
 
     def model_name(self) -> str:
         return self.name
@@ -121,11 +125,16 @@ class DeepSeek(ChatModel):
             name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek"
         )
 
+
 class Tongyi(ChatModel):
     def __init__(self, name="qwen-max", sk=""):
         super().__init__(
-            name=name, sk=sk, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", provider="tongyi"
+            name=name,
+            sk=sk,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            provider="tongyi",
         )
+
 
 class OpenRouter(ChatModel):
     def __init__(self, name="openrouter-chat", sk=""):
@@ -133,5 +142,5 @@ class OpenRouter(ChatModel):
             name=name,
             sk=sk,
             base_url="https://openrouter.ai/api/v1",
-            provider="openrouter"
+            provider="openrouter",
         )

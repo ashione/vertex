@@ -5,6 +5,7 @@
 
 from typing import List
 
+
 def format_history(history: List[List[str]]) -> str:
     """将聊天历史格式化为单个提示"""
     formatted = ""

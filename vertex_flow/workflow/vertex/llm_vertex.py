@@ -46,17 +46,25 @@ class LLMVertex(Vertex[T]):
         self.user_messages = []
         self.preprocess = None
         self.postprocess = None
-        self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
+        self.enable_stream = (
+            params.get(ENABLE_STREAM, False) if params else False
+        )  # 使用常量 ENABLE_STREAM
 
         if task is None:
             logging.info("Use llm chat in task executing.")
             self.model = params[MODEL]  # 使用常量 MODEL
-            self.system_message = params[SYSTEM] if SYSTEM in params else ""  # 使用常量 SYSTEM
+            self.system_message = (
+                params[SYSTEM] if SYSTEM in params else ""
+            )  # 使用常量 SYSTEM
             self.user_messages = params[USER] if USER in params else []  # 使用常量 USER
             task = self.chat
-            self.preprocess = params[PREPROCESS] if PREPROCESS in params else None  # 使用常量 PREPROCESS
+            self.preprocess = (
+                params[PREPROCESS] if PREPROCESS in params else None
+            )  # 使用常量 PREPROCESS
             self.postprocess = (
-                params[POSTPROCESS] if POSTPROCESS in params else None  # 使用常量 POSTPROCESS
+                params[POSTPROCESS]
+                if POSTPROCESS in params
+                else None  # 使用常量 POSTPROCESS
             )
         super().__init__(id=id, name=name, task_type="LLM", task=task, params=params)
 
@@ -140,11 +148,16 @@ class LLMVertex(Vertex[T]):
             full_content = ""
             for msg in self.model.chat_stream(self.messages):
                 if self.workflow:
-                    self.workflow.emit_event("messages", {"vertex_id": self.id, "message": msg, "status" : "running"})
+                    self.workflow.emit_event(
+                        "messages",
+                        {"vertex_id": self.id, "message": msg, "status": "running"},
+                    )
                 full_content += msg
 
-            self.output = full_content # 流式模式下可选
-            self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status" : "end"})
+            self.output = full_content  # 流式模式下可选
+            self.workflow.emit_event(
+                "messages", {"vertex_id": self.id, "message": None, "status": "end"}
+            )
             return
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages)
@@ -157,7 +170,9 @@ class LLMVertex(Vertex[T]):
                     if tool_call_name == "$web_search":
                         tool_result = self.model.search_impl(tool_call_arguments)
                     else:
-                        tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
+                        tool_result = (
+                            f"Error: unable to find tool by name '{tool_call_name}'"
+                        )
 
                     self.messages.append(
                         {

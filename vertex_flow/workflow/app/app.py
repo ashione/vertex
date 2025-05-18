@@ -95,7 +95,7 @@ def get_default_workflow(input_data):
             "model": vertex_service.get_chatmodel(),
             "system": "你是一个热情的聊天机器人。",
             "user": [input_data.content],
-            ENABLE_STREAM : input_data.stream,
+            ENABLE_STREAM: input_data.stream,
         },
     )
     sink = SinkVertex(
@@ -112,6 +112,7 @@ def get_default_workflow(input_data):
     llm | sink
     return workflow
 
+
 # 定义一个函数来执行您希望在新线程中运行的任务
 def execute_in_thread(workflow, user_vars):
     try:
@@ -120,10 +121,12 @@ def execute_in_thread(workflow, user_vars):
     except Exception as e:
         logger.error(f"Error executing workflow in thread: {e}")
 
+
 # 在您的代码中创建并启动一个新线程
 def execute_workflow_in_thread(workflow, user_vars):
     thread = threading.Thread(target=execute_in_thread, args=(workflow, user_vars))
     thread.start()
+
 
 @vertex_flow.post("/workflow", response_model=WorkflowOutput)
 async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput):
@@ -141,24 +144,29 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
     if input_data.stream:
 
         execute_workflow_in_thread(workflow, input_data.user_vars)
+
         async def result_generator():
             try:
                 async for result in workflow.astream("messages"):
                     logger.info(f"workflow result {result}")
-                    yield json.dumps({
-                        "output": result,
-                        "status": True,
-                        "vertices_status": workflow.status(),
-                    })
+                    yield json.dumps(
+                        {
+                            "output": result["message"],
+                            "status": True,
+                        },
+                        ensure_ascii=False,
+                    )
             except BaseException as e:
                 logger.info(f"workflow run exception {e}")
                 traceback.print_exc()
-                yield json.dumps({
-                    "output": "error",
-                    "status": False,
-                    "message": str(e),
-                    "vertices_status": workflow.status(),
-                })
+                yield json.dumps(
+                    {
+                        "output": "error",
+                        "status": False,
+                        "message": str(e),
+                        "vertices_status": workflow.status(),
+                    }
+                )
 
         return StreamingResponse(result_generator(), media_type="application/json")
     else:
@@ -167,6 +175,7 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             return {
                 "output": list(workflow.result().values())[0],
                 "status": True,
+                "vertices_status": workflow.status(),
             }
         except BaseException as e:
             logger.info(f"workflow run exception {e}")
@@ -229,13 +238,16 @@ async def execute_workflow_endpoint(request: Request):
 
 chatmodel_config = None
 
+
 @vertex_flow.on_event("startup")
 async def on_startup():
     logger.info(f"Application startup, config file : ${chatmodel_config}")
     vertex_service = VertexFlowService(chatmodel_config)
     global dify_workflow_instances
     dify_workflow_instances = get_dify_workflow_instances(vertex_service=vertex_service)
-    logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
+    logger.info(
+        f"Application startup, finished, loaded {len(dify_workflow_instances)}..."
+    )
 
 
 def main():
@@ -251,7 +263,7 @@ def main():
     # 解析命令行参数
     args = parser.parse_args()
     global chatmodel_config
-    chatmodel_config= args.config
+    chatmodel_config = args.config
     global vertex_service
 
     vertex_service = VertexFlowService(chatmodel_config)
@@ -263,6 +275,7 @@ def main():
         host=vertex_service.get_service_host(),
         port=vertex_service.get_service_port(),
     )
+
 
 if __name__ == "__main__":
     main()

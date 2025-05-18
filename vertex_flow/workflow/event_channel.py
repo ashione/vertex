@@ -6,6 +6,7 @@ from vertex_flow.utils.logger import LoggerUtil
 
 logger = LoggerUtil.get_logger()
 
+
 class EventChannel:
     def __init__(self):
         self.event_channels = defaultdict(list)  # event_type -> [callback, ...]
@@ -26,15 +27,15 @@ class EventChannel:
                     callback(event_data)
                 except Exception as e:
                     logger.error(f"Error in event callback: {e}")
-            logger.debug(f"Event emitted: {event_data}")  # Add this line for loggin 
+            logger.debug(f"Event emitted: {event_data}")  # Add this line for loggin
             self.event_queues[event_type].put(event_data)
 
     async def astream(self, event_type: str):
         """异步生成器，支持 async for 语法"""
         while True:
-            logger.debug(f"Event waiting: event_type={event_type}")  
+            logger.debug(f"Event waiting: event_type={event_type}")
             event_data = await asyncio.to_thread(self.event_queues[event_type].get)
-            logger.info(f"Event received: {event_data}")  
+            logger.info(f"Event received: {event_data}")
             yield event_data
             # 检查事件类型是否为 workflow_complete，如果是则结束生成器
             if event_data.get("status") == "end":
