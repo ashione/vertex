@@ -154,7 +154,7 @@ async def execute_workflow_endpoint(request: Request):
 
 class VectorSinkData(BaseModel):
     user_id: str
-    tender_id: str
+    vertexflow_id: str
     content: str
     options: Dict[str, Any]
 
@@ -167,7 +167,7 @@ class VectorSinkResponse(BaseModel):
 
 class VectorSearchData(BaseModel):
     user_id: str
-    tender_id: str
+    vertexflow_id: str
     content: str
     options: Dict[str, Any]
 
