@@ -38,7 +38,7 @@ class ChatModel(abc.ABC):
         }
 
     def _create_completion(
-        self, messages, option: Dict[str, Any], stream: bool
+        self, messages, option: Dict[str, Any] = None, stream: bool = False, tools=None
     ) -> Choice:
         default_option = {
             "temperature": 1.0,
@@ -52,16 +52,18 @@ class ChatModel(abc.ABC):
         if option:
             default_option.update(option)
         completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
+            model=self.name, messages=messages, tools=tools, **default_option
         )
         return completion
 
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
-        completion = self._create_completion(messages, option, stream=False)
+    def chat(self, messages, option: Dict[str, Any] = None, tools=None) -> Choice:
+        completion = self._create_completion(
+            messages, option, stream=False, tools=tools
+        )
         return completion.choices[0]
 
-    def chat_stream(self, messages, option: Dict[str, Any] = None):
-        completion = self._create_completion(messages, option, stream=True)
+    def chat_stream(self, messages, option: Dict[str, Any] = None, tools=None):
+        completion = self._create_completion(messages, option, stream=True, tools=tools)
         for chunk in completion:
             # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
             if hasattr(chunk, "choices") and chunk.choices[0].delta:
@@ -99,7 +101,9 @@ class MoonshotChat(ChatModel):
         )
 
     @timer_decorator
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(
+        self, messages, option: Dict[str, Any] = None, tools: list = None
+    ) -> Choice:
         completion = self.client.chat.completions.create(
             model="moonshot-v1-128k",
             messages=messages,

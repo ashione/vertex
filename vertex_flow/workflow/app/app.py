@@ -20,6 +20,7 @@ from vertex_flow.workflow.service import VertexFlowService
 from typing import Dict, List
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
+from vertex_flow.workflow.tools.functions import FunctionTool
 
 from fastapi.responses import StreamingResponse
 
@@ -85,6 +86,99 @@ def get_default_workflow(input_data):
     # 创建工作流
     workflow = Workflow(context)
 
+    def add_func(inputs, context=None):
+        a = inputs.get("a", 0)
+        b = inputs.get("b", 0)
+        logger.info(f"add function a={a}, b={b}")
+        return {"result": a + b}
+
+    def echo_func(inputs, context=None):
+        logger.info(f"echo function msg={inputs}")
+        msg = inputs.get("msg", "")
+        return {"echo": msg}
+
+    def base1234_convert_func(inputs, context=None):
+        """
+        将十进制整数转换为1234进制字符串，或将1234进制字符串转换为十进制整数。
+        输入参数：
+          - value: 要转换的值（int 或 str）
+          - direction: 'to1234'（十进制转1234进制）或 'to10'（1234进制转十进制）
+        """
+        value = inputs.get("value")
+        direction = inputs.get("direction", "to1234")
+        digits = "1234"
+        if direction == "to1234":
+            try:
+                n = int(value)
+                if n == 0:
+                    return {"result": "1"}
+                res = ""
+                while n > 0:
+                    res = digits[n % 4] + res
+                    n //= 4
+                return {"result": res + "XXX"}
+            except Exception as e:
+                return {"error": str(e)}
+        elif direction == "to10":
+            try:
+                s = str(value)
+                n = 0
+                for c in s:
+                    n = n * 4 + (digits.index(c))
+                return {"result": n}
+            except Exception as e:
+                return {"error": str(e)}
+        else:
+            return {"error": 'direction must be "to1234" or "to10"'}
+
+    function_tools = [
+        FunctionTool(
+            name="add",
+            description="两个数字相加，返回它们的和。",
+            func=add_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number", "description": "第一个数字"},
+                    "b": {"type": "number", "description": "第二个数字"},
+                },
+                "required": ["a", "b"],
+            },
+        ),
+        FunctionTool(
+            name="echo",
+            description="回显输入的字符串。",
+            func=echo_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "msg": {"type": "string", "description": "要回显的内容"}
+                },
+                "required": ["msg"],
+            },
+        ),
+        FunctionTool(
+            name="base1234_convert",
+            description="十进制与1234进制互转。direction为'to1234'时将十进制整数转为1234进制字符串，为'to10'时将1234进制字符串转为十进制整数。",
+            func=base1234_convert_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "string",
+                        "description": "要转换的值，整数或1234进制字符串",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["to1234", "to10"],
+                        "description": "转换方向",
+                    },
+                },
+                "required": ["value", "direction"],
+            },
+        ),
+    ]
+
     # 创建顶点
     source = SourceVertex(
         id="source", task=lambda inputs, context: data.get("input", "Default Input")
@@ -97,6 +191,7 @@ def get_default_workflow(input_data):
             "user": [input_data.content],
             ENABLE_STREAM: input_data.stream,
         },
+        tools=function_tools,  # 关键：传递function tools
     )
     sink = SinkVertex(
         id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}"

@@ -38,6 +38,7 @@ class LLMVertex(Vertex[T]):
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
+        tools: list = None,  # 新增参数
     ):
         # """如果传入task则以task为执行单元，否则执行当前llm的chat方法."""
         self.model: ChatModel = None
@@ -46,6 +47,7 @@ class LLMVertex(Vertex[T]):
         self.user_messages = []
         self.preprocess = None
         self.postprocess = None
+        self.tools = tools or []  # 保存可用的function tools
         self.enable_stream = (
             params.get(ENABLE_STREAM, False) if params else False
         )  # 使用常量 ENABLE_STREAM
@@ -143,50 +145,70 @@ class LLMVertex(Vertex[T]):
 
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         finish_reason = None
-        # 在流式输出时触发 messages 事件
         if self.enable_stream and hasattr(self.model, "chat_stream"):
-            full_content = ""
-            for msg in self.model.chat_stream(self.messages):
-                if self.workflow:
-                    self.workflow.emit_event(
-                        "messages",
-                        {"vertex_id": self.id, "message": msg, "status": "running"},
-                    )
-                full_content += msg
-
-            self.output = full_content  # 流式模式下可选
-            self.workflow.emit_event(
-                "messages", {"vertex_id": self.id, "message": None, "status": "end"}
-            )
-            return
+            return self._chat_stream()
+        llm_tools = self._build_llm_tools()
         while finish_reason is None or finish_reason == "tool_calls":
-            choice = self.model.chat(self.messages)
+            choice = self.model.chat(self.messages, tools=llm_tools)
             finish_reason = choice.finish_reason
             if finish_reason == "tool_calls":
-                self.messages.append(choice.message)
-                for tool_call in choice.message.tool_calls:
-                    tool_call_name = tool_call.function.name
-                    tool_call_arguments = json.loads(tool_call.function.arguments)
-                    if tool_call_name == "$web_search":
-                        tool_result = self.model.search_impl(tool_call_arguments)
-                    else:
-                        tool_result = (
-                            f"Error: unable to find tool by name '{tool_call_name}'"
-                        )
+                self._handle_tool_calls(choice, context)
+        result = (
+            choice.message.content
+            if self.postprocess is None
+            else self.postprocess(choice.message.content, inputs, context)
+        )
+        logging.debug(f"chat bot response : {result}")
+        return result
 
-                    self.messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call_name,
-                            "content": json.dumps(tool_result),
-                        }
-                    )
-            result = (
-                choice.message.content
-                if self.postprocess is None
-                else self.postprocess(choice.message.content, inputs, context)
+    def _chat_stream(self):
+        full_content = ""
+        for msg in self.model.chat_stream(self.messages):
+            if self.workflow:
+                self.workflow.emit_event(
+                    "messages",
+                    {"vertex_id": self.id, "message": msg, "status": "running"},
+                )
+            full_content += msg
+        self.output = full_content
+        self.workflow.emit_event(
+            "messages", {"vertex_id": self.id, "message": None, "status": "end"}
+        )
+        return full_content
+
+    def _build_llm_tools(self):
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.schema,
+                },
+            }
+            for tool in self.tools
+        ]
+
+    def _handle_tool_calls(self, choice, context):
+        self.messages.append(choice.message)
+        for tool_call in choice.message.tool_calls:
+            tool_call_name = tool_call.function.name
+            logging.info(
+                f"call tool {tool_call_name}, args: {tool_call.function.arguments}"
             )
-            logging.debug(f"chat bot response : {result}")
-
-            return result
+            tool_call_arguments = json.loads(tool_call.function.arguments)
+            tool_result = None
+            for tool in self.tools:
+                if tool.name == tool_call_name:
+                    tool_result = tool.execute(tool_call_arguments, context)
+                    break
+            if tool_result is None:
+                tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
+            self.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_call_name,
+                    "content": json.dumps(tool_result),
+                }
+            )
