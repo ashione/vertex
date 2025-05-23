@@ -14,6 +14,7 @@ Vertex 是一个支持本地和云端大语言模型（LLM）推理与工作流�
 - 支持 DashVector 等多种向量引擎与知识库检索
 - 支持多种嵌入与 Rerank 配置
 - 兼容 Dify 工作流定义，便于迁移与扩展
+- **新增：Function Tools** - 允许用户定义和注册自定义函数工具，以便在工作流中动态调用，增强工作流编排和实时聊天交互的能力。
 
 ## 环境要求
 
@@ -112,11 +113,47 @@ workflow.add_vertex(sink)
 source | sink
 workflow.execute_workflow()
 ```
-
-
-
           
-在您的`README.md`文件中，您可以添加一个示例用例来展示如何使用`curl`命令与您的API进行交互。以下是一个示例用例的描述：
+## Function Tools 说明
+
+Function Tools 是 VertexFlow 的一部分，旨在增强工作流编排和实时聊天交互的能力。它允许用户定义和注册自定义函数工具，以便在工作流中动态调用。
+
+### 如何定义 Function Tool
+
+要定义一个 Function Tool，您需要创建一个 `FunctionTool` 实例，并提供以下参数：
+- `name`: 工具名称
+- `description`: 工具描述
+- `func`: 实际执行的函数
+- `schema`: 参数的 JSON Schema（可选）
+
+### 示例代码
+
+以下是一个简单的 Function Tool 示例：
+
+```python
+from vertex_flow.workflow.tools.functions import FunctionTool
+
+def example_func(inputs, context):
+    return {"result": inputs["value"] * 2}
+
+example_tool = FunctionTool(
+    name="example_tool",
+    description="一个简单的示例工具",
+    func=example_func,
+    schema={"type": "object", "properties": {"value": {"type": "integer"}}}
+)
+```
+
+### 如何注册 Function Tool
+
+注册 Function Tool 后，您可以在 `LLMVertex` 中动态调用它。确保工具描述符合 LLM 的协议要求。
+
+### 使用方法
+
+在工作流中，您可以通过 `LLMVertex` 调用注册的 Function Tool，并处理其返回结果。
+
+希望这些信息能帮助您更好地理解和使用 Function Tools。
+
 
 ## 示例用例
 
