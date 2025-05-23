@@ -8,6 +8,7 @@ from typing import Optional
 import sys
 from threading import Lock
 
+
 class LoggerUtil:
     """
     日志工具类，用于方便地创建和获取 logger。
@@ -68,23 +69,27 @@ class LoggerUtil:
             LoggerUtil._loggers[name] = logger
             return logger
 
+
 # 兼容 setup_logger 用法
 def setup_logger(
     name: str,
     level: int = logging.INFO,
-    format_str: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    file_path: Optional[str] = None
+    format_str: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    file_path: Optional[str] = None,
 ) -> logging.Logger:
     """
     配置并返回一个logger实例
     """
     logger = LoggerUtil.get_logger(name, level=level, file=file_path)
     # 只在首次添加时设置格式
-    if not logger.handlers or not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    if not logger.handlers or not any(
+        isinstance(h, logging.StreamHandler) for h in logger.handlers
+    ):
         formatter = logging.Formatter(format_str)
         for handler in logger.handlers:
             handler.setFormatter(formatter)
     return logger
+
 
 # 兼容 get_logger 用法
 def get_logger(name: str = None) -> logging.Logger:

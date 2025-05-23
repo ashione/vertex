@@ -4,7 +4,11 @@ from enum import Enum
 from typing import Optional
 
 from vertex_flow.workflow.chat import ChatModel
-from vertex_flow.workflow.embedding import BCEEmbedding, DashScopeEmbedding, TextEmbeddingProvider
+from vertex_flow.workflow.embedding import (
+    BCEEmbedding,
+    DashScopeEmbedding,
+    TextEmbeddingProvider,
+)
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.rag_config import read_yaml_config_env_placeholder
 from vertex_flow.workflow.utils import create_instance, default_config_path, read_file

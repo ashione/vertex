@@ -21,10 +21,10 @@ from typing import (
 )
 from collections import deque
 from vertex_flow.workflow.utils import timer_decorator
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 import json
+from threading import Lock, Event
+from vertex_flow.workflow.event_channel import EventChannel
 
 logging = LoggerUtil.get_logger()
 
@@ -113,6 +113,19 @@ class Workflow(Generic[T]):
         self.topological_order: List[str] = []
         self.lock = Lock()
         self.executed = False
+        # 新增事件通道
+        self.event_channel = EventChannel()
+
+    def emit_event(self, event_type: str, event_data: dict):
+        self.event_channel.emit_event(event_type, event_data)
+
+    def subscribe(self, event_type: str, callback):
+        self.event_channel.subscribe(event_type, callback)
+
+    async def astream(self, event_type: str):
+        """代理到 EventChannel 的 astream 方法"""
+        async for event_data in self.event_channel.astream(event_type):
+            yield event_data
 
     def add_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         self.vertices[vertex.id] = vertex
@@ -293,7 +306,9 @@ class Workflow(Generic[T]):
 
     @around_workflow
     @timer_decorator
-    def execute_workflow(self, source_inputs: Dict[str, Any] = {}):
+    def execute_workflow(
+        self, source_inputs: Dict[str, Any] = {}, stream: bool = False
+    ):
         self.validate_workflow()  # 在执行之前先验证图的正确性
         self.topological_sort()
         self.executed = True
@@ -303,82 +318,112 @@ class Workflow(Generic[T]):
             futures = {}
             checked_futures = set()
 
-            # 对于每个顶点，根据其依赖关系提交执行任务
             for vertex in self.topological_order:
-                logging.info(
-                    f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}."
+                self.execute_vertex(
+                    vertex,
+                    source_inputs,
+                    futures,
+                    checked_futures,
+                    filtered_vertices,
+                    executor,
+                    stream,
                 )
 
-                if vertex.id in filtered_vertices:
-                    logging.info(f"skip {vertex.id}.")
-                    continue
+            if not stream:
+                self.process_results(futures, checked_futures)
 
-                # 确保所有依赖顶点的任务已完成
-                dependencies_finished = all(
-                    future.done() for future in futures.keys() if future
-                )
-
-                if not dependencies_finished:
-                    # 等待所有依赖顶点的任务完成
-                    for dep_id in vertex._dependencies:
-                        dep_future = [
-                            item for item in futures.items() if item[1]._id == dep_id
-                        ]
-                        for item in dep_future:
-                            f, v = item[0], item[1]
-                            try:
-                                logging.info(f"waiting for {v.id}.")
-                                f.result()
-                                checked_futures.add(f)
-                                self.context.store_output(v._id, v.output)
-                                logging.info(f"deps finished, info {v.id}")
-                            except Exception as e:
-                                raise e
-                # 收集所有依赖顶点的输出结果
-                dependency_outputs = {
-                    dep._id: dep.output
-                    for dep in self.vertices.values()
-                    if dep._id in vertex._dependencies
-                }
-
-                filter_result = self.mayebe_filter_subgraph(vertex=vertex)
-                if filter_result[0]:
-                    logging.info(
-                        f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}"
-                    )
-                    filtered_vertices.update(filter_result[1])
-                    continue
-
-                future = executor.submit(
-                    vertex.execute,
-                    (
-                        dependency_outputs
-                        if vertex not in self.get_sources()
-                        else source_inputs
-                    ),
-                    self.context,
-                )
-
-                futures[future] = vertex
-                vertex.is_executed = True
-
-            # 等待所有任务完成，并存储结果
-            for future in as_completed(futures):
-                if future in checked_futures:
-                    logging.debug(f"skip already checked future {future}.")
-                    continue
-                with self.lock:
-                    vertex = futures[future]
-                    try:
-                        future.result()
-                        logging.debug(f"vertex finished, detail {vertex}")
-                    except Exception as e:
-                        logging.error(f"Failed to execute vertex {vertex}: {e}")
-                        raise e
-                    else:
-                        self.context.store_output(vertex._id, vertex.output)
         logging.info("workflow finished.")
         return True
+
+    def execute_vertex(
+        self,
+        vertex,
+        source_inputs,
+        futures,
+        checked_futures,
+        filtered_vertices,
+        executor,
+        stream,
+    ):
+        logging.info(
+            f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}."
+        )
+
+        if vertex.id in filtered_vertices:
+            logging.info(f"skip {vertex.id}.")
+            return
+
+        self.wait_for_dependencies(vertex, futures, checked_futures)
+
+        dependency_outputs = {
+            dep._id: dep.output
+            for dep in self.vertices.values()
+            if dep._id in vertex._dependencies
+        }
+
+        filter_result = self.mayebe_filter_subgraph(vertex=vertex)
+        if filter_result[0]:
+            logging.info(
+                f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}"
+            )
+            filtered_vertices.update(filter_result[1])
+            return
+
+        future = executor.submit(
+            vertex.execute,
+            (dependency_outputs if vertex not in self.get_sources() else source_inputs),
+            self.context,
+        )
+
+        futures[future] = vertex
+        vertex.is_executed = True
+
+        if stream:
+            self.process_stream_result(future, vertex)
+
+    def wait_for_dependencies(self, vertex, futures, checked_futures):
+        dependencies_finished = all(
+            future.done() for future in futures.keys() if future
+        )
+
+        if not dependencies_finished:
+            for dep_id in vertex._dependencies:
+                dep_future = [item for item in futures.items() if item[1]._id == dep_id]
+                for item in dep_future:
+                    f, v = item[0], item[1]
+                    try:
+                        logging.info(f"waiting for {v.id}.")
+                        f.result()
+                        checked_futures.add(f)
+                        self.context.store_output(v._id, v.output)
+                        logging.info(f"deps finished, info {v.id}")
+                    except Exception as e:
+                        raise e
+
+    def process_stream_result(self, future, vertex):
+        try:
+            future.result()
+            logging.debug(f"vertex finished, detail {vertex}")
+            self.context.store_output(vertex._id, vertex.output)
+        except Exception as e:
+            logging.error(f"Failed to execute vertex {vertex}: {e}")
+            raise e
+
+    def process_results(self, futures, checked_futures):
+        for future in as_completed(futures):
+            if future in checked_futures:
+                logging.debug(f"skip already checked future {future}.")
+                continue
+            with self.lock:
+                vertex = futures[future]
+                try:
+                    future.result()
+                    logging.debug(f"vertex finished, detail {vertex}")
+                except Exception as e:
+                    logging.error(f"Failed to execute vertex {vertex}: {e}")
+                    raise e
+                else:
+                    self.context.store_output(vertex._id, vertex.output)
 
     def show_graph(
         self,

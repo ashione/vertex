@@ -9,7 +9,7 @@ llm:
     model-name: moonshot-v1-128k
   deepseek:
     sk: ${llm.deepseek.sk:-}
-    enabled: false
+    enabled: true
     model-name: deepseek-chat
   tongyi:
     sk: ${llm.tongyi.sk:-}
@@ -17,7 +17,7 @@ llm:
     model-name: qwen-max
   openrouter:
     sk: ${llm.openrouter.sk:-}
-    enabled: true
+    enabled: false
     model-name: deepseek/deepseek-chat-v3-0324:free
 
 workflow:

@@ -17,6 +17,14 @@ from vertex_flow.workflow.utils import (
     var_str,
     compatiable_env_str,
 )
+from vertex_flow.workflow.constants import (
+    MODEL,
+    SYSTEM,
+    USER,
+    PREPROCESS,
+    POSTPROCESS,
+    ENABLE_STREAM,
+)
 
 logging = LoggerUtil.get_logger()
 
@@ -40,15 +48,25 @@ class LLMVertex(Vertex[T]):
         self.preprocess = None
         self.postprocess = None
         self.tools = tools or []  # 保存可用的function tools
+        self.enable_stream = (
+            params.get(ENABLE_STREAM, False) if params else False
+        )  # 使用常量 ENABLE_STREAM
+
         if task is None:
             logging.info("Use llm chat in task executing.")
-            self.model = params["model"]
-            self.system_message = params["system"] if "system" in params else ""
-            self.user_messages = params["user"] if "user" in params else []
+            self.model = params[MODEL]  # 使用常量 MODEL
+            self.system_message = (
+                params[SYSTEM] if SYSTEM in params else ""
+            )  # 使用常量 SYSTEM
+            self.user_messages = params[USER] if USER in params else []  # 使用常量 USER
             task = self.chat
-            self.preprocess = params["preprocess"] if "preprocess" in params else None
+            self.preprocess = (
+                params[PREPROCESS] if PREPROCESS in params else None
+            )  # 使用常量 PREPROCESS
             self.postprocess = (
-                params["postprocess"] if "postprocess" in params else None
+                params[POSTPROCESS]
+                if POSTPROCESS in params
+                else None  # 使用常量 POSTPROCESS
             )
         super().__init__(id=id, name=name, task_type="LLM", task=task, params=params)
 
@@ -127,35 +145,70 @@ class LLMVertex(Vertex[T]):
 
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         finish_reason = None
+        if self.enable_stream and hasattr(self.model, "chat_stream"):
+            return self._chat_stream()
+        llm_tools = self._build_llm_tools()
         while finish_reason is None or finish_reason == "tool_calls":
-            choice = self.model.chat(self.messages)
+            choice = self.model.chat(self.messages, tools=llm_tools)
             finish_reason = choice.finish_reason
             if finish_reason == "tool_calls":
-                self.messages.append(choice.message)
-                for tool_call in choice.message.tool_calls:
-                    tool_call_name = tool_call.function.name
-                    tool_call_arguments = json.loads(tool_call.function.arguments)
-                    # 新增：查找并执行对应的FunctionVertex
-                    tool_result = None
-                    for tool in self.tools:
-                        if tool.name == tool_call_name:
-                            tool_result = tool.execute(tool_call_arguments, context)
-                            break
-                    if tool_result is None:
-                        tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
-                    self.messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call_name,
-                            "content": json.dumps(tool_result),
-                        }
-                    )
+                self._handle_tool_calls(choice, context)
         result = (
             choice.message.content
             if self.postprocess is None
-            else self.postprocess(choice.message.content, input, context)
+            else self.postprocess(choice.message.content, inputs, context)
         )
         logging.debug(f"chat bot response : {result}")
-
         return result
+
+    def _chat_stream(self):
+        full_content = ""
+        for msg in self.model.chat_stream(self.messages):
+            if self.workflow:
+                self.workflow.emit_event(
+                    "messages",
+                    {"vertex_id": self.id, "message": msg, "status": "running"},
+                )
+            full_content += msg
+        self.output = full_content
+        self.workflow.emit_event(
+            "messages", {"vertex_id": self.id, "message": None, "status": "end"}
+        )
+        return full_content
+
+    def _build_llm_tools(self):
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.schema,
+                },
+            }
+            for tool in self.tools
+        ]
+
+    def _handle_tool_calls(self, choice, context):
+        self.messages.append(choice.message)
+        for tool_call in choice.message.tool_calls:
+            tool_call_name = tool_call.function.name
+            logging.info(
+                f"call tool {tool_call_name}, args: {tool_call.function.arguments}"
+            )
+            tool_call_arguments = json.loads(tool_call.function.arguments)
+            tool_result = None
+            for tool in self.tools:
+                if tool.name == tool_call_name:
+                    tool_result = tool.execute(tool_call_arguments, context)
+                    break
+            if tool_result is None:
+                tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
+            self.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_call_name,
+                    "content": json.dumps(tool_result),
+                }
+            )

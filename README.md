@@ -113,6 +113,46 @@ source | sink
 workflow.execute_workflow()
 ```
 
+
+
+          
+在您的`README.md`文件中，您可以添加一个示例用例来展示如何使用`curl`命令与您的API进行交互。以下是一个示例用例的描述：
+
+## 示例用例
+
+以下是一个使用`curl`命令与API进行交互的示例：
+
+### 流式工作流执行
+
+您可以使用以下`curl`命令来执行一个流式工作流请求：
+
+```bash
+curl -X POST "http://localhost:8999/workflow" --no-buffer \
+   -H "Content-Type: application/json" -H "Accept: text/event-stream" \
+   -d '{
+     "stream": true,
+     "workflow_name": "if_else_test-2",
+     "env_vars": {},
+     "user_vars": {"text": "333"},
+     "content": "今天是2025年5月18日，历史上有什么故事发生？先主要列出10个。"
+   }'
+```
+
+#### 参数说明
+
+- `stream`: 指定是否为流式模式，`true`表示启用流式模式。
+- `workflow_name`: 工作流的名称。
+- `env_vars`: 环境变量的字典。
+- `user_vars`: 用户变量的字典。
+- `content`: 需要处理的文本内容。
+
+#### 返回结果
+
+该请求将返回一个流式响应，其中包含工作流执行的结果。每个结果块将以JSON格式返回，包含以下字段：
+- `output`: 处理后的输出内容。
+- `status`: 执行状态，`true`表示成功。
+- `message`: 错误信息（如果有）。
+
 ## API 文档说明
 
 - `Workflow.add_vertex(vertex)`：添加顶点到工作流。
