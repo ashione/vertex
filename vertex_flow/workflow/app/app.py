@@ -19,6 +19,7 @@ import os
 from typing import Dict, List
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
+from vertex_flow.workflow.tools.functions import FunctionTool
 
 logger = LoggerUtil.get_logger()
 
@@ -81,6 +82,43 @@ def get_default_workflow(input_data):
     # 创建工作流
     workflow = Workflow(context)
 
+    def add_func(inputs, context=None):
+        a = inputs.get('a', 0)
+        b = inputs.get('b', 0)
+        return {'result': a + b}
+    
+    def echo_func(inputs, context=None):
+        msg = inputs.get('msg', '')
+        return {'echo': msg}
+    
+    function_tools = [
+        FunctionTool(
+            name="add",
+            description="两个数字相加，返回它们的和。",
+            func=add_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number", "description": "第一个数字"},
+                    "b": {"type": "number", "description": "第二个数字"}
+                },
+                "required": ["a", "b"]
+            }
+        ),
+        FunctionTool(
+            name="echo",
+            description="回显输入的字符串。",
+            func=echo_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "msg": {"type": "string", "description": "要回显的内容"}
+                },
+                "required": ["msg"]
+            }
+        )
+    ]
+    
     # 创建顶点
     source = SourceVertex(
         id="source", task=lambda inputs, context: data.get("input", "Default Input")
@@ -92,6 +130,7 @@ def get_default_workflow(input_data):
             "system": "你是一个热情的聊天机器人。",
             "user": [input_data.content],
         },
+        tools=function_tools,  # 关键：传递function tools
     )
     sink = SinkVertex(
         id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}"

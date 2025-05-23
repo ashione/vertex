@@ -38,7 +38,7 @@ class ChatModel(abc.ABC):
         }
 
     @abc.abstractmethod
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         pass
 
     def model_name(self) -> str:
@@ -75,19 +75,12 @@ class MoonshotChat(ChatModel):
         return MoonshotChat.model_name()
 
     @timer_decorator
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         completion = self.client.chat.completions.create(
             model="moonshot-v1-128k",
             messages=messages,
             temperature=0.8,
-            tools=[
-                {
-                    "type": "builtin_function",
-                    "function": {
-                        "name": "$web_search",
-                    },
-                }
-            ],
+            tools=tools,  # 新增
         )
         return completion.choices[0]
 
@@ -101,7 +94,7 @@ class DeepSeek(ChatModel):
     def __str__(self):
         return self.model_name()
 
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -114,7 +107,7 @@ class DeepSeek(ChatModel):
         if option:
             default_option.update(option)
         completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
+            model=self.name, messages=messages, tools=tools, **default_option
         )
         return completion.choices[0]
 
@@ -131,7 +124,7 @@ class Tongyi(ChatModel):
     def __str__(self):
         return self.model_name()
 
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -144,7 +137,7 @@ class Tongyi(ChatModel):
         if option:
             default_option.update(option)
         completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
+            model=self.name, messages=messages, tools=tools, **default_option
         )
         return completion.choices[0]
 
@@ -161,7 +154,7 @@ class OpenRouter(ChatModel):
     def __str__(self):
         return self.model_name()
 
-    def chat(self, messages, option: Dict[str, Any] = None) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -174,6 +167,6 @@ class OpenRouter(ChatModel):
         if option:
             default_option.update(option)
         completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, **default_option
+            model=self.name, messages=messages, tools=tools, **default_option
         )
         return completion.choices[0]

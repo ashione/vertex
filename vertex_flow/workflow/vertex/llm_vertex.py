@@ -30,6 +30,7 @@ class LLMVertex(Vertex[T]):
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
+        tools: list = None,  # 新增参数
     ):
         # """如果传入task则以task为执行单元，否则执行当前llm的chat方法."""
         self.model: ChatModel = None
@@ -38,7 +39,7 @@ class LLMVertex(Vertex[T]):
         self.user_messages = []
         self.preprocess = None
         self.postprocess = None
-
+        self.tools = tools or []  # 保存可用的function tools
         if task is None:
             logging.info("Use llm chat in task executing.")
             self.model = params["model"]
@@ -129,25 +130,19 @@ class LLMVertex(Vertex[T]):
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages)
             finish_reason = choice.finish_reason
-            if finish_reason == "tool_calls":  # <-- 判断当前返回内容是否包含 tool_calls
+            if finish_reason == "tool_calls":
                 self.messages.append(choice.message)
-                for (
-                    tool_call
-                ) in choice.message.tool_calls:  # <-- tool_calls 可能是多个，因此我们使用循环逐个执行
+                for tool_call in choice.message.tool_calls:
                     tool_call_name = tool_call.function.name
-                    tool_call_arguments = json.loads(
-                        tool_call.function.arguments
-                    )  # <-- arguments 是序列化后的 JSON Object，我们需要使用 json.loads 反序列化一下
-                    if tool_call_name == "$web_search":
-                        tool_result = self.model.search_impl(tool_call_arguments)
-                    else:
-                        tool_result = (
-                            f"Error: unable to find tool by name '{tool_call_name}'"
-                        )
-
-                    # 使用函数执行结果构造一个 role=tool 的 message，以此来向模型展示工具调用的结果；
-                    # 注意，我们需要在 message 中提供 tool_call_id 和 name 字段，以便 Kimi 大模型
-                    # 能正确匹配到对应的 tool_call。
+                    tool_call_arguments = json.loads(tool_call.function.arguments)
+                    # 新增：查找并执行对应的FunctionVertex
+                    tool_result = None
+                    for tool in self.tools:
+                        if tool.name == tool_call_name:
+                            tool_result = tool.execute(tool_call_arguments, context)
+                            break
+                    if tool_result is None:
+                        tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
                     self.messages.append(
                         {
                             "role": "tool",
