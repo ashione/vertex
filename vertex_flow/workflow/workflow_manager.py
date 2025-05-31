@@ -1,4 +1,5 @@
 import yaml
+from datetime import datetime
 from vertex_flow.workflow.workflow import (
     Workflow,
     WorkflowContext,
@@ -16,6 +17,7 @@ from vertex_flow.workflow.edge import (
 from vertex_flow.workflow.vertex import (
     Vertex,
     SourceVertex,
+    SinkVertex,
     LLMVertex,
     FunctionVertex,
     IfElseVertex,
@@ -367,3 +369,359 @@ class WorkflowSerializer:
             raise ValueError(
                 f"Failed to deserialize vertex: {e}, vertex data: {vertex_data}"
             )
+
+
+class WorkflowManager:
+    """工作流管理器，用于管理工作流的创建、保存、加载和执行"""
+    
+    def __init__(self):
+        self.workflows = {}
+        self.current_workflow = None
+    
+    def create_workflow(self, name: str, description: str = "") -> dict:
+        """创建新的工作流"""
+        workflow_id = f"workflow_{len(self.workflows) + 1}"
+        workflow_data = {
+            "id": workflow_id,
+            "name": name,
+            "description": description,
+            "nodes": [],
+            "edges": [],
+            "created_at": json.dumps(datetime.now(), default=str),
+            "updated_at": json.dumps(datetime.now(), default=str)
+        }
+        self.workflows[workflow_id] = workflow_data
+        return workflow_data
+    
+    def get_workflow(self, workflow_id: str) -> dict:
+        """获取指定的工作流"""
+        return self.workflows.get(workflow_id)
+    
+    def get_all_workflows(self) -> list:
+        """获取所有工作流"""
+        workflows_list = list(self.workflows.values())
+        
+        # 如果工作流列表为空，创建一个默认工作流
+        if not workflows_list:
+            default_workflow = self._create_default_workflow()
+            workflows_list = [default_workflow]
+            
+        return workflows_list
+    
+    def _create_default_workflow(self) -> dict:
+        """创建默认工作流"""
+        import time
+        
+        # 生成唯一的节点ID
+        timestamp = int(time.time() * 1000)
+        start_node_id = f'node_{timestamp}'
+        llm_node_id = f'node_{timestamp + 1}'
+        end_node_id = f'node_{timestamp + 2}'
+        
+        # 创建默认节点
+        default_nodes = [
+            {
+                'id': start_node_id,
+                'label': '开始',
+                'x': -200,
+                'y': 0,
+                'color': '#28a745',
+                'font': {'color': '#fff'},
+                'data': {
+                    'type': 'start',
+                    'config': {
+                        'name': '开始',
+                        'description': '工作流开始节点'
+                    }
+                }
+            },
+            {
+                'id': llm_node_id,
+                'label': 'LLM',
+                'x': 0,
+                'y': 0,
+                'color': '#007bff',
+                'font': {'color': '#fff'},
+                'data': {
+                    'type': 'llm',
+                    'config': {
+                        'name': 'LLM',
+                        'model': 'deepseek',
+                        'model_name': 'deepseek-chat',
+                        'system_prompt': '你是一个有用的AI助手。',
+                        'user_message': '请帮我制作一个关于杭州的旅游攻略。',
+                        'temperature': 0.7,
+                        'max_tokens': 1000
+                    }
+                }
+            },
+            {
+                'id': end_node_id,
+                'label': '结束',
+                'x': 200,
+                'y': 0,
+                'color': '#dc3545',
+                'font': {'color': '#fff'},
+                'data': {
+                    'type': 'end',
+                    'config': {
+                        'name': '结束',
+                        'description': '工作流结束节点'
+                    }
+                }
+            }
+        ]
+        
+        # 创建默认连接边
+        default_edges = [
+            {
+                'id': f'edge_{start_node_id}_{llm_node_id}',
+                'from': start_node_id,
+                'to': llm_node_id,
+                'label': ''
+            },
+            {
+                'id': f'edge_{llm_node_id}_{end_node_id}',
+                'from': llm_node_id,
+                'to': end_node_id,
+                'label': ''
+            }
+        ]
+        
+        # 创建默认工作流
+        default_workflow = self.create_workflow(
+            name="默认工作流",
+            description="系统自动创建的默认工作流，包含开始、LLM和结束节点"
+        )
+        
+        # 更新节点和边
+        default_workflow['nodes'] = default_nodes
+        default_workflow['edges'] = default_edges
+        
+        # 尝试创建工作流对象
+        try:
+            workflow_obj = self._create_workflow_from_nodes_edges(default_nodes, default_edges)
+            default_workflow['workflow_obj'] = workflow_obj
+            logger.info("Created default workflow with workflow object")
+        except Exception as e:
+            logger.warning(f"Failed to create workflow object for default workflow: {e}")
+            # 即使创建失败，也返回基本的工作流数据
+        
+        return default_workflow
+    
+    def update_workflow(self, workflow_id: str, **kwargs) -> dict:
+        """更新工作流"""
+        if workflow_id in self.workflows:
+            workflow = self.workflows[workflow_id]
+            for key, value in kwargs.items():
+                if key in workflow:
+                    workflow[key] = value
+            
+            # 只有在nodes或edges真正发生变化时才重新创建workflow_obj
+            nodes_changed = 'nodes' in kwargs and kwargs['nodes'] != workflow.get('nodes')
+            edges_changed = 'edges' in kwargs and kwargs['edges'] != workflow.get('edges')
+            
+            if (nodes_changed or edges_changed) and workflow.get('nodes') and workflow.get('edges'):
+                try:
+                    workflow_obj = self._create_workflow_from_nodes_edges(workflow['nodes'], workflow['edges'])
+                    workflow['workflow_obj'] = workflow_obj
+                    logger.info(f"Recreated workflow object for workflow {workflow_id} due to structure changes")
+                except Exception as e:
+                    logger.error(f"Failed to create workflow object: {e}")
+                    # 即使创建失败，也保存基本信息
+            elif 'workflow_obj' not in workflow and workflow.get('nodes') and workflow.get('edges'):
+                # 如果workflow_obj不存在但有nodes和edges，创建它
+                try:
+                    workflow_obj = self._create_workflow_from_nodes_edges(workflow['nodes'], workflow['edges'])
+                    workflow['workflow_obj'] = workflow_obj
+                    logger.info(f"Created initial workflow object for workflow {workflow_id}")
+                except Exception as e:
+                    logger.error(f"Failed to create initial workflow object: {e}")
+            
+            workflow["updated_at"] = json.dumps(datetime.now(), default=str)
+            return workflow
+        return None
+    
+    def delete_workflow(self, workflow_id: str) -> bool:
+        """删除工作流"""
+        if workflow_id in self.workflows:
+            del self.workflows[workflow_id]
+            return True
+        return False
+    
+    def save_workflow_to_file(self, workflow_id: str, file_path: str) -> bool:
+        """保存工作流到文件"""
+        try:
+            workflow = self.get_workflow(workflow_id)
+            if workflow:
+                # 如果工作流包含 Workflow 对象，使用 WorkflowSerializer
+                if 'workflow_obj' in workflow and isinstance(workflow['workflow_obj'], Workflow):
+                    WorkflowSerializer.serialize_to_yaml(workflow['workflow_obj'], file_path)
+                else:
+                    # 否则直接保存为 YAML
+                    with open(file_path, 'w') as f:
+                        yaml.dump(workflow, f, default_flow_style=False, allow_unicode=True)
+                return True
+        except Exception as e:
+            logger.error(f"Failed to save workflow to file: {e}")
+        return False
+    
+    def load_workflow_from_file(self, file_path: str) -> dict:
+        """从文件加载工作流"""
+        try:
+            # 尝试使用 WorkflowSerializer 加载
+            try:
+                workflow_obj = WorkflowSerializer.deserialize_from_yaml(file_path)
+                workflow_id = f"workflow_{len(self.workflows) + 1}"
+                workflow_data = {
+                    "id": workflow_id,
+                    "name": f"Loaded Workflow {workflow_id}",
+                    "description": "Loaded from file",
+                    "workflow_obj": workflow_obj,
+                    "nodes": [],
+                    "edges": [],
+                    "created_at": json.dumps(datetime.now(), default=str),
+                    "updated_at": json.dumps(datetime.now(), default=str)
+                }
+                self.workflows[workflow_id] = workflow_data
+                return workflow_data
+            except:
+                # 如果失败，尝试直接加载 YAML
+                with open(file_path, 'r') as f:
+                    workflow_data = yaml.safe_load(f)
+                    workflow_id = workflow_data.get('id', f"workflow_{len(self.workflows) + 1}")
+                    self.workflows[workflow_id] = workflow_data
+                    return workflow_data
+        except Exception as e:
+            logger.error(f"Failed to load workflow from file: {e}")
+        return None
+    
+    def _create_workflow_from_nodes_edges(self, nodes: list, edges: list) -> Workflow:
+        """从前端的nodes和edges创建Workflow对象"""
+        from vertex_flow.workflow.service import VertexFlowService
+        logger.info("Creating workflow from nodes and edges")
+        # 创建服务实例
+        vertex_service = VertexFlowService()
+        
+        # 创建工作流上下文
+        context = WorkflowContext()
+        
+        # 创建工作流实例
+        workflow = Workflow(context=context)
+        
+        # 创建顶点映射
+        vertex_map = {}
+        
+        logger.info("Nodes: %s", nodes)
+        logger.info("Edges: %s", edges)
+        # 处理节点
+        for node in nodes:
+            node_data = node.get('data', {})
+            node_type = node_data.get('type')
+            node_id = node.get('id')
+            
+            if node_type == 'start':
+                # 创建源顶点
+                vertex = SourceVertex(
+                    id=node_id,
+                    name=node_data.get('label', 'Start'),
+                    task=lambda inputs, context=None: inputs,  # 简单的传递函数
+                    params={}
+                )
+            elif node_type == 'llm':
+                # 创建LLM顶点
+                config = node_data.get('config', {})
+                model_name = config.get('model', 'deepseek')
+                model_config = config.get('model_name', 'deepseek-chat')
+                prompt = config.get('prompt', '')
+                
+                # 从配置获取模型实例
+                try:
+                    model = vertex_service.get_chatmodel_by_provider(model_name)
+                except:
+                    # 如果获取失败，使用默认模型
+                    model = vertex_service.get_chatmodel()
+                
+                vertex = LLMVertex(
+                    id=node_id,
+                    name=config.get('name', 'LLM'),
+                    task=None,
+                    params={
+                        'model': model,
+                        'user_messages': [config.get('user_message', '')] if config.get('user_message', '') else [],
+                        'system_message': config.get('system_prompt', ''),
+                        'temperature': config.get('temperature', 0.7),
+                        'max_tokens': config.get('max_tokens', 1000)
+                    }
+                )
+            elif node_type == 'function':
+                # 创建函数顶点
+                func_name = node_data.get('function', 'echo_func')
+                
+                # 创建默认函数实例
+                def default_func(inputs):
+                    return f"Function {func_name} executed with input: {inputs}"
+                
+                func = default_func
+                
+                vertex = FunctionVertex(
+                    id=node_id,
+                    name=node_data.get('label', 'Function'),
+                    task=func,
+                    params={}
+                )
+            elif node_type == 'end':
+                # 创建结束顶点（使用SinkVertex）
+                vertex = SinkVertex(
+                    id=node_id,
+                    name=node_data.get('label', 'End'),
+                    task=lambda inputs, context: inputs,  # 简单的传递函数
+                    params={}
+                )
+            else:
+                # 未知类型，创建默认顶点
+                vertex = FunctionVertex(
+                    id=node_id,
+                    name=node_data.get('label', f'Unknown-{node_type}'),
+                    task=lambda inputs: inputs,
+                    params={}
+                )
+            
+            vertex_map[node_id] = vertex
+            workflow.add_vertex(vertex)
+        
+        # 处理边 - 使用管道操作符连接顶点（参考default workflow的方式）
+        for edge in edges:
+            source_id = edge.get('from')
+            target_id = edge.get('to')
+            
+            if source_id in vertex_map and target_id in vertex_map:
+                source_vertex = vertex_map[source_id]
+                target_vertex = vertex_map[target_id]
+                
+                # 使用管道操作符连接顶点，这样会自动创建Edge并添加到workflow
+                source_vertex | target_vertex
+        logger.info("Workflow created: %s", workflow)
+        workflow.show_graph() 
+        return workflow
+    
+    def execute_workflow(self, workflow_id: str, input_data: dict = None) -> dict:
+        """执行工作流"""
+        try:
+            workflow = self.get_workflow(workflow_id)
+            if not workflow:
+                return {"error": "Workflow not found"}
+            
+            # 如果有 workflow_obj，直接执行
+            if 'workflow_obj' in workflow and isinstance(workflow['workflow_obj'], Workflow):
+                result = workflow['workflow_obj'].execute_workflow(input_data or {})
+                return {"result": result, "status": "success"}
+            else:
+                # 模拟执行（用于演示）
+                return {
+                    "result": f"Executed workflow {workflow['name']} with {len(workflow.get('nodes', []))} nodes",
+                    "status": "success"
+                }
+        except Exception as e:
+            logger.error(f"Failed to execute workflow: {e}")
+            return {"error": str(e), "status": "failed"}

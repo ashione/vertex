@@ -51,9 +51,16 @@ class ChatModel(abc.ABC):
         }
         if option:
             default_option.update(option)
-        completion = self.client.chat.completions.create(
-            model=self.name, messages=messages, tools=tools, **default_option
-        )
+        # 构建API调用参数
+        api_params = {
+            "model": self.name,
+            "messages": messages,
+            **default_option
+        }
+        if tools is not None and len(tools) > 0:
+            api_params["tools"] = tools
+            
+        completion = self.client.chat.completions.create(**api_params)
         return completion
 
     def chat(self, messages, option: Dict[str, Any] = None, tools=None) -> Choice:

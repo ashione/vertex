@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作流编辑器 - Vertex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://unpkg.com/vis-network/dist/vis-network.min.css" rel="stylesheet">
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+            <div class="navbar-nav ms-auto">
+                <button id="connect-mode-btn" class="btn btn-outline-light me-2" onclick="toggleConnectMode()">
+                    <i class="bi bi-arrow-left-right"></i> 连接模式
+                </button>
+                <button class="btn btn-outline-light me-2" onclick="saveWorkflow()">
+                    <i class="bi bi-save"></i> 保存
+                </button>
+                <div class="d-flex align-items-center">
+                    <input type="text" id="workflow-input" class="form-control me-2" placeholder="输入执行参数 (JSON格式)" value="{}" style="width: 200px;">
+                    <button class="btn btn-success" onclick="executeWorkflow()">
+                        <i class="bi bi-play-fill"></i> 执行
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid h-100 d-flex flex-column">
+        <!-- 主工作区域 -->
+        <div class="row flex-grow-1" id="main-workspace">
+            <!-- 节点面板 -->
+            <div class="col-md-3 bg-light border-end p-3">
+                <h5>节点类型</h5>
+                <div class="node-palette">
+                    <div class="node-item" data-type="start">
+                        <i class="bi bi-play-circle text-success"></i>
+                        <span>开始节点</span>
+                    </div>
+                    <div class="node-item" data-type="llm">
+                        <i class="bi bi-cpu text-primary"></i>
+                        <span>LLM节点</span>
+                    </div>
+                    <div class="node-item" data-type="retrieval">
+                        <i class="bi bi-search text-info"></i>
+                        <span>检索节点</span>
+                    </div>
+                    <div class="node-item" data-type="condition">
+                        <i class="bi bi-question-diamond text-warning"></i>
+                        <span>条件节点</span>
+                    </div>
+                    <div class="node-item" data-type="function">
+                        <i class="bi bi-code-square text-secondary"></i>
+                        <span>函数节点</span>
+                    </div>
+                    <div class="node-item" data-type="end">
+                        <i class="bi bi-stop-circle text-danger"></i>
+                        <span>结束节点</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图形编辑区域 -->
+            <div class="col-md-6 p-0">
+                <div id="workflow-canvas"></div>
+            </div>
+
+            <!-- 属性面板 -->
+            <div class="col-md-3 bg-light border-start p-3">
+                <h5>节点属性</h5>
+                <div id="node-properties">
+                    <p class="text-muted">选择一个节点来编辑属性</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 可调整大小的分隔条 -->
+        <div id="output-panel-resizer" class="border-top" style="height: 4px; cursor: ns-resize; background-color: #dee2e6;"></div>
+        
+        <!-- 底部输出面板 -->
+        <div id="output-panel" class="bg-white border-top" style="height: 200px; min-height: 100px; max-height: 60vh; overflow: hidden;">
+            <div class="d-flex justify-content-between align-items-center p-2 border-bottom bg-light">
+                <div class="d-flex align-items-center">
+                    <h6 class="mb-0 me-3">节点输出</h6>
+                    <small class="text-muted" id="output-node-info">未选择节点</small>
+                </div>
+                <div class="d-flex align-items-center">
+                    <button id="expand-output-btn" class="btn btn-sm btn-outline-secondary me-2" onclick="expandOutputPanel()" title="展开输出面板">
+                        <i class="bi bi-arrows-expand"></i>
+                    </button>
+                    <button id="minimize-output-btn" class="btn btn-sm btn-outline-secondary" onclick="minimizeOutputPanel()" title="最小化输出面板">
+                        <i class="bi bi-dash"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="output-content" class="p-3" style="height: calc(100% - 45px); overflow-y: auto;">
+                <p class="text-muted mb-0">选择一个已执行的节点查看输出结果</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://unpkg.com/vis-network/dist/vis-network.min.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+    <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+</body>
+</html>
