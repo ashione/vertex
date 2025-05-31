@@ -1,98 +1,230 @@
-# Vertex - LLM/GraphLLM 工具
+# Vertex
 
-Vertex 是一个支持本地和云端大语言模型（LLM）推理与工作流编排的工具，提供简洁易用的 Web 聊天界面和强大的 VertexFlow 工作流引擎。支持本地 Ollama 部署的 Qwen-7B 模型，也可通过 API 调用外部模型，支持多模型协同、知识库检索、嵌入与重排序等高级能力。
+Vertex is a tool that supports local and cloud-based large language model (LLM) inference and workflow orchestration, providing a simple and easy-to-use Web chat interface and powerful VertexFlow workflow engine. It supports locally deployed Qwen-7B models via Ollama, and can also call external models through APIs, supporting multi-model collaboration, knowledge base retrieval, embedding and reranking capabilities.
 
-## 功能特性
+## Features
 
-- 支持本地 Ollama 部署的 Qwen-7B 模型（chatbox 聊天界面）
-- 支持通过 API 方式调用 DeepSeek、OpenRouter 等外部模型
-- Web UI 聊天体验，支持上下文多轮对话
-- 可扩展的客户端架构，便于集成更多模型
-- 支持流式输出，实时显示生成内容
-- 支持 VertexFlow 工作流编排与多模型协同
-- 支持自定义 System Prompt
-- 支持 DashVector 等多种向量引擎与知识库检索
-- 支持多种嵌入与 Rerank 配置
-- 兼容 Dify 工作流定义，便于迁移与扩展
-- **新增：Function Tools** - 允许用户定义和注册自定义函数工具，以便在工作流中动态调用，增强工作流编排和实时聊天交互的能力。
+- Support for locally deployed Qwen-7B models via Ollama (chatbox chat interface)
+- Support for calling external models via API such as DeepSeek, OpenRouter, etc.
+- Web UI chat experience with contextual multi-turn conversations
+- Extensible client architecture for easy integration of more models
+- Support for streaming output with real-time display of generated content
+- Support for VertexFlow workflow orchestration and multi-model collaboration
+- Support for custom System Prompt
+- Support for multiple vector engines like DashVector and knowledge base retrieval
+- Support for multiple embedding and rerank configurations
+- Compatible with Dify workflow definitions for easy migration and extension
+- **New: Function Tools** - Allows users to define and register custom function tools for dynamic invocation in workflows, enhancing workflow orchestration and real-time chat interaction capabilities.
 
-## 环境要求
+## Requirements
 
-- Python 3.8 及以上
-- Ollama（本地模型推理，详见 https://ollama.com ）
+- Python 3.8 or higher
+- Ollama (for local model inference, see https://ollama.com)
 
-## 安装步骤
+## Installation
 
-1. 安装 Ollama
+1. Install Ollama
 
-   - 访问 [https://ollama.com/download](https://ollama.com/download)
-   - 下载并安装适用于您系统的 Ollama
+   - Visit [https://ollama.com/download](https://ollama.com/download)
+   - Download and install Ollama for your system
 
-2. 克隆本仓库
+2. Clone this repository
 
    ```bash
    git clone git@github.com:ashione/vertex.git
    cd vertex
    ```
 
-3. 安装依赖
+3. Install dependencies
 
    ```bash
    pip install -r requirements.txt
    pip install -e .
    ```
 
-## 快速启动
+## Quick Start
 
-### 方式一：命令行启动（推荐）
+### Method 1: Command Line Start (Recommended)
 
 ```bash
 vertex
 ```
 
-### 方式二：直接运行主程序
+### Method 2: Run Main Program Directly
 
 ```bash
 python src/app.py
 ```
 
-### 方式三：开发模式运行
+### Method 3: Development Mode
 
 ```bash
 python -m src.app
 ```
 
-### 方式四：VertexFlow 工作流模式
+### Method 4: VertexFlow Workflow Mode
 
 ```bash
 python -m vertex_flow.src.app
 ```
 
-启动后，浏览器访问 [http://localhost:7860](http://localhost:7860) 进入 Web 聊天界面（支持工作流与多模型）。
+After startup, visit [http://localhost:7860](http://localhost:7860) in your browser to access the Web chat interface (supports workflows and multi-models).
 
-## 可选参数
+## Web UI User Guide
 
-- `--host`：Ollama 服务地址（默认：http://localhost:11434）
-- `--port`：Web UI 端口（默认：7860）
-- `--model`：模型名称（local-qwen 表示本地模型，其他为 API 模型）
-- `--api-key`：外部 API 密钥（如调用 DeepSeek 时必填）
-- `--api-base`：外部 API 基础 URL
-- `--config`：VertexFlow 工作流配置文件（如 llm.yml）
-- `system_prompt`：支持在 Web UI 中自定义 System Prompt
+### Interface Overview
 
-## Ollama 本地模型准备
+Vertex provides an intuitive and easy-to-use Web interface with the following main functional modules:
 
-如需自动拉取和配置本地 Qwen-7B 模型，可运行：
+1. **Chat Interface** - Supports multi-turn conversations and streaming output
+2. **Workflow Editor** - Visual workflow design and execution
+3. **Configuration Management** - Model parameters and system settings
+
+### Chat Features
+
+#### Basic Chat
+- Enter questions in the chat input box on the main page
+- Supports multi-turn conversations with automatic context maintenance
+- Supports real-time streaming output to see model generate responses word by word
+
+#### Model Switching
+- You can select different models in the chat interface:
+  - `local-qwen`: Locally deployed Qwen-7B model via Ollama
+  - `deepseek-chat`: DeepSeek API model
+  - `openrouter/*`: Various models from OpenRouter platform
+
+#### Custom System Prompt
+- You can customize System Prompt in chat interface settings
+- Used to guide model behavior and response style
+- Supports real-time modification and application
+
+### Workflow Editor Usage
+
+#### Accessing Workflow Editor
+- Click the "Workflow" button in the navigation bar
+- Or directly visit [http://localhost:7860/workflow](http://localhost:7860/workflow)
+
+#### Node Types
+- **Start Node**: Entry point of the workflow
+- **LLM Node**: Calls large language models for text generation
+- **Retrieval Node**: Retrieves relevant information from knowledge base
+- **Condition Node**: Performs branch judgment based on conditions
+- **Function Node**: Executes custom function logic
+- **End Node**: Exit point of the workflow
+
+#### Creating Workflows
+1. **Add Nodes**: Drag nodes from the left node panel to the canvas
+2. **Connect Nodes**: Click connection mode, then click two nodes to establish connection
+3. **Configure Nodes**: Select a node and configure parameters in the right properties panel
+4. **Execute Workflow**: Click execute button to run the workflow
+5. **View Output**: Check node execution results in the bottom output panel
+
+#### Node Configuration Details
+
+**LLM Node Configuration**:
+- Model Selection: Supports local and cloud models
+- System Prompt: Defines model behavior
+- User Message: Supports variable placeholders
+- Temperature: Controls output randomness (0-1)
+- Max Tokens: Limits output length
+
+**Retrieval Node Configuration**:
+- Index Name: Specifies the knowledge base to retrieve from
+- Query Content: Supports variable placeholders
+- Retrieval Count: Number of relevant documents to return
+
+**Condition Node Configuration**:
+- Condition Expression: Uses Python expressions
+- Supports multi-branch conditional judgment
+
+#### Variable System
+- **Environment Variables**: `{{#env.variable_name#}}`
+- **User Variables**: `{{user.var.variable_name}}`
+- **Node Output**: `{{node_id.output_field}}`
+
+#### Workflow Operations
+- **Save Workflow**: Auto-save to local
+- **Load Workflow**: Load from configuration file
+- **Export Workflow**: Export as YAML format
+- **Auto Layout**: Automatically arrange node positions
+
+### Output Panel Features
+
+#### View Node Output
+- Select an executed node to view results in the bottom output panel
+- Supports Markdown format rendering
+- Supports raw content viewing
+- Supports one-click copy of output content
+
+#### Panel Controls
+- **Expand**: Expand output panel to full screen
+- **Minimize**: Collapse output panel
+- **Drag Resize**: Drag separator to adjust panel height
+
+### Configuration Management
+
+#### API Configuration
+- Set external API keys and base URLs in the configuration page
+- Supports multiple API services like DeepSeek, OpenRouter
+- After configuration, you can use corresponding models in chat and workflows
+
+#### Model Parameters
+- Temperature: Controls randomness and creativity of output
+- Max Tokens: Limits maximum length of single output
+- System Prompt: Global model behavior guidance
+
+### Keyboard Shortcuts
+
+- `Ctrl/Cmd + Enter`: Send chat message
+- `Escape`: Cancel workflow node connection mode
+- `Ctrl/Cmd + S`: Save workflow (in development)
+
+### Troubleshooting
+
+#### Common Issues
+1. **Workflow graph not displaying**:
+   - Check browser console for JavaScript errors
+   - Refresh page to reload
+   - Ensure network connection is normal
+
+2. **Node output not displaying**:
+   - Ensure node has been successfully executed
+   - Check if bottom output panel is minimized
+   - Try reselecting the node
+
+3. **Model call failure**:
+   - Check if API key configuration is correct
+   - Confirm network connection and API service status
+   - Check console error messages
+
+#### Performance Optimization Tips
+- Execute large workflows step by step
+- Clear browser cache regularly
+- Use modern browsers for best experience
+
+## Optional Parameters
+
+- `--host`: Ollama service address (default: http://localhost:11434)
+- `--port`: Web UI port (default: 7860)
+- `--model`: Model name (local-qwen for local model, others for API models)
+- `--api-key`: External API key (required when calling DeepSeek)
+- `--api-base`: External API base URL
+- `--config`: VertexFlow workflow configuration file (e.g., llm.yml)
+- `system_prompt`: Supports custom System Prompt in Web UI
+
+## Ollama Local Model Preparation
+
+To automatically pull and configure local Qwen-7B model, run:
 
 ```bash
 python scripts/setup_ollama.py
 ```
 
-该脚本会自动检测 Ollama 安装、服务状态，并拉取所需模型。
+This script will automatically detect Ollama installation, service status, and pull required models.
 
-## 示例代码
+## Example Code
 
-### 构建与执行一个简单工作流
+### Building and Executing a Simple Workflow
 
 ```python
 from vertex_flow.workflow.vertex.vertex import SourceVertex, SinkVertex
@@ -114,21 +246,21 @@ source | sink
 workflow.execute_workflow()
 ```
           
-## Function Tools 说明
+## Function Tools Documentation
 
-Function Tools 是 VertexFlow 的一部分，旨在增强工作流编排和实时聊天交互的能力。它允许用户定义和注册自定义函数工具，以便在工作流中动态调用。
+Function Tools is part of VertexFlow, designed to enhance workflow orchestration and real-time chat interaction capabilities. It allows users to define and register custom function tools for dynamic invocation in workflows.
 
-### 如何定义 Function Tool
+### How to Define Function Tools
 
-要定义一个 Function Tool，您需要创建一个 `FunctionTool` 实例，并提供以下参数：
-- `name`: 工具名称
-- `description`: 工具描述
-- `func`: 实际执行的函数
-- `schema`: 参数的 JSON Schema（可选）
+To define a Function Tool, you need to create a `FunctionTool` instance with the following parameters:
+- `name`: Tool name
+- `description`: Tool description
+- `func`: The actual function to execute
+- `schema`: JSON Schema for parameters (optional)
 
-### 示例代码
+### Example Code
 
-以下是一个简单的 Function Tool 示例：
+Here's a simple Function Tool example:
 
 ```python
 from vertex_flow.workflow.tools.functions import FunctionTool
@@ -138,30 +270,29 @@ def example_func(inputs, context):
 
 example_tool = FunctionTool(
     name="example_tool",
-    description="一个简单的示例工具",
+    description="A simple example tool",
     func=example_func,
     schema={"type": "object", "properties": {"value": {"type": "integer"}}}
 )
 ```
 
-### 如何注册 Function Tool
+### How to Register Function Tools
 
-注册 Function Tool 后，您可以在 `LLMVertex` 中动态调用它。确保工具描述符合 LLM 的协议要求。
+After registering Function Tools, you can dynamically invoke them in `LLMVertex`. Ensure the tool description complies with LLM protocol requirements.
 
-### 使用方法
+### Usage
 
-在工作流中，您可以通过 `LLMVertex` 调用注册的 Function Tool，并处理其返回结果。
+In workflows, you can invoke registered Function Tools through `LLMVertex` and process their return results.
 
-希望这些信息能帮助您更好地理解和使用 Function Tools。
+Hope this information helps you better understand and use Function Tools.
 
+## Example Use Cases
 
-## 示例用例
+Here's an example of using `curl` command to interact with the API:
 
-以下是一个使用`curl`命令与API进行交互的示例：
+### Streaming Workflow Execution
 
-### 流式工作流执行
-
-您可以使用以下`curl`命令来执行一个流式工作流请求：
+You can use the following `curl` command to execute a streaming workflow request:
 
 ```bash
 curl -X POST "http://localhost:8999/workflow" --no-buffer \
@@ -171,83 +302,83 @@ curl -X POST "http://localhost:8999/workflow" --no-buffer \
      "workflow_name": "if_else_test-2",
      "env_vars": {},
      "user_vars": {"text": "333"},
-     "content": "今天是2025年5月18日，历史上有什么故事发生？先主要列出10个。"
+     "content": "What stories happened in history on May 18, 2025? Please list 10 main ones first."
    }'
 ```
 
-#### 参数说明
+#### Parameter Description
 
-- `stream`: 指定是否为流式模式，`true`表示启用流式模式。
-- `workflow_name`: 工作流的名称。
-- `env_vars`: 环境变量的字典。
-- `user_vars`: 用户变量的字典。
-- `content`: 需要处理的文本内容。
+- `stream`: Specifies whether to use streaming mode, `true` enables streaming mode.
+- `workflow_name`: Name of the workflow.
+- `env_vars`: Dictionary of environment variables.
+- `user_vars`: Dictionary of user variables.
+- `content`: Text content to be processed.
 
-#### 返回结果
+#### Return Results
 
-该请求将返回一个流式响应，其中包含工作流执行的结果。每个结果块将以JSON格式返回，包含以下字段：
-- `output`: 处理后的输出内容。
-- `status`: 执行状态，`true`表示成功。
-- `message`: 错误信息（如果有）。
+This request will return a streaming response containing workflow execution results. Each result block will be returned in JSON format, including the following fields:
+- `output`: Processed output content.
+- `status`: Execution status, `true` indicates success.
+- `message`: Error message (if any).
 
-## API 文档说明
+## API Documentation
 
-- `Workflow.add_vertex(vertex)`：添加顶点到工作流。
-- `vertex1 | vertex2`：连接两个顶点，自动添加边。
-- `Workflow.execute_workflow(source_inputs)`：执行工作流，可传入初始输入。
-- `Workflow.result()`：获取 SINK 顶点的输出结果。
-- `WorkflowContext`：用于管理环境参数、用户参数和顶点输出。
+- `Workflow.add_vertex(vertex)`: Add vertex to workflow.
+- `vertex1 | vertex2`: Connect two vertices, automatically add edge.
+- `Workflow.execute_workflow(source_inputs)`: Execute workflow, can pass initial inputs.
+- `Workflow.result()`: Get output results from SINK vertex.
+- `WorkflowContext`: Used to manage environment parameters, user parameters, and vertex outputs.
 
-## Dify 工作流兼容说明
+## Dify Workflow Compatibility
 
-- 支持 Dify 风格的变量占位符（如 `{{#env.xxx#}}`、`{{user.var.xxx}}`）。
-- `WorkflowContext` 支持环境参数和用户参数，便于与 Dify 工作流参数体系对接。
-- 顶点类型（如 LLM、Embedding、Rerank、IfElse）可直接映射 Dify 工作流节点。
-- `IfElseVertex` 支持多条件分支，兼容 Dify 的条件跳转逻辑。
-- 支持 YAML 工作流结构的序列化与反序列化，便于与 Dify 工作流配置文件互通。
+- Supports Dify-style variable placeholders (e.g., `{{#env.xxx#}}`, `{{user.var.xxx}}`).
+- `WorkflowContext` supports environment and user parameters for easy integration with Dify workflow parameter system.
+- Vertex types (such as LLM, Embedding, Rerank, IfElse) can directly map to Dify workflow nodes.
+- `IfElseVertex` supports multi-condition branching, compatible with Dify's conditional jump logic.
+- Supports serialization and deserialization of YAML workflow structures for easy interoperability with Dify workflow configuration files.
 
-## 常见问题
+## FAQ
 
-- 启动报错"无法连接到 Ollama 服务"：请确保 Ollama 已安装并启动，可手动打开 Ollama 应用或运行 `python scripts/setup_ollama.py`。
-- 需要调用外部模型时，请在 Web UI 配置 API Key 和 Base URL。
-- 如遇到 API 连接问题，请检查网络连接和 API 密钥是否正确。
-- VertexFlow 工作流模式下，建议参考 `config/llm.yml` 配置多模型与知识库参数。
-- 如需自定义 system prompt，可在 Web UI 中直接填写。
+- Startup error "Cannot connect to Ollama service": Please ensure Ollama is installed and started. You can manually open the Ollama app or run `python scripts/setup_ollama.py`.
+- When calling external models, please configure API Key and Base URL in Web UI.
+- If you encounter API connection issues, please check network connection and verify API key is correct.
+- In VertexFlow workflow mode, it's recommended to refer to `config/llm.yml` for configuring multi-model and knowledge base parameters.
+- To customize system prompt, you can fill it directly in the Web UI.
 
-## 目录结构说明
+## Directory Structure
 
 ```
 vertex/
 ├── src/
-│   ├── app.py              # 主应用入口
-│   ├── native_client.py    # 本地 Ollama 客户端
-│   ├── model_client.py     # 通用 API 客户端
-│   ├── langchain_client.py # LangChain 客户端
-│   ├── chat_util.py        # 聊天历史格式化工具
+│   ├── app.py              # Main application entry
+│   ├── native_client.py    # Local Ollama client
+│   ├── model_client.py     # Generic API client
+│   ├── langchain_client.py # LangChain client
+│   ├── chat_util.py        # Chat history formatting tools
 │   └── utils/
-│       └── logger.py       # 日志工具
+│       └── logger.py       # Logging tools
 ├── vertex_flow/
-│   ├── src/                # VertexFlow 工作流主程序
-│   ├── workflow/           # 工作流与 LLM 顶点定义
-│   ├── utils/              # 工具与日志
+│   ├── src/                # VertexFlow workflow main program
+│   ├── workflow/           # Workflow and LLM vertex definitions
+│   ├── utils/              # Tools and logging
 ├── scripts/
-│   └── setup_ollama.py     # Ollama 环境与模型自动配置脚本
+│   └── setup_ollama.py     # Ollama environment and model auto-configuration script
 ├── requirements.txt
 ├── setup.py
 └── README.md
 ```
-（VertexFlow 相关目录已集成，支持高级工作流与多模型协同）
+(VertexFlow related directories are integrated, supporting advanced workflows and multi-model collaboration)
 
-## 开发计划
+## Development Roadmap
 
-- [ ] 支持更多本地模型（如 LLaMA、Mistral 等）
-- [ ] 添加知识库检索功能
-- [ ] 支持文档上传和分析
-- [ ] 增加图表生成功能
-- [ ] 提供 API 服务接口
-- [ ] 工作流可视化与多模型协同
-- [ ] 支持自定义工具调用与插件扩展
+- [ ] Support for more local models (such as LLaMA, Mistral, etc.)
+- [ ] Add knowledge base retrieval functionality
+- [ ] Support document upload and analysis
+- [ ] Add chart generation functionality
+- [ ] Provide API service interface
+- [ ] Workflow visualization and multi-model collaboration
+- [ ] Support custom tool invocation and plugin extensions
 
-## 贡献指南
+## Contributing
 
-欢迎提交 Pull Request 或 Issue 来帮助改进项目。贡献前请先查看现有 Issue，确保不会重复工作。
+Welcome to submit Pull Requests or Issues to help improve the project. Please check existing Issues before contributing to ensure no duplicate work.
