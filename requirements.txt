@@ -12,7 +12,9 @@ tqdm>=4.65.0
 openai>=1.0.0
 
 # LangChain相关依赖
+dashvector
+dashscope
 langchain-core>=0.1.0
 langchain-community>=0.0.1
 ruamel.yaml>=0.18.10
-dashvector
+flask>=2.0.0
