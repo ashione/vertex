@@ -1,0 +1,397 @@
+/* 全局样式 */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.h-100 {
+    height: 100vh !important;
+}
+
+/* 节点面板样式 */
+.node-palette {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.node-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.node-item:hover {
+    background: #f8f9fa;
+    border-color: #007bff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.node-item i {
+    font-size: 1.2em;
+}
+
+/* 工作流卡片样式 */
+.card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* 富文本编辑器样式 */
+.ql-container {
+    font-size: 14px;
+}
+
+.ql-editor {
+    min-height: 120px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.ql-toolbar {
+    border-top: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    border-bottom: none;
+}
+
+.ql-container {
+    border-bottom: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    border-top: none;
+}
+
+/* 在属性面板中的富文本编辑器 */
+#node-properties .ql-container {
+    font-size: 13px;
+}
+
+#node-properties .ql-editor {
+    min-height: 100px;
+    max-height: 200px;
+}
+
+/* Markdown渲染样式 */
+#node-properties .markdown-output {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+}
+
+#node-properties .markdown-output h1,
+#node-properties .markdown-output h2,
+#node-properties .markdown-output h3,
+#node-properties .markdown-output h4,
+#node-properties .markdown-output h5,
+#node-properties .markdown-output h6 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+#node-properties .markdown-output h1 { font-size: 1.5rem; }
+#node-properties .markdown-output h2 { font-size: 1.3rem; }
+#node-properties .markdown-output h3 { font-size: 1.1rem; }
+#node-properties .markdown-output h4 { font-size: 1rem; }
+#node-properties .markdown-output h5 { font-size: 0.9rem; }
+#node-properties .markdown-output h6 { font-size: 0.8rem; }
+
+#node-properties .markdown-output p {
+    margin-bottom: 0.8rem;
+}
+
+#node-properties .markdown-output ul,
+#node-properties .markdown-output ol {
+    margin-bottom: 0.8rem;
+    padding-left: 1.5rem;
+}
+
+#node-properties .markdown-output li {
+    margin-bottom: 0.2rem;
+}
+
+#node-properties .markdown-output code {
+    background-color: #f1f3f4;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+}
+
+#node-properties .markdown-output pre {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 0.8rem;
+    overflow-x: auto;
+    margin-bottom: 0.8rem;
+}
+
+#node-properties .markdown-output pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+}
+
+#node-properties .markdown-output blockquote {
+    border-left: 4px solid #dee2e6;
+    margin: 0 0 0.8rem 0;
+    padding-left: 1rem;
+    color: #6c757d;
+}
+
+#node-properties .markdown-output a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+#node-properties .markdown-output a:hover {
+    text-decoration: underline;
+}
+
+#node-properties .markdown-output table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 0.8rem;
+}
+
+#node-properties .markdown-output th,
+#node-properties .markdown-output td {
+    border: 1px solid #dee2e6;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+}
+
+#node-properties .markdown-output th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+}
+
+/* 底部输出面板样式 */
+#output-panel {
+    transition: height 0.3s ease;
+}
+
+#output-panel-resizer {
+    transition: background-color 0.2s ease;
+}
+
+#output-panel-resizer:hover {
+    background-color: #007bff !important;
+}
+
+#output-content {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+#output-content .markdown-output {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+}
+
+/* 确保主工作区域正确调整大小 */
+#main-workspace {
+    min-height: 400px;
+    height: calc(100vh - 56px - 200px); /* 减去导航栏和默认输出面板高度 */
+    overflow: hidden; /* 防止内容溢出 */
+}
+
+#workflow-canvas {
+    height: 100%;
+    min-height: 400px;
+    width: 100%;
+}
+
+/* 图形编辑区域容器 */
+#main-workspace .col-md-6 {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 属性面板样式 */
+#main-workspace .col-md-3 {
+    height: 100%;
+    overflow-y: auto; /* 允许属性面板内容滚动 */
+    max-height: 100%; /* 确保不超出容器高度 */
+}
+
+/* 节点属性容器 */
+#node-properties {
+    max-height: calc(100vh - 200px); /* 确保不会覆盖输出面板 */
+    overflow-y: auto;
+}
+
+/* 输出面板最小化状态 */
+#output-panel.minimized {
+    height: 45px !important;
+}
+
+#output-panel.minimized #output-content {
+    display: none;
+}
+
+/* 输出面板展开状态 */
+#output-panel.expanded {
+    height: 60vh !important;
+}
+
+/* 图形编辑器样式 */
+/* 现有样式保持不变，添加以下样式 */
+
+/* 工作流编辑器样式 */
+#workflow-canvas {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    position: relative;
+}
+
+/* 节点面板拖拽样式 */
+.node-item {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.node-item:active {
+    opacity: 0.7;
+    transform: scale(0.95);
+}
+
+/* 属性面板样式 */
+#node-properties {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+}
+
+#node-properties .form-label {
+    font-weight: 600;
+    color: #495057;
+}
+
+#node-properties .form-control {
+    font-size: 0.9em;
+}
+
+/* 工具栏样式 */
+.navbar .btn {
+    margin-left: 5px;
+}
+
+.navbar .btn i {
+    margin-right: 5px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .col-md-3 {
+        display: none;
+    }
+    
+    .col-md-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+
+/* 拖拽提示 */
+.drag-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #6c757d;
+    font-size: 1.2em;
+    text-align: center;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* 节点选中状态 */
+.vis-network .vis-selected {
+    box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+}
+
+/* 加载状态 */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.property-group {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+}
+
+.property-group h6 {
+    margin-bottom: 10px;
+    color: #495057;
+    font-weight: 600;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .container-fluid .row .col-md-3 {
+        display: none;
+    }
+    
+    .container-fluid .row .col-md-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+
+/* 加载动画 */
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+}
+
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* 空状态样式 */
+#empty-state i {
+    opacity: 0.5;
+}
