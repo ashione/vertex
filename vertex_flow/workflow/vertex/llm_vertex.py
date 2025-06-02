@@ -101,6 +101,9 @@ class LLMVertex(Vertex[T]):
             raise ValueError("For LLM type, task should be a callable function.")
 
     def messages_redirect(self, inputs, context: WorkflowContext[T]):
+
+        logging.info(f"{self.id} chat context inputs {inputs}")
+
         self.messages.append(
             {"role": "system", "content": self.system_message},
         )
@@ -111,7 +114,7 @@ class LLMVertex(Vertex[T]):
         for user_message in self.user_messages:
             self.messages.append({"role": "user", "content": user_message})
 
-        # replace by env parameters and user paramters.
+        # replace by env parameters, user parameters and inputs.
         for message in self.messages:
             if "content" not in message or message["content"] is None:
                 continue
@@ -125,6 +128,14 @@ class LLMVertex(Vertex[T]):
             for key, value in context.get_user_parameters().items():
                 value = value if isinstance(value, str) else str(value)
                 message["content"] = message["content"].replace(var_str(key), value)
+
+            # replace by inputs parameters
+            if inputs:
+                for key, value in inputs.items():
+                    value = value if isinstance(value, str) else str(value)
+                    # Support {{inputs.key}} format
+                    input_placeholder = "{{" + key + "}}"
+                    message["content"] = message["content"].replace(input_placeholder, value)
 
             message["content"] = self._replace_placeholders(message["content"])
 
