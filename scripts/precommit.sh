@@ -153,6 +153,22 @@ if [ ! -z "$PYTHON_FILES" ]; then
     fi
 fi
 
+# Auto-sanitize configuration files before checking
+echo "🔧 Auto-sanitizing configuration files..."
+if [ -f "scripts/sanitize_config.py" ]; then
+    python3 scripts/sanitize_config.py
+    
+    # Add sanitized files to staging area if they were modified
+    SANITIZED_FILES=$(git diff --name-only config/)
+    if [ -n "$SANITIZED_FILES" ]; then
+        echo "📝 Adding sanitized files to staging area..."
+        git add $SANITIZED_FILES
+        print_status "Configuration files sanitized and staged"
+    fi
+else
+    print_warning "Sanitization script not found, skipping auto-sanitization"
+fi
+
 # Check for sensitive information
 echo "🔒 Checking for sensitive information..."
 SENSITIVE_PATTERNS=(

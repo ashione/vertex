@@ -25,6 +25,27 @@ jobs:
         pip install flake8 black isort
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     
+    - name: 配置文件脱敏检查
+      run: |
+        echo "🔧 检查配置文件是否已脱敏..."
+        
+        # 运行脱敏脚本检查
+        if [ -f "scripts/sanitize_config.py" ]; then
+          python3 scripts/sanitize_config.py
+          
+          # 检查是否有未脱敏的文件
+          if git diff --quiet config/; then
+            echo "✓ 配置文件已正确脱敏"
+          else
+            echo "✗ 发现未脱敏的配置文件:"
+            git diff config/
+            echo "请运行 'python3 scripts/sanitize_config.py' 进行脱敏处理"
+            exit 1
+          fi
+        else
+          echo "⚠ 脱敏脚本不存在，跳过脱敏检查"
+        fi
+    
     - name: Check for sensitive information
       run: |
         echo "🔍 Checking for sensitive information in PR..."
