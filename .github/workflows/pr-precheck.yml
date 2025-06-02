@@ -46,8 +46,8 @@ jobs:
         
         FOUND_SENSITIVE=false
         
-        # 获取PR中修改的文件
-        git diff --name-only origin/${{ github.base_ref }}..HEAD > changed_files.txt
+        # 获取PR中修改的文件（排除流水线目录）
+        git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' > changed_files.txt || true
         
         echo "📁 Files changed in this PR:"
         cat changed_files.txt
