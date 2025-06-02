@@ -119,6 +119,25 @@ jobs:
         
         echo "✅ 未发现语法错误。"
         
+        # 检查禁止的import *语句
+        echo "🚫 Checking for prohibited 'import *' statements..."
+        IMPORT_STAR_FOUND=false
+        for file in $PYTHON_FILES; do
+          if grep -q "from .* import \*" "$file"; then
+            echo "❌ Found prohibited 'import *' in: $file"
+            grep -n "from .* import \*" "$file"
+            IMPORT_STAR_FOUND=true
+          fi
+        done
+        
+        if [ "$IMPORT_STAR_FOUND" = true ]; then
+          echo "❌ 发现禁止的 'import *' 语句！请使用具体的导入。"
+          echo "💡 建议: 将 'from module import *' 替换为 'from module import specific_item'"
+          exit 1
+        fi
+        
+        echo "✅ 未发现禁止的 'import *' 语句。"
+        
         # 检查代码风格 (flake8)
         echo "🔍 Checking code style with flake8..."
         if ! flake8 $PYTHON_FILES --max-line-length=120 --ignore=E203,W503,E501; then
@@ -155,6 +174,7 @@ jobs:
         echo "🎉 所有预检查项目都已通过！"
         echo "✅ 敏感信息检查: 通过"
         echo "✅ Python语法检查: 通过"
+        echo "✅ Import * 禁用检查: 通过"
         echo "✅ 代码风格检查: 通过"
         echo "✅ Import排序检查: 通过"
         echo "✅ 代码格式检查: 通过"

@@ -1,18 +1,18 @@
-import requests
+import os
 import tempfile
+from typing import Any, Dict
+
+import requests
+
+from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.vertex import FunctionVertex
 from vertex_flow.workflow.workflow import WorkflowContext
-from typing import Dict, Any
-from vertex_flow.utils.logger import LoggerUtil
-import os
 
 logging = LoggerUtil.get_logger()
 
 
 class DownloadFileVertex(FunctionVertex):
-    def __init__(
-        self, id: str, name: str = None, params: Dict[str, Any] = None, variables=None
-    ):
+    def __init__(self, id: str, name: str = None, params: Dict[str, Any] = None, variables=None):
         super().__init__(
             id=id,
             name=name,
@@ -36,9 +36,7 @@ class DownloadFileVertex(FunctionVertex):
     def on_workflow_failed(self):
         self._delete_tmp_file()
 
-    def download_file(
-        self, inputs: Dict[str, Any], context: WorkflowContext[Any] = None
-    ):
+    def download_file(self, inputs: Dict[str, Any], context: WorkflowContext[Any] = None):
         local_inputs = self.resolve_dependencies(inputs=inputs)
         url = local_inputs.get("url")
         if not url:

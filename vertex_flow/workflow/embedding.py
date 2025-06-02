@@ -1,11 +1,13 @@
-import dashscope
-from abc import ABC, abstractmethod
-from typing import List, Optional
-from vertex_flow.workflow.utils import factory_creator
-from vertex_flow.utils.logger import LoggerUtil
 import os
-import requests
+from abc import ABC, abstractmethod
 from functools import lru_cache
+from typing import List, Optional
+
+import dashscope
+import requests
+
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.utils import factory_creator
 
 logging = LoggerUtil.get_logger(__name__)
 
@@ -61,9 +63,7 @@ class DashScopeEmbedding(TextEmbeddingProvider):
                 return response["output"]["embeddings"][0]["embedding"]
             else:
                 # 记录请求失败的错误信息
-                logging.error(
-                    f"请求失败。错误代码: {response['status_code']}，错误信息: {response['message']}"
-                )
+                logging.error(f"请求失败。错误代码: {response['status_code']}，错误信息: {response['message']}")
                 return None
         except Exception as e:
             # 记录详细的异常信息
@@ -104,18 +104,14 @@ class BCEEmbedding(TextEmbeddingProvider):
                 "encoding_format": "float",
             }
 
-            response = requests.request(
-                "POST", self.endpoint, json=payload, headers=self._headers
-            )
+            response = requests.request("POST", self.endpoint, json=payload, headers=self._headers)
             if response.status_code == 200:
                 response_data = response.json()
                 logging.info(response_data)
                 return response_data["data"][0]["embedding"]
             else:
                 # 记录请求失败的错误信息
-                logging.error(
-                    f"请求失败。错误代码: {response.status_code}，错误信息: {response.text}"
-                )
+                logging.error(f"请求失败。错误代码: {response.status_code}，错误信息: {response.text}")
                 return None
         except Exception as e:
             # 记录详细的异常信息

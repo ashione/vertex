@@ -1,3 +1,20 @@
+[project]
+name = "localqwen"
+version = "0.1.0"
+description = "Local Qwen workflow system"
+requires-python = ">=3.9"
+dependencies = [
+    "autopep8>=2.3.2",
+    "black>=25.1.0",
+    "flake8>=7.2.0",
+    "isort>=6.0.1",
+]
+
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple/"
+extra-index-url = ["https://pypi.org/simple/"]
+trusted-host = ["mirrors.aliyun.com"]
+
 [tool.black]
 line-length = 120
 target-version = ['py39']
@@ -35,4 +52,20 @@ skip_glob = [
     "**/.git/*",
     "**/build/*",
     "**/dist/*"
+]
+
+[tool.flake8]
+max-line-length = 120
+ignore = ["E203", "W503", "E501", "E402"]
+# Explicitly check for import * violations
+select = ["F403", "F405"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".eggs",
+    "*.egg",
+    "build",
+    "dist"
 ]

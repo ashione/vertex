@@ -1,13 +1,15 @@
+from abc import abstractmethod
+from typing import Any, Callable, Dict
+
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import DOCS, QUERY, STATUS, SUCCESS
+from vertex_flow.workflow.vector import VectorEngine
+
 from .vertex import (
+    T,
     Vertex,
     WorkflowContext,
-    T,
 )
-from vertex_flow.workflow.vector import VectorEngine
-from vertex_flow.workflow.constants import DOCS, QUERY, STATUS, SUCCESS
-from typing import Callable, Dict, Any
-from vertex_flow.utils.logger import LoggerUtil
-from abc import abstractmethod
 
 logging = LoggerUtil.get_logger()
 
@@ -45,11 +47,7 @@ class VectorStoreVertex(VectorVertex):
             params=params,
             vector_engine=vector_engine,
         )
-        self.input_key = (
-            params.get("input_key", self.DEFAULT_INPUT_KEY)
-            if params
-            else self.DEFAULT_INPUT_KEY
-        )
+        self.input_key = params.get("input_key", self.DEFAULT_INPUT_KEY) if params else self.DEFAULT_INPUT_KEY
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if self.vector_engine is None:
@@ -61,9 +59,7 @@ class VectorStoreVertex(VectorVertex):
         else:
             local_inputs = inputs
         if self.input_key not in local_inputs:
-            raise ValueError(
-                f"Input '{self.input_key}' is required for VectorStoreVertex."
-            )
+            raise ValueError(f"Input '{self.input_key}' is required for VectorStoreVertex.")
 
         docs = local_inputs[self.input_key]
         try:
@@ -94,11 +90,7 @@ class VectorQueryVertex(VectorVertex):
             params=params,
             vector_engine=vector_engine,
         )
-        self.input_key = (
-            params.get("input_key", self.DEFAULT_INPUT_KEY)
-            if params
-            else self.DEFAULT_INPUT_KEY
-        )
+        self.input_key = params.get("input_key", self.DEFAULT_INPUT_KEY) if params else self.DEFAULT_INPUT_KEY
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if self.vector_engine is None:
@@ -108,9 +100,7 @@ class VectorQueryVertex(VectorVertex):
             inputs = self.resolve_dependencies(inputs=inputs)
 
         if self.input_key not in inputs:
-            raise ValueError(
-                f"Input '{self.input_key}' is required for VectorQueryVertex."
-            )
+            raise ValueError(f"Input '{self.input_key}' is required for VectorQueryVertex.")
 
         query = inputs[self.input_key]
         top_k = inputs.get("top_k", 3)

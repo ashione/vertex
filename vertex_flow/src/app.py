@@ -4,11 +4,14 @@
 """
 
 import argparse
+
 import gradio as gr
+
 from vertex_flow.utils.logger import setup_logger
-from .native_client import OllamaClient
-from .model_client import ModelClient
+
 from .chat_util import format_history
+from .model_client import ModelClient
+from .native_client import OllamaClient
 
 # 配置日志
 logger = setup_logger(__name__)
@@ -16,14 +19,10 @@ logger = setup_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="本地运行 Qwen-7B 模型")
-    parser.add_argument(
-        "--host", type=str, default="http://localhost:11434", help="Ollama 服务地址"
-    )
+    parser.add_argument("--host", type=str, default="http://localhost:11434", help="Ollama 服务地址")
     parser.add_argument("--port", type=int, default=7860, help="Gradio Web UI 端口")
     parser.add_argument("--api-key", type=str, default="", help="API密钥")
-    parser.add_argument(
-        "--api-base", type=str, default="https://api.openai.com/v1", help="API基础URL"
-    )
+    parser.add_argument("--api-base", type=str, default="https://api.openai.com/v1", help="API基础URL")
     parser.add_argument(
         "--model",
         type=str,
@@ -52,7 +51,9 @@ def main():
     logger.info(f"成功初始化，使用模型: {args.model}")
 
     # 系统提示
-    system_prompt = "你是一个友好、聪明且乐于助人的AI助手，基于Qwen-7B大型语言模型。尽可能提供有帮助、安全和真实的回答。"
+    system_prompt = (
+        "你是一个友好、聪明且乐于助人的AI助手，基于Qwen-7B大型语言模型。尽可能提供有帮助、安全和真实的回答。"
+    )
 
     # 定义聊天函数
     def chat(message, history, context=None, client=None, use_system_prompt=False):
@@ -65,16 +66,12 @@ def main():
 
         history_prompt = format_history(full_history) if full_history else ""
         full_prompt = (
-            f"{history_prompt}\n\nHuman: {message}\nAssistant: "
-            if history_prompt
-            else f"Human: {message}\nAssistant: "
+            f"{history_prompt}\n\nHuman: {message}\nAssistant: " if history_prompt else f"Human: {message}\nAssistant: "
         )
 
         response = ""
         if use_system_prompt:
-            for chunk in client.generate(
-                full_prompt, system=system_prompt, context=context
-            ):
+            for chunk in client.generate(full_prompt, system=system_prompt, context=context):
                 response = chunk
                 yield "", history + [(message, response)], context
         else:
@@ -129,15 +126,11 @@ def main():
         context_state = gr.State([])
 
         # 修改 process_message，增加 system_prompt 参数
-        def process_message(
-            message, history, context, model, api_key, api_base, user_system_prompt
-        ):
+        def process_message(message, history, context, model, api_key, api_base, user_system_prompt):
             logger.info(f"收到用户消息: {message[:50]}..., model : {model}")
             try:
                 # 使用用户自定义的 system_prompt，如果未填写则用默认
-                sys_prompt = (
-                    user_system_prompt if user_system_prompt.strip() else system_prompt
-                )
+                sys_prompt = user_system_prompt if user_system_prompt.strip() else system_prompt
                 if model == "local-qwen":
                     client = OllamaClient(host=args.host, model="qwen:7b")
                     gen = chat(
@@ -152,9 +145,7 @@ def main():
                     if not api_key:
                         yield "错误: 请提供API密钥", history, context
                         return
-                    client = ModelClient(
-                        api_key=api_key, base_url=api_base, model=model
-                    )
+                    client = ModelClient(api_key=api_key, base_url=api_base, model=model)
                     gen = chat(
                         message,
                         history,
@@ -200,9 +191,7 @@ def main():
 
             response = ""
             if use_system_prompt:
-                for chunk in client.generate(
-                    full_prompt, system=sys_prompt, context=context
-                ):
+                for chunk in client.generate(full_prompt, system=sys_prompt, context=context):
                     response = chunk
                     yield "", history + [(message, response)], context
             else:

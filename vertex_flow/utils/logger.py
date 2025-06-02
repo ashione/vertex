@@ -4,9 +4,9 @@
 """
 
 import logging
-from typing import Optional
 import sys
 from threading import Lock
+from typing import Optional
 
 
 class LoggerUtil:
@@ -31,9 +31,7 @@ class LoggerUtil:
         self.lock = Lock()
 
     @staticmethod
-    def get_logger(
-        name: str = "default", level: int = logging.INFO, file: Optional[str] = None
-    ) -> logging.Logger:
+    def get_logger(name: str = "default", level: int = logging.INFO, file: Optional[str] = None) -> logging.Logger:
         """
         获取或创建一个 logger。
 
@@ -82,9 +80,7 @@ def setup_logger(
     """
     logger = LoggerUtil.get_logger(name, level=level, file=file_path)
     # 只在首次添加时设置格式
-    if not logger.handlers or not any(
-        isinstance(h, logging.StreamHandler) for h in logger.handlers
-    ):
+    if not logger.handlers or not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         formatter = logging.Formatter(format_str)
         for handler in logger.handlers:
             handler.setFormatter(formatter)

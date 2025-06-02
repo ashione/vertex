@@ -3,9 +3,11 @@
 原生Ollama客户端实现
 """
 
-import requests
 import json
-from typing import Generator, List, Dict, Any
+from typing import Any, Dict, Generator, List
+
+import requests
+
 from vertex_flow.utils.logger import get_logger
 
 logger = get_logger()
@@ -25,9 +27,7 @@ class OllamaClient:
         except requests.RequestException:
             return False
 
-    def generate(
-        self, prompt: str, system: str = None, context: List[int] = None
-    ) -> Generator[str, None, None]:
+    def generate(self, prompt: str, system: str = None, context: List[int] = None) -> Generator[str, None, None]:
         """生成文本"""
         data = {"model": self.model, "prompt": prompt, "stream": True}
 
@@ -51,9 +51,7 @@ class OllamaClient:
                 yield f"错误: 状态码 {response.status_code} - {response.text}"
                 return
         except requests.RequestException as e:
-            logger.error(
-                f"错误: 状态码 {response.status_code} - {response.text}, {str(e)}"
-            )
+            logger.error(f"错误: 状态码 {response.status_code} - {response.text}, {str(e)}")
             yield f"请求错误: {str(e)}"
             return
 

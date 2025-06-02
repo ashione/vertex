@@ -1,6 +1,6 @@
 from .edge import (
-    Condition,
     Always,
-    EdgeType,
+    Condition,
     Edge,
+    EdgeType,
 )

@@ -1,9 +1,11 @@
 import abc
+from typing import Any, Dict
+
 from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
-from typing import *
-from vertex_flow.workflow.utils import timer_decorator, factory_creator
+
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
 logging = LoggerUtil.get_logger()
 
@@ -18,9 +20,7 @@ class ChatModel(abc.ABC):
         self.name = name
         self.sk = sk
         self.provider = provider
-        logging.info(
-            f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}."
-        )
+        logging.info(f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}.")
         # 为序列化保存.
         self._base_url = base_url
         self.client = OpenAI(
@@ -37,9 +37,7 @@ class ChatModel(abc.ABC):
             "provider": self.provider,
         }
 
-    def _create_completion(
-        self, messages, option: Dict[str, Any] = None, stream: bool = False, tools=None
-    ) -> Choice:
+    def _create_completion(self, messages, option: Dict[str, Any] = None, stream: bool = False, tools=None) -> Choice:
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -52,21 +50,15 @@ class ChatModel(abc.ABC):
         if option:
             default_option.update(option)
         # 构建API调用参数
-        api_params = {
-            "model": self.name,
-            "messages": messages,
-            **default_option
-        }
+        api_params = {"model": self.name, "messages": messages, **default_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
-            
+
         completion = self.client.chat.completions.create(**api_params)
         return completion
 
     def chat(self, messages, option: Dict[str, Any] = None, tools=None) -> Choice:
-        completion = self._create_completion(
-            messages, option, stream=False, tools=tools
-        )
+        completion = self._create_completion(messages, option, stream=False, tools=tools)
         return completion.choices[0]
 
     def chat_stream(self, messages, option: Dict[str, Any] = None, tools=None):
@@ -76,9 +68,7 @@ class ChatModel(abc.ABC):
             if hasattr(chunk, "choices") and chunk.choices[0].delta:
                 yield chunk.choices[0].delta.content
             else:
-                logging.error(
-                    "Chunk object does not have 'choices' attribute or delta is missing."
-                )
+                logging.error("Chunk object does not have 'choices' attribute or delta is missing.")
 
     def model_name(self) -> str:
         return self.name
@@ -103,14 +93,10 @@ class MoonshotChat(ChatModel):
         name="moonshot-v1-128k",
         sk="",
     ):
-        super().__init__(
-            name=name, sk=sk, base_url="https://api.moonshot.cn/v1", provider="moonshot"
-        )
+        super().__init__(name=name, sk=sk, base_url="https://api.moonshot.cn/v1", provider="moonshot")
 
     @timer_decorator
-    def chat(
-        self, messages, option: Dict[str, Any] = None, tools: list = None
-    ) -> Choice:
+    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
         completion = self.client.chat.completions.create(
             model="moonshot-v1-128k",
             messages=messages,
@@ -132,9 +118,7 @@ class MoonshotChat(ChatModel):
 
 class DeepSeek(ChatModel):
     def __init__(self, name="deepseek-chat", sk=""):
-        super().__init__(
-            name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek"
-        )
+        super().__init__(name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek")
 
 
 class Tongyi(ChatModel):

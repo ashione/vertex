@@ -1,7 +1,9 @@
-import dashvector
 import abc
+from typing import Any, Dict, List
+
+import dashvector
+
 from vertex_flow.utils.logger import LoggerUtil
-from typing import List, Any, Dict
 
 logger = LoggerUtil.get_logger()
 
@@ -169,12 +171,8 @@ class DashVector(VectorEngine):
         try:
             if isinstance(docs[0], Doc):
                 # 处理 Doc 对象
-                self.get_index(index_name).insert(
-                    [(doc.id, doc.vector, doc.fields) for doc in docs]
-                )
-            elif isinstance(docs, (list, tuple)) and all(
-                isinstance(x, (int, float)) for x in docs
-            ):
+                self.get_index(index_name).insert([(doc.id, doc.vector, doc.fields) for doc in docs])
+            elif isinstance(docs, (list, tuple)) and all(isinstance(x, (int, float)) for x in docs):
                 # 处理 float 向量
                 self.get_index(index_name).insert((docs,))
             else:
@@ -252,9 +250,7 @@ class DashVector(VectorEngine):
                 self.put_index(index_name, self._client.get(index_name))
                 return True
             else:
-                logger.error(
-                    f"Failed to create index {index_name}. Response: {response}"
-                )
+                logger.error(f"Failed to create index {index_name}. Response: {response}")
                 return False
         except Exception as e:
             logger.error(f"Exception occurred while creating index {index_name}: {e}")
@@ -278,9 +274,7 @@ class DashVector(VectorEngine):
                     del self._index_map[index_name]
                 return True
             else:
-                logger.error(
-                    f"Failed to delete index {index_name}. Response: {response}"
-                )
+                logger.error(f"Failed to delete index {index_name}. Response: {response}")
                 return False
         except Exception as e:
             logger.error(f"Exception occurred while deleting index {index_name}: {e}")

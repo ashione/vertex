@@ -1,11 +1,11 @@
-from typing import Dict, Any, Callable, TypeVar, List
-from vertex_flow.workflow.vertex import Vertex
-from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.workflow.embedding import TextEmbeddingProvider
+from typing import Any, Callable, Dict, List, TypeVar
+
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.embedding import TextEmbeddingProvider
+from vertex_flow.workflow.service import VertexFlowService
 
 # import fake interface
-from .vertex import WorkflowContext
+from .vertex import Vertex, WorkflowContext
 
 logging = LoggerUtil.get_logger()
 

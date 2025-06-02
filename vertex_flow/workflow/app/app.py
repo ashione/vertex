@@ -1,28 +1,28 @@
-import json
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from vertex_flow.workflow.constants import ENABLE_STREAM
-from vertex_flow.workflow.utils import default_config_path
-from pydantic import BaseModel
-import threading
 import argparse
+import json
+import threading
 import traceback
-from vertex_flow.workflow.workflow import (
-    Workflow,
-    SourceVertex,
-    SinkVertex,
-    LLMVertex,
-    WorkflowContext,
-    Any,
-)
-from vertex_flow.workflow.service import VertexFlowService
 from typing import Dict, List
-from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
-from vertex_flow.workflow.tools.functions import FunctionTool
 
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import ENABLE_STREAM
+from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
+from vertex_flow.workflow.service import VertexFlowService
+from vertex_flow.workflow.tools.functions import FunctionTool
+from vertex_flow.workflow.utils import default_config_path
+from vertex_flow.workflow.workflow import (
+    Any,
+    LLMVertex,
+    SinkVertex,
+    SourceVertex,
+    Workflow,
+    WorkflowContext,
+)
 
 logger = LoggerUtil.get_logger()
 
@@ -50,9 +50,7 @@ async def http_exception_handler(request, exc):
 
 @vertex_flow.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=422, content={"message": f"Validation error: {exc}"}
-    )
+    return JSONResponse(status_code=422, content={"message": f"Validation error: {exc}"})
 
 
 dify_workflow_instances = {}
@@ -151,9 +149,7 @@ def get_default_workflow(input_data):
             func=echo_func,
             schema={
                 "type": "object",
-                "properties": {
-                    "msg": {"type": "string", "description": "要回显的内容"}
-                },
+                "properties": {"msg": {"type": "string", "description": "要回显的内容"}},
                 "required": ["msg"],
             },
         ),
@@ -180,9 +176,7 @@ def get_default_workflow(input_data):
     ]
 
     # 创建顶点
-    source = SourceVertex(
-        id="source", task=lambda inputs, context: data.get("input", "Default Input")
-    )
+    source = SourceVertex(id="source", task=lambda inputs, context: data.get("input", "Default Input"))
     llm = LLMVertex(
         id="llm",
         params={
@@ -193,9 +187,7 @@ def get_default_workflow(input_data):
         },
         tools=function_tools,  # 关键：传递function tools
     )
-    sink = SinkVertex(
-        id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}"
-    )
+    sink = SinkVertex(id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}")
 
     # 添加顶点到工作流
     workflow.add_vertex(source)
@@ -340,9 +332,7 @@ async def on_startup():
     vertex_service = VertexFlowService(chatmodel_config)
     global dify_workflow_instances
     dify_workflow_instances = get_dify_workflow_instances(vertex_service=vertex_service)
-    logger.info(
-        f"Application startup, finished, loaded {len(dify_workflow_instances)}..."
-    )
+    logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
 
 
 def main():

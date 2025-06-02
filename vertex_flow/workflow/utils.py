@@ -1,14 +1,14 @@
-import time
-from vertex_flow.utils.logger import LoggerUtil
 import builtins
+import importlib
+import inspect
 import json
 import os
-import inspect
 import re
-import importlib
+import time
 from abc import ABC
 from typing import Callable, Dict, Type
 
+from vertex_flow.utils.logger import LoggerUtil
 
 logging = LoggerUtil.get_logger()
 
@@ -206,9 +206,7 @@ def load_function_from_name(module_name: str, function_name: str) -> Callable:
             return function[0]
         return function
     except (ImportError, AttributeError) as e:
-        raise ImportError(
-            f"Failed to import function {function_name} from module {module_name}: {e}"
-        )
+        raise ImportError(f"Failed to import function {function_name} from module {module_name}: {e}")
 
 
 def load_task_from_data(task_data):
@@ -225,9 +223,7 @@ def load_task_from_data(task_data):
             task = load_function_from_name(module_name, function_name)
             return task
         except (ImportError, AttributeError) as e:
-            logging.error(
-                f"Failed to import function {function_name} from module {module_name}: {e}"
-            )
+            logging.error(f"Failed to import function {function_name} from module {module_name}: {e}")
             raise e
     return None
 
