@@ -329,26 +329,56 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
     def _replace_placeholders(self, text):
         """替换文本中的占位符"""
         logging.debug(f"Replace in {self.id}")
-        pattern = r"\{\{\#([\w-]+)\.(.*?)#\}\}"
+        
+        # 定义支持的占位符格式
+        patterns = [
+            (r"\{\{\#([\w-]+)\.(.*?)#\}\}", "pattern1"),  # {{#vertex_id.var_name#}}
+            (r"\{\{([\w-]+)\.([\w-]+)\}\}", "pattern2")   # {{vertex_id.var_name}}
+        ]
+        
+        for pattern, pattern_name in patterns:
+            text = self._process_pattern(text, pattern, pattern_name)
+        
+        return text
+    
+    def _process_pattern(self, text, pattern, pattern_name):
+        """处理特定模式的占位符"""
         matches = re.finditer(pattern, text)
         for match in matches:
             vertex_id = match.group(1)
             var_name = match.group(2)
-            logging.debug(f"match {vertex_id}, {var_name}, {match.group(0)}")
-            for vertex in self.workflow.vertices.values():
-                if vertex.id != vertex_id:
-                    continue
-                if vertex is None:
-                    logging.warning(f"{vertex_id} not found.")
-                    continue
-
-                logging.debug(f"matched vertex {vertex.id} : {vertex.output}")
-                text = text.replace(
-                    match.group(0),
-                    str(vertex.output[var_name]),
-                )
+            logging.debug(f"match {pattern_name} {vertex_id}, {var_name}, {match.group(0)}")
+            
+            # 查找对应的顶点
+            target_vertex = self._find_vertex_by_id(vertex_id)
+            if target_vertex is None:
+                continue
+                
+            # 替换占位符
+            replacement_value = self._get_replacement_value(target_vertex, var_name, vertex_id)
+            if replacement_value is not None:
+                text = text.replace(match.group(0), replacement_value)
                 logging.debug(f"replaced text : {text}")
+        
         return text
+    
+    def _find_vertex_by_id(self, vertex_id):
+        """根据ID查找顶点"""
+        for vertex in self.workflow.vertices.values():
+            if vertex.id == vertex_id:
+                logging.debug(f"matched vertex {vertex.id} : {vertex.output}")
+                return vertex
+        
+        logging.warning(f"{vertex_id} not found.")
+        return None
+    
+    def _get_replacement_value(self, vertex, var_name, vertex_id):
+        """获取替换值"""
+        if var_name in vertex.output:
+            return str(vertex.output[var_name])
+        else:
+            logging.warning(f"Variable {var_name} not found in vertex {vertex_id} output")
+            return None
 
     def __str__(self) -> str:
         """

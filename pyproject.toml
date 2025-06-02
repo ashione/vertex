@@ -8,12 +8,21 @@ dependencies = [
     "black>=25.1.0",
     "flake8>=7.2.0",
     "isort>=6.0.1",
+    "requests>=2.28.2",
+    "gradio>=3.50.0",
+    "python-dotenv>=0.21.0",
+    "openai>=1.0.0",
+    "tqdm>=4.65.0",
 ]
+
+[project.scripts]
+vertex = "vertex_flow.src.app:main"
+vertex-workflow = "vertex_flow.workflow.app.app:main"
 
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
 extra-index-url = ["https://pypi.org/simple/"]
-trusted-host = ["mirrors.aliyun.com"]
+trusted-hosts = ["mirrors.aliyun.com"]
 
 [tool.black]
 line-length = 120
