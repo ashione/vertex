@@ -5,9 +5,15 @@ let network = null;
 let nodes = new vis.DataSet([]);
 let edges = new vis.DataSet([]);
 let selectedNode = null;
-let connectModeEnabled = false;
-let connectingFromNode = null;
-let tempEdgeId = null;
+let isConnecting = false;
+let connectionStartNode = null;
+let connectionPreview = null;
+let connectionMode = false; // 全局连接模式
+
+// 撤销功能相关变量
+let operationHistory = [];
+let historyIndex = -1;
+const MAX_HISTORY = 50;
 
 // 页面加载完成后初始化
 $(document).ready(function() {
@@ -58,26 +64,86 @@ function initializeGraph() {
     const options = {
         nodes: {
             shape: 'box',
-            margin: 10,
+            margin: 15,
+            widthConstraint: { minimum: 120, maximum: 200 },
+            heightConstraint: { minimum: 60, maximum: 100 },
             font: {
                 size: 14,
-                color: '#333'
+                color: '#ffffff',
+                face: 'Arial, sans-serif',
+                align: 'center'
             },
             borderWidth: 2,
-            shadow: true
+            borderWidthSelected: 4,
+            color: {
+                border: '#495057',
+                background: '#6c757d',
+                highlight: {
+                    border: '#007bff',
+                    background: '#0056b3'
+                },
+                hover: {
+                    border: '#17a2b8',
+                    background: '#138496'
+                }
+            },
+            shadow: {
+                enabled: true,
+                color: 'rgba(0,0,0,0.2)',
+                size: 8,
+                x: 2,
+                y: 2
+            },
+            chosen: {
+                node: function(values, id, selected, hovering) {
+                    if (selected) {
+                        values.borderWidth = 4;
+                        values.borderColor = '#007bff';
+                        values.shadow = true;
+                        values.shadowColor = 'rgba(0,123,255,0.4)';
+                        values.shadowSize = 12;
+                    } else {
+                        values.borderWidth = 2;
+                        values.borderColor = '#495057';
+                    }
+                }
+            }
         },
         edges: {
             arrows: {
-                to: { enabled: true, scaleFactor: 1, type: 'arrow' }
+                to: { 
+                    enabled: true, 
+                    scaleFactor: 1.2, 
+                    type: 'arrow',
+                    src: undefined,
+                    imageHeight: undefined,
+                    imageWidth: undefined
+                }
             },
             color: {
-                color: '#848484',
+                color: '#6c757d',
                 highlight: '#007bff',
-                hover: '#007bff'
+                hover: '#17a2b8',
+                inherit: false
             },
-            width: 2,
+            width: 3,
             smooth: {
-                type: 'continuous'
+                type: 'cubicBezier',
+                forceDirection: 'horizontal',
+                roundness: 0.4
+            },
+            shadow: {
+                enabled: true,
+                color: 'rgba(0,0,0,0.1)',
+                size: 4,
+                x: 1,
+                y: 1
+            },
+            chosen: {
+                edge: function(values, id, selected, hovering) {
+                    values.color = '#007bff';
+                    values.width = 4;
+                }
             }
         },
         physics: {
@@ -89,12 +155,12 @@ function initializeGraph() {
             zoomView: true
         },
         manipulation: {
-            enabled: false,
+            enabled: true,
             addNode: false,
             addEdge: {
                 editWithoutDrag: function(data, callback) {
                     // 创建连接
-                    connectNodes(data.from, data.to);
+                    createConnection(data.from, data.to);
                     callback(null);
                 }
             },
@@ -102,8 +168,17 @@ function initializeGraph() {
             deleteNode: false,
             deleteEdge: {
                 editWithoutDrag: function(data, callback) {
-                    // 删除连接
+                    // 保存操作到历史记录
+                    saveOperationToHistory('deleteEdge', {
+                        edges: data.edges.map(id => {
+                            const edge = edges.get(id);
+                            return { id: id, from: edge.from, to: edge.to, ...edge };
+                        })
+                    });
+                    
+                    // 删除连接（不弹出确认框）
                     edges.remove(data.edges);
+                    showAlert('连接线已删除', 'success');
                     callback(null);
                 }
             }
@@ -151,9 +226,32 @@ function bindNetworkEvents() {
         if (params.nodes.length > 0) {
             const nodeId = params.nodes[0];
             
-            if (connectModeEnabled) {
-                handleConnectModeNodeClick(nodeId);
+            if (connectionMode) {
+                // 连接模式下的节点点击处理
+                if (!isConnecting) {
+                    // 开始连接
+                    startConnection(nodeId);
+                } else if (connectionStartNode && nodeId !== connectionStartNode) {
+                    // 完成连接
+                    if (createConnection(connectionStartNode, nodeId)) {
+                        showAlert('节点连接成功', 'success');
+                    }
+                    endConnection();
+                } else if (nodeId === connectionStartNode) {
+                    // 点击同一个节点，取消连接
+                    endConnection();
+                    showAlert('连接已取消', 'warning');
+                }
+            } else if (isConnecting && connectionStartNode) {
+                // 兼容旧的连接方式
+                if (nodeId !== connectionStartNode) {
+                    if (createConnection(connectionStartNode, nodeId)) {
+                        showAlert('节点连接成功', 'success');
+                    }
+                }
+                endConnection();
             } else {
+                // 普通模式：选择节点并显示属性
                 selectedNode = nodeId;
                 showNodeProperties(selectedNode);
             }
@@ -162,17 +260,51 @@ function bindNetworkEvents() {
     
     // 取消选择事件
     network.on('deselectNode', function() {
-        if (!connectModeEnabled) {
+        if (!isConnecting) {
             selectedNode = null;
             hideNodeProperties();
         }
     });
     
-    // 监听ESC键取消连接
+    // 监听键盘事件
     document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape' && connectModeEnabled && connectingFromNode) {
-            cancelConnection();
-            showAlert('连接已取消', 'warning');
+        // 检查是否在输入框或文本区域中
+        const activeElement = document.activeElement;
+        const isInputActive = activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'TEXTAREA' || 
+            activeElement.contentEditable === 'true' ||
+            activeElement.classList.contains('ql-editor') // Quill编辑器
+        );
+        
+        if (event.key === 'Escape') {
+            if (isConnecting) {
+                endConnection();
+                showAlert('连接已取消', 'warning');
+            } else if (connectionMode) {
+                // 退出连接模式
+                toggleConnectionMode();
+            }
+        } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputActive) {
+            // 只有在不是输入状态时才删除选中的连接线
+            const selectedEdges = network.getSelectedEdges();
+            if (selectedEdges.length > 0) {
+                // 保存操作到历史记录
+                saveOperationToHistory('deleteEdge', {
+                    edges: selectedEdges.map(id => {
+                        const edge = edges.get(id);
+                        return { id: id, from: edge.from, to: edge.to, ...edge };
+                    })
+                });
+                
+                // 删除连接线（不弹出确认框）
+                edges.remove(selectedEdges);
+                showAlert(`已删除 ${selectedEdges.length} 条连接线`, 'success');
+            }
+        } else if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !isInputActive) {
+            // 撤销操作 (Ctrl+Z 或 Cmd+Z)，但不在输入状态时
+            event.preventDefault();
+            undoLastOperation();
         }
     });
     
@@ -234,8 +366,25 @@ function addNode(nodeType, position) {
         label: nodeConfig.label,
         x: position.x,
         y: position.y,
-        color: nodeConfig.color,
-        font: { color: '#fff' },
+        color: {
+            background: nodeConfig.color.background,
+            border: nodeConfig.color.border,
+            highlight: {
+                background: nodeConfig.color.highlight,
+                border: '#007bff'
+            },
+            hover: {
+                background: nodeConfig.color.hover,
+                border: '#17a2b8'
+            }
+        },
+        font: { 
+            color: '#ffffff',
+            size: 14,
+            face: 'Arial, sans-serif'
+        },
+        borderWidth: 2,
+        borderWidthSelected: 4,
         data: {
             type: nodeType,
             config: nodeConfig.defaultConfig
@@ -255,7 +404,12 @@ function getNodeConfig(nodeType) {
     const configs = {
         start: {
             label: '开始',
-            color: '#28a745',
+            color: {
+                background: '#28a745',
+                border: '#1e7e34',
+                highlight: '#34ce57',
+                hover: '#218838'
+            },
             defaultConfig: {
                 name: '开始节点',
                 description: '工作流开始节点'
@@ -263,7 +417,12 @@ function getNodeConfig(nodeType) {
         },
         llm: {
             label: 'LLM',
-            color: '#007bff',
+            color: {
+                background: '#007bff',
+                border: '#0056b3',
+                highlight: '#0d8bff',
+                hover: '#0056b3'
+            },
             defaultConfig: {
                 name: 'LLM节点',
                 model: 'deepseek',
@@ -281,7 +440,12 @@ function getNodeConfig(nodeType) {
         },
         retrieval: {
             label: '检索',
-            color: '#17a2b8',
+            color: {
+                background: '#17a2b8',
+                border: '#117a8b',
+                highlight: '#1fb3d3',
+                hover: '#138496'
+            },
             defaultConfig: {
                 name: '检索节点',
                 index_name: '',
@@ -291,7 +455,12 @@ function getNodeConfig(nodeType) {
         },
         condition: {
             label: '条件',
-            color: '#ffc107',
+            color: {
+                background: '#ffc107',
+                border: '#d39e00',
+                highlight: '#ffcd39',
+                hover: '#e0a800'
+            },
             defaultConfig: {
                 name: '条件节点',
                 condition: '',
@@ -301,7 +470,12 @@ function getNodeConfig(nodeType) {
         },
         function: {
             label: '函数',
-            color: '#6c757d',
+            color: {
+                background: '#6f42c1',
+                border: '#59359a',
+                highlight: '#8a63d2',
+                hover: '#59359a'
+            },
             defaultConfig: {
                 name: '函数节点',
                 function_name: '',
@@ -310,7 +484,12 @@ function getNodeConfig(nodeType) {
         },
         end: {
             label: '结束',
-            color: '#dc3545',
+            color: {
+                background: '#dc3545',
+                border: '#c82333',
+                highlight: '#e4606d',
+                hover: '#bd2130'
+            },
             defaultConfig: {
                 name: '结束节点',
                 description: '工作流结束节点'
@@ -437,6 +616,7 @@ function showNodeProperties(nodeId) {
     html += `
         <div class="mt-3">
             <button class="btn btn-primary btn-sm" onclick="updateNodeProperties()">更新</button>
+            <button class="btn btn-info btn-sm" onclick="startConnection('${nodeId}')">连接</button>
             <button class="btn btn-danger btn-sm" onclick="deleteNode()">删除</button>
         </div>
     `;
@@ -620,6 +800,11 @@ function deleteNode() {
 function displayExecutionResults(data) {
     console.log('执行结果:', data);
     
+    // 显示工作流实例信息
+    if (data.instance_id) {
+        displayInstanceInfo(data);
+    }
+    
     // 如果有节点输出数据，更新节点显示
     if (data.node_outputs) {
         updateNodesWithOutputs(data.node_outputs);
@@ -634,9 +819,190 @@ function displayExecutionResults(data) {
     if (data.result) {
         console.log('最终结果:', data.result);
     }
+    
+    // 刷新执行历史
+    setTimeout(() => {
+        loadExecutionHistory();
+    }, 1000);
 }
 
-// 用输出结果更新节点
+// 显示工作流实例信息
+function displayInstanceInfo(data) {
+    const instanceInfo = `
+        <div class="alert alert-info mt-3">
+            <h6><i class="fas fa-info-circle"></i> 执行实例信息</h6>
+            <p><strong>实例ID:</strong> ${data.instance_id}</p>
+            <p><strong>状态:</strong> <span class="badge badge-${getStatusBadgeClass(data.status)}">${data.status}</span></p>
+            <p><strong>执行时间:</strong> ${data.executed_at}</p>
+            ${data.error ? `<p><strong>错误信息:</strong> <span class="text-danger">${data.error}</span></p>` : ''}
+        </div>
+    `;
+    
+    // 在输出面板中显示实例信息
+    const outputPanel = document.getElementById('output-content');
+    if (outputPanel) {
+        outputPanel.innerHTML = instanceInfo + outputPanel.innerHTML;
+    }
+}
+
+// 获取状态对应的Bootstrap样式类
+function getStatusBadgeClass(status) {
+    switch(status) {
+        case 'completed': return 'success';
+        case 'failed': return 'danger';
+        case 'running': return 'warning';
+        case 'created': return 'secondary';
+        default: return 'secondary';
+    }
+ }
+ 
+ // 加载执行历史
+ function loadExecutionHistory() {
+     if (!workflowId) return;
+     
+     $.get(`/api/workflows/${workflowId}/history`)
+         .done(function(response) {
+             if (response.success) {
+                 displayExecutionHistory(response.data);
+             }
+         })
+         .fail(function() {
+             console.error('加载执行历史失败');
+         });
+ }
+ 
+ // 显示执行历史
+ function displayExecutionHistory(history) {
+     const historyPanel = document.getElementById('execution-history');
+     if (!historyPanel) {
+         // 如果历史面板不存在，创建一个
+         createExecutionHistoryPanel();
+         return;
+     }
+     
+     if (history.length === 0) {
+         historyPanel.innerHTML = '<p class="text-muted">暂无执行历史</p>';
+         return;
+     }
+     
+     let historyHtml = '<h6><i class="fas fa-history"></i> 执行历史</h6>';
+     history.forEach(item => {
+         historyHtml += `
+             <div class="card mb-2">
+                 <div class="card-body p-2">
+                     <div class="d-flex justify-content-between align-items-center">
+                         <small class="text-muted">${item.executed_at}</small>
+                         <span class="badge badge-${getStatusBadgeClass(item.status)}">${item.status}</span>
+                     </div>
+                     <div class="mt-1">
+                         <button class="btn btn-sm btn-outline-primary" onclick="viewInstanceDetails('${item.instance_id}')">
+                             查看详情
+                         </button>
+                     </div>
+                 </div>
+             </div>
+         `;
+     });
+     
+     historyPanel.innerHTML = historyHtml;
+ }
+ 
+ // 创建执行历史面板
+ function createExecutionHistoryPanel() {
+     const rightPanel = document.querySelector('#main-workspace .col-md-3');
+     if (rightPanel) {
+         const historyHtml = `
+             <div class="card mt-3">
+                 <div class="card-header">
+                     <h6 class="mb-0">执行历史</h6>
+                 </div>
+                 <div class="card-body" id="execution-history">
+                     <p class="text-muted">暂无执行历史</p>
+                 </div>
+             </div>
+         `;
+         rightPanel.insertAdjacentHTML('beforeend', historyHtml);
+         
+         // 重新加载历史
+         loadExecutionHistory();
+     }
+ }
+ 
+ // 查看实例详情
+ function viewInstanceDetails(instanceId) {
+     $.get(`/api/workflow-instances/${instanceId}`)
+         .done(function(response) {
+             if (response.success) {
+                 showInstanceDetailsModal(response.data);
+             } else {
+                 showAlert('获取实例详情失败: ' + response.error, 'danger');
+             }
+         })
+         .fail(function() {
+             showAlert('网络错误，获取实例详情失败', 'danger');
+         });
+ }
+ 
+ // 显示实例详情模态框
+ function showInstanceDetailsModal(instance) {
+     const modalHtml = `
+         <div class="modal fade" id="instanceDetailsModal" tabindex="-1">
+             <div class="modal-dialog modal-lg">
+                 <div class="modal-content">
+                     <div class="modal-header">
+                         <h5 class="modal-title">工作流实例详情</h5>
+                         <button type="button" class="close" data-dismiss="modal">
+                             <span>&times;</span>
+                         </button>
+                     </div>
+                     <div class="modal-body">
+                         <div class="row">
+                             <div class="col-md-6">
+                                 <h6>基本信息</h6>
+                                 <p><strong>实例ID:</strong> ${instance.id}</p>
+                                 <p><strong>状态:</strong> <span class="badge badge-${getStatusBadgeClass(instance.status)}">${instance.status}</span></p>
+                                 <p><strong>创建时间:</strong> ${instance.created_at}</p>
+                                 <p><strong>开始时间:</strong> ${instance.started_at || '未开始'}</p>
+                                 <p><strong>完成时间:</strong> ${instance.completed_at || '未完成'}</p>
+                                 ${instance.error_message ? `<p><strong>错误信息:</strong> <span class="text-danger">${instance.error_message}</span></p>` : ''}
+                             </div>
+                             <div class="col-md-6">
+                                 <h6>输入数据</h6>
+                                 <pre class="bg-light p-2 rounded"><code>${JSON.stringify(instance.input_data, null, 2)}</code></pre>
+                             </div>
+                         </div>
+                         ${instance.output_data ? `
+                             <div class="mt-3">
+                                 <h6>输出结果</h6>
+                                 <pre class="bg-light p-2 rounded"><code>${JSON.stringify(instance.output_data, null, 2)}</code></pre>
+                             </div>
+                         ` : ''}
+                         ${instance.node_outputs ? `
+                             <div class="mt-3">
+                                 <h6>节点输出</h6>
+                                 <pre class="bg-light p-2 rounded"><code>${JSON.stringify(instance.node_outputs, null, 2)}</code></pre>
+                             </div>
+                         ` : ''}
+                     </div>
+                     <div class="modal-footer">
+                         <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                     </div>
+                 </div>
+             </div>
+         </div>
+     `;
+     
+     // 移除已存在的模态框
+     $('#instanceDetailsModal').remove();
+     
+     // 添加新的模态框
+     $('body').append(modalHtml);
+     
+     // 显示模态框
+     $('#instanceDetailsModal').modal('show');
+ }
+ 
+ // 用输出结果更新节点
 function updateNodesWithOutputs(nodeOutputs) {
     const currentNodes = nodes.get();
     const updatedNodes = currentNodes.map(node => {
@@ -962,6 +1328,9 @@ function loadWorkflow(id) {
                     network.fit();
                 }, 100);
                 
+                // 创建执行历史面板并加载历史
+                createExecutionHistoryPanel();
+                
                 showAlert('工作流加载成功', 'success');
             } else {
                 showAlert('加载失败: ' + response.error, 'danger');
@@ -1089,98 +1458,239 @@ function createDefaultWorkflow() {
     edges.add([edge1, edge2]);
 }
 
-// 处理连接模式下的节点点击
-function handleConnectModeNodeClick(nodeId) {
-    if (connectingFromNode === null) {
-        // 第一次点击：选择起始节点
-        connectingFromNode = nodeId;
-        
-        // 高亮起始节点
-        network.selectNodes([nodeId]);
-        
-        // 创建临时连接线（跟随鼠标）
-        createTempEdge(nodeId);
-        
-        showAlert('已选择起始节点，请点击目标节点完成连接', 'info');
-    } else {
-        // 第二次点击：完成连接
-        if (nodeId === connectingFromNode) {
-            // 点击同一个节点，取消连接
-            cancelConnection();
-            showAlert('连接已取消', 'warning');
-        } else {
-            // 连接到目标节点
-            connectNodes(connectingFromNode, nodeId);
-            clearTempEdge();
-            connectingFromNode = null;
-            showAlert('节点连接成功', 'success');
-        }
-    }
-}
-
-// 创建临时连接线
-function createTempEdge(fromNodeId) {
-    // 监听鼠标移动事件来更新临时连接线
-    network.on('hoverNode', function(params) {
-        if (connectingFromNode && params.node !== connectingFromNode) {
-            updateTempEdge(fromNodeId, params.node);
-        }
-    });
-}
-
-// 更新临时连接线
-function updateTempEdge(fromNodeId, toNodeId) {
-    if (tempEdgeId) {
-        edges.remove(tempEdgeId);
+// 新的连接功能
+function startConnection(nodeId) {
+    isConnecting = true;
+    connectionStartNode = nodeId;
+    
+    // 高亮起始节点
+    const node = nodes.get(nodeId);
+    if (node) {
+        nodes.update({
+            id: nodeId,
+            borderWidth: 4,
+            borderWidthSelected: 4,
+            color: {
+                ...node.color,
+                border: '#ff6b6b'
+            }
+        });
     }
     
-    tempEdgeId = `temp_edge_${Date.now()}`;
-    const tempEdge = {
-        id: tempEdgeId,
-        from: fromNodeId,
-        to: toNodeId,
-        color: { color: '#ff9999', opacity: 0.6 },
-        dashes: true,
-        label: '临时连接'
+    // 添加鼠标移动监听器来创建动态预览线
+    network.on('hoverNode', updateConnectionPreview);
+    network.on('dragStart', clearConnectionPreview);
+    network.on('dragEnd', restoreConnectionPreview);
+    
+    showAlert('请选择目标节点完成连接，按ESC取消', 'info');
+}
+
+// 更新连接预览
+function updateConnectionPreview(params) {
+    if (!isConnecting || !connectionStartNode || params.node === connectionStartNode) {
+        return;
+    }
+    
+    // 清除之前的预览线
+    if (connectionPreview) {
+        edges.remove(connectionPreview);
+    }
+    
+    // 创建新的预览线（虚线）
+    connectionPreview = {
+        id: 'preview_' + Date.now(),
+        from: connectionStartNode,
+        to: params.node,
+        color: {
+            color: '#ff6b6b',
+            opacity: 0.7
+        },
+        dashes: [10, 5],
+        width: 2,
+        smooth: {
+            type: 'cubicBezier',
+            forceDirection: 'horizontal',
+            roundness: 0.4
+        },
+        arrows: {
+            to: {
+                enabled: true,
+                scaleFactor: 1.2
+            }
+        },
+        physics: false,
+        selectable: false
     };
     
-    edges.add(tempEdge);
+    edges.add(connectionPreview);
 }
 
-// 清除临时连接线
-function clearTempEdge() {
-    if (tempEdgeId) {
-        edges.remove(tempEdgeId);
-        tempEdgeId = null;
+// 清除连接预览（拖动时）
+function clearConnectionPreview() {
+    if (connectionPreview) {
+        edges.remove(connectionPreview);
+        connectionPreview = null;
     }
-    network.off('hoverNode');
 }
 
-// 取消连接
-function cancelConnection() {
-    clearTempEdge();
-    connectingFromNode = null;
-    network.unselectAll();
+// 恢复连接预览（拖动结束后）
+function restoreConnectionPreview() {
+    if (isConnecting && connectionStartNode) {
+        // 延迟一点时间再恢复，确保拖动完成
+        setTimeout(() => {
+            const hoveredNodes = network.getNodeAt(network.getPointer());
+            if (hoveredNodes && hoveredNodes !== connectionStartNode) {
+                updateConnectionPreview({ node: hoveredNodes });
+            }
+        }, 100);
+    }
 }
 
-// 切换连接模式
-function toggleConnectMode() {
-    connectModeEnabled = !connectModeEnabled;
-    const btn = document.getElementById('connect-mode-btn');
+function endConnection() {
+    if (isConnecting && connectionStartNode) {
+        // 恢复起始节点样式
+        const startNode = nodes.get(connectionStartNode);
+        if (startNode) {
+            const nodeConfig = getNodeConfig(startNode.data.type);
+            nodes.update({
+                id: connectionStartNode,
+                borderWidth: 2,
+                borderWidthSelected: 4,
+                color: nodeConfig.color
+            });
+        }
+    }
     
-    if (connectModeEnabled) {
-        // 启用连接模式
-        btn.classList.remove('btn-outline-light');
-        btn.classList.add('btn-light');
-        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> 连接模式 (已启用)';
-        showAlert('连接模式已启用，点击第一个节点开始连接', 'info');
+    // 移除事件监听器
+    network.off('hoverNode', updateConnectionPreview);
+    network.off('dragStart', clearConnectionPreview);
+    network.off('dragEnd', restoreConnectionPreview);
+    
+    isConnecting = false;
+    connectionStartNode = null;
+    
+    // 清除连接预览
+    if (connectionPreview) {
+        edges.remove(connectionPreview);
+        connectionPreview = null;
+    }
+}
+
+function createConnection(fromNodeId, toNodeId) {
+    if (fromNodeId === toNodeId) {
+        showAlert('不能连接到自己', 'warning');
+        return false;
+    }
+    
+    // 检查是否已存在连接
+    const existingEdges = edges.get();
+    const edgeExists = existingEdges.some(edge => 
+        edge.from === fromNodeId && edge.to === toNodeId
+    );
+    
+    if (edgeExists) {
+        showAlert('连接已存在', 'warning');
+        return false;
+    }
+    
+    // 创建新连接（实线）
+    const newEdge = {
+        id: 'edge_' + Date.now(),
+        from: fromNodeId,
+        to: toNodeId,
+        color: {
+            color: '#495057',
+            opacity: 1.0
+        },
+        width: 2,
+        smooth: {
+            type: 'cubicBezier',
+            forceDirection: 'horizontal',
+            roundness: 0.4
+        },
+        arrows: {
+            to: {
+                enabled: true,
+                scaleFactor: 1.2,
+                color: '#495057'
+            }
+        },
+        shadow: {
+            enabled: true,
+            color: 'rgba(0,0,0,0.2)',
+            size: 3,
+            x: 2,
+            y: 2
+        },
+        physics: true,
+        selectable: true
+    };
+    
+    // 保存操作到历史记录
+    saveOperationToHistory('addEdge', {
+        edge: { ...newEdge }
+    });
+    
+    edges.add(newEdge);
+    return true;
+}
+
+// 保存操作到历史记录
+function saveOperationToHistory(operationType, data) {
+    // 如果当前不在历史记录的末尾，删除后面的记录
+    if (historyIndex < operationHistory.length - 1) {
+        operationHistory = operationHistory.slice(0, historyIndex + 1);
+    }
+    
+    // 添加新操作到历史记录
+    operationHistory.push({
+        type: operationType,
+        data: data,
+        timestamp: Date.now()
+    });
+    
+    // 限制历史记录数量
+    if (operationHistory.length > MAX_HISTORY) {
+        operationHistory.shift();
     } else {
-        // 禁用连接模式
-        cancelConnection(); // 取消任何进行中的连接
-        btn.classList.remove('btn-light');
-        btn.classList.add('btn-outline-light');
-        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> 连接模式';
-        showAlert('连接模式已禁用', 'info');
+        historyIndex++;
+    }
+}
+
+// 撤销上一个操作
+function undoLastOperation() {
+    if (historyIndex < 0 || operationHistory.length === 0) {
+        showAlert('没有可撤销的操作', 'warning');
+        return;
+    }
+    
+    const operation = operationHistory[historyIndex];
+    
+    try {
+        switch (operation.type) {
+            case 'addEdge':
+                // 撤销添加连接：删除连接
+                const edgeToRemove = operation.data.edge;
+                edges.remove(edgeToRemove.id);
+                showAlert('已撤销添加连接', 'info');
+                break;
+                
+            case 'deleteEdge':
+                // 撤销删除连接：恢复连接
+                const edgesToRestore = operation.data.edges;
+                edges.add(edgesToRestore);
+                showAlert(`已撤销删除 ${edgesToRestore.length} 条连接线`, 'info');
+                break;
+                
+            default:
+                showAlert('不支持撤销此操作', 'warning');
+                return;
+        }
+        
+        historyIndex--;
+    } catch (error) {
+        console.error('撤销操作失败:', error);
+        showAlert('撤销操作失败', 'danger');
     }
 }
 
@@ -1199,4 +1709,36 @@ function showAlert(message, type) {
     setTimeout(() => {
         $('.alert').alert('close');
     }, 3000);
+}
+
+// 切换连接模式
+function toggleConnectionMode() {
+    connectionMode = !connectionMode;
+    const btn = document.getElementById('connection-mode-btn');
+    
+    if (connectionMode) {
+        btn.classList.remove('btn-outline-light');
+        btn.classList.add('btn-light');
+        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> 连接模式 (开启)';
+        showAlert('连接模式已开启，点击两个节点进行连接', 'info');
+        
+        // 如果当前有连接正在进行，取消它
+        if (isConnecting) {
+            endConnection();
+        }
+        
+        // 隐藏属性面板
+        hideNodeProperties();
+        selectedNode = null;
+    } else {
+        btn.classList.remove('btn-light');
+        btn.classList.add('btn-outline-light');
+        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> 连接模式';
+        showAlert('连接模式已关闭', 'info');
+        
+        // 如果当前有连接正在进行，取消它
+        if (isConnecting) {
+            endConnection();
+        }
+    }
 }

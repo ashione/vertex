@@ -1,14 +1,14 @@
-import time
-from vertex_flow.utils.logger import LoggerUtil
 import builtins
+import importlib
+import inspect
 import json
 import os
-import inspect
 import re
-import importlib
+import time
 from abc import ABC
 from typing import Callable, Dict, Type
 
+from vertex_flow.utils.logger import LoggerUtil
 
 logging = LoggerUtil.get_logger()
 
@@ -160,9 +160,12 @@ def default_config_path(file_path):
         # 检查环境变量是否存在
         if DEFAULT_CONFIG_PATH_KEY in os.environ:
             env_path = os.environ[DEFAULT_CONFIG_PATH_KEY]
+            logging.info(f"Using environment variable {env_path}")
             # 检查环境变量是否为绝对路径且存在
             if env_path and os.path.isabs(env_path) and os.path.isdir(env_path):
                 base_path = env_path
+        else:
+            logging.info(f"Using default path {base_path}")
     except Exception as e:
         # 处理环境变量处理过程中可能出现的异常
         logging.error(f"Error processing environment variable: {e}")
@@ -203,9 +206,7 @@ def load_function_from_name(module_name: str, function_name: str) -> Callable:
             return function[0]
         return function
     except (ImportError, AttributeError) as e:
-        raise ImportError(
-            f"Failed to import function {function_name} from module {module_name}: {e}"
-        )
+        raise ImportError(f"Failed to import function {function_name} from module {module_name}: {e}")
 
 
 def load_task_from_data(task_data):
@@ -222,9 +223,7 @@ def load_task_from_data(task_data):
             task = load_function_from_name(module_name, function_name)
             return task
         except (ImportError, AttributeError) as e:
-            logging.error(
-                f"Failed to import function {function_name} from module {module_name}: {e}"
-            )
+            logging.error(f"Failed to import function {function_name} from module {module_name}: {e}")
             raise e
     return None
 

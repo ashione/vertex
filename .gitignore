@@ -32,6 +32,9 @@ var/
 # 模型文件
 models/
 
+# 配置文件（包含敏感信息）
+config/llm.yml
+
 # 虚拟环境
 venv/
 env/

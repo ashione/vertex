@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.embedding import (
     BCEEmbedding,
     DashScopeEmbedding,
     TextEmbeddingProvider,
 )
-from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.rag_config import read_yaml_config_env_placeholder
 from vertex_flow.workflow.utils import create_instance, default_config_path, read_file
 from vertex_flow.workflow.vector import DashVector
@@ -67,9 +67,7 @@ class VertexFlowService:
         logging.info("llm config : %s", self._config["llm"])
 
         # 过滤出启用的模型
-        selected_model = list(
-            filter(lambda value: value[1]["enabled"], self._config["llm"].items())
-        )
+        selected_model = list(filter(lambda value: value[1]["enabled"], self._config["llm"].items()))
         self.model: ChatModel = None
 
         # 如果有模型被选中，则创建该模型的实例
@@ -104,9 +102,7 @@ class VertexFlowService:
         logging.debug("llm config : %s", self._config["llm"])
 
         # 通过提供商筛选聊天模型配置
-        selected_model = list(
-            filter(lambda value: value[0] == provider, self._config["llm"].items())
-        )
+        selected_model = list(filter(lambda value: value[0] == provider, self._config["llm"].items()))
         model: ChatModel = None
         if selected_model:
             # 如果找到了匹配的模型配置，使用第一个匹配项
@@ -121,9 +117,7 @@ class VertexFlowService:
                 name=final_name,
             )
         # 记录选定的模型信息
-        logging.info(
-            "model selected : %s-%s in provider %s", model, model.model_name(), provider
-        )
+        logging.info("model selected : %s-%s in provider %s", model, model.model_name(), provider)
         return model
 
     def _prompt_file_path(self, file_path):
@@ -232,27 +226,19 @@ class VertexFlowService:
         # 获取API key，如果未配置，则尝试从环境变量中获取
         api_key = config_section.get("api-key") or os.getenv(env_api_key)
         if not api_key:
-            raise ValueError(
-                f"API key for {env_api_key} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"API key for {env_api_key} is missing in the configuration and environment variables.")
 
         # 获取模型名称，如果未配置，则尝试从环境变量中获取
-        model_name = config_section.get("model-name") or os.getenv(
-            env_model_name, default_model_name
-        )
+        model_name = config_section.get("model-name") or os.getenv(env_model_name, default_model_name)
         if not model_name:
             raise ValueError(
                 f"Model name for {env_model_name} is missing in the configuration and environment variables."
             )
 
         # 获取endpoint，如果未配置，则尝试从环境变量中获取
-        endpoint = config_section.get("endpoint") or os.getenv(
-            env_endpoint, default_endpoint
-        )
+        endpoint = config_section.get("endpoint") or os.getenv(env_endpoint, default_endpoint)
         if not endpoint:
-            raise ValueError(
-                f"Endpoint for {env_endpoint} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"Endpoint for {env_endpoint} is missing in the configuration and environment variables.")
 
         # 使用获取的配置信息创建并返回嵌入配置
         return {"api_key": api_key, "model_name": model_name, "endpoint": endpoint}
@@ -304,9 +290,7 @@ class VertexFlowService:
         else:
             raise ValueError(f"Unsupported embedding type: {embedding_type}")
 
-    def get_embedding(
-        self, embedding_type=EmbeddingType.DASHSCOPE
-    ) -> TextEmbeddingProvider:
+    def get_embedding(self, embedding_type=EmbeddingType.DASHSCOPE) -> TextEmbeddingProvider:
         """
         根据配置信息创建并返回一个文本嵌入提供者的实例。
 
@@ -404,34 +388,24 @@ class VertexFlowService:
         # 获取API key，如果未配置，则尝试从环境变量中获取
         api_key = config_section.get("api-key") or os.getenv(env_api_key)
         if not api_key:
-            raise ValueError(
-                f"API key for {env_api_key} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"API key for {env_api_key} is missing in the configuration and environment variables.")
 
         # 获取模型名称，如果未配置，则尝试从环境变量中获取
-        model_name = config_section.get("model-name") or os.getenv(
-            env_model_name, default_model_name
-        )
+        model_name = config_section.get("model-name") or os.getenv(env_model_name, default_model_name)
         if not model_name:
             raise ValueError(
                 f"Model name for {env_model_name} is missing in the configuration and environment variables."
             )
 
         # 获取endpoint，如果未配置，则尝试从环境变量中获取
-        endpoint = config_section.get("endpoint") or os.getenv(
-            env_endpoint, default_endpoint
-        )
+        endpoint = config_section.get("endpoint") or os.getenv(env_endpoint, default_endpoint)
         if not endpoint:
-            raise ValueError(
-                f"Endpoint for {env_endpoint} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"Endpoint for {env_endpoint} is missing in the configuration and environment variables.")
 
         # 使用获取的配置信息创建并返回重排序配置
         return {"api_key": api_key, "model_name": model_name, "endpoint": endpoint}
 
-    def get_vector_store_config(
-        self, vector_type: Optional[str] = None
-    ) -> VectorConfig:
+    def get_vector_store_config(self, vector_type: Optional[str] = None) -> VectorConfig:
         vector_type = vector_type or "dashvector"
         vector_config = self._config.get("vector", {})
 
@@ -453,15 +427,11 @@ class VertexFlowService:
     ) -> VectorConfig:
         api_key = config_section.get("api-key") or os.getenv(env_api_key)
         if not api_key:
-            raise ValueError(
-                f"API key for {env_api_key} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"API key for {env_api_key} is missing in the configuration and environment variables.")
 
         endpoint = config_section.get("endpoint") or os.getenv(env_endpoint)
         if not endpoint:
-            raise ValueError(
-                f"Endpoint for {env_endpoint} is missing in the configuration and environment variables."
-            )
+            raise ValueError(f"Endpoint for {env_endpoint} is missing in the configuration and environment variables.")
 
         cluster = config_section.get("cluster")
         if not cluster:
@@ -469,9 +439,7 @@ class VertexFlowService:
 
         collection = config_section.get("collection")
         if not collection:
-            raise ValueError(
-                "Collection for DashVector is missing in the configuration."
-            )
+            raise ValueError("Collection for DashVector is missing in the configuration.")
 
         image_collection = config_section.get("image-collection")
         if not image_collection:

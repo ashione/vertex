@@ -3,11 +3,12 @@
 设置和准备 Ollama 中的 Qwen-7B 模型
 """
 
+import argparse
+import json
 import subprocess
 import sys
-import argparse
 import time
-import json
+
 import requests
 
 

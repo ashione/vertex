@@ -1,30 +1,30 @@
+import json
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Event, Lock
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    List,
+    Set,
+    TypeVar,
+)
+
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.edge import (
     Edge,
 )
-
+from vertex_flow.workflow.event_channel import EventChannel
+from vertex_flow.workflow.utils import timer_decorator
 from vertex_flow.workflow.vertex import (
     FunctionVertex,
-    SinkVertex,
     IfElseVertex,
-    Vertex,
-    SourceVertex,
     LLMVertex,
+    SinkVertex,
+    SourceVertex,
+    Vertex,
 )
-from typing import (
-    Generic,
-    TypeVar,
-    Dict,
-    Any,
-    Set,
-    List,
-)
-from collections import deque
-from vertex_flow.workflow.utils import timer_decorator
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import json
-from threading import Lock, Event
-from vertex_flow.workflow.event_channel import EventChannel
 
 logging = LoggerUtil.get_logger()
 
@@ -76,9 +76,7 @@ def around_workflow(func):
                 try:
                     vertex.on_workflow_finished()
                 except BaseException as e:
-                    logging.error(
-                        f"Failed to execute vertex {vertex.id} workflow finished callback."
-                    )
+                    logging.error(f"Failed to execute vertex {vertex.id} workflow finished callback.")
 
     def on_workflow_failed(self):
         logging.info("on workflow failed.")
@@ -87,9 +85,7 @@ def around_workflow(func):
                 try:
                     vertex.on_workflow_failed()
                 except BaseException as e:
-                    logging.error(
-                        f"Failed to execute vertex {vertex.id} workflow failed callback."
-                    )
+                    logging.error(f"Failed to execute vertex {vertex.id} workflow failed callback.")
 
     def wrapper(self, *args, **kwargs):
         try:
@@ -156,10 +152,7 @@ class Workflow(Generic[T]):
         if edge in self.edges:
             # 如果边已经存在，则不进行任何操作
             return
-        if (
-            edge.source_vertex.id not in self.vertices
-            or edge.target_vertex.id not in self.vertices
-        ):
+        if edge.source_vertex.id not in self.vertices or edge.target_vertex.id not in self.vertices:
             raise ValueError("Invalid vertices IDs for the edge.")
 
         # 检查源顶点的输出类型与目标顶点的输入类型是否兼容, 目前动态类型检查先跳过.
@@ -209,12 +202,8 @@ class Workflow(Generic[T]):
             #     raise TypeError(f"Incompatible types between vertex {source_vertex.id} and {target_vertex.id}")
 
         # 2. 检查workflow是否包含至少一个source和一个sink
-        sources = [
-            vertex for vertex in self.vertices.values() if vertex.task_type == "SOURCE"
-        ]
-        sinks = [
-            vertex for vertex in self.vertices.values() if vertex.task_type == "SINK"
-        ]
+        sources = [vertex for vertex in self.vertices.values() if vertex.task_type == "SOURCE"]
+        sinks = [vertex for vertex in self.vertices.values() if vertex.task_type == "SINK"]
         if len(sources) < 1:
             raise ValueError("Workflow must contain at least one source vertex.")
         if len(sinks) < 1:
@@ -223,17 +212,13 @@ class Workflow(Generic[T]):
         # 3. 入度为0的顶点必须为source
         for vertex in self.vertices.values():
             if vertex.in_degree == 0 and vertex.task_type != "SOURCE":
-                raise ValueError(
-                    f"Vertex {vertex.id} has an in-degree of 0 but is not a source vertex."
-                )
+                raise ValueError(f"Vertex {vertex.id} has an in-degree of 0 but is not a source vertex.")
 
         # 4. 出度为0的必须为sink
         for vertex in self.vertices.values():
             logging.debug(f"check out degress : {vertex}, {vertex.out_degree}")
             if vertex.out_degree > 0 and vertex.task_type == "SINK":
-                raise ValueError(
-                    f"Vertex {vertex.id} has out-degree of 0 but is not a sink vertex."
-                )
+                raise ValueError(f"Vertex {vertex.id} has out-degree of 0 but is not a sink vertex.")
             if vertex.task_type == "SINK" and vertex.out_degree > 0:
                 raise ValueError(f"Sink vertex {vertex.id} should not have any output.")
 
@@ -271,11 +256,7 @@ class Workflow(Generic[T]):
             subgraph.add(current_vertex)
 
             # 获取当前顶点的所有邻居（依赖于当前顶点的顶点）
-            neighbors = [
-                edge.target_vertex
-                for edge in self.edges
-                if edge.source_vertex == current_vertex
-            ]
+            neighbors = [edge.target_vertex for edge in self.edges if edge.source_vertex == current_vertex]
             queue.extend(neighbors)
 
         return subgraph
@@ -306,9 +287,7 @@ class Workflow(Generic[T]):
 
     @around_workflow
     @timer_decorator
-    def execute_workflow(
-        self, source_inputs: Dict[str, Any] = {}, stream: bool = False
-    ):
+    def execute_workflow(self, source_inputs: Dict[str, Any] = {}, stream: bool = False):
         self.validate_workflow()  # 在执行之前先验证图的正确性
         self.topological_sort()
         self.executed = True
@@ -345,9 +324,7 @@ class Workflow(Generic[T]):
         executor,
         stream,
     ):
-        logging.info(
-            f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}."
-        )
+        logging.info(f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}.")
 
         if vertex.id in filtered_vertices:
             logging.info(f"skip {vertex.id}.")
@@ -355,17 +332,11 @@ class Workflow(Generic[T]):
 
         self.wait_for_dependencies(vertex, futures, checked_futures)
 
-        dependency_outputs = {
-            dep._id: dep.output
-            for dep in self.vertices.values()
-            if dep._id in vertex._dependencies
-        }
+        dependency_outputs = {dep._id: dep.output for dep in self.vertices.values() if dep._id in vertex._dependencies}
 
         filter_result = self.mayebe_filter_subgraph(vertex=vertex)
         if filter_result[0]:
-            logging.info(
-                f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}"
-            )
+            logging.info(f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}")
             filtered_vertices.update(filter_result[1])
             return
 
@@ -382,9 +353,7 @@ class Workflow(Generic[T]):
             self.process_stream_result(future, vertex)
 
     def wait_for_dependencies(self, vertex, futures, checked_futures):
-        dependencies_finished = all(
-            future.done() for future in futures.keys() if future
-        )
+        dependencies_finished = all(future.done() for future in futures.keys() if future)
 
         if not dependencies_finished:
             for dep_id in vertex._dependencies:
@@ -446,9 +415,7 @@ class Workflow(Generic[T]):
                     "id": vertex.id,
                     "task_type": vertex.task_type,
                     "params": vertex.params if include_params else None,
-                    "dependencies": (
-                        list(vertex.dependencies) if include_dependencies else None
-                    ),
+                    "dependencies": (list(vertex.dependencies) if include_dependencies else None),
                     "output": vertex.output if include_output else None,
                     "input_type": vertex.input_type if include_types else None,
                     "output_type": vertex.output_type if include_types else None,
@@ -498,11 +465,7 @@ class Workflow(Generic[T]):
 
     def get_vertices_by_type(self, task_type: str) -> List[Vertex[T]]:
         """获取具有特定类型的顶点列表"""
-        return [
-            vertex
-            for vertex in self.vertices.values()
-            if vertex._task_type == task_type
-        ]
+        return [vertex for vertex in self.vertices.values() if vertex._task_type == task_type]
 
     def get_sources(self) -> List[Vertex[T]]:
         """获取所有 SOURCE 类型的顶点"""
@@ -540,12 +503,8 @@ def main():
         id="my_llm",
         task=lambda inputs: f"Processed: {inputs}",
     )
-    vertex_function_a = FunctionVertex(
-        "FUNCTION_A", task=lambda inputs: f"Function A output: {inputs}"
-    )
-    vertex_function_b = FunctionVertex(
-        "FUNCTION_B", task=lambda inputs: f"Function B output: {inputs}"
-    )
+    vertex_function_a = FunctionVertex("FUNCTION_A", task=lambda inputs: f"Function A output: {inputs}")
+    vertex_function_b = FunctionVertex("FUNCTION_B", task=lambda inputs: f"Function B output: {inputs}")
     vertex_sink = SinkVertex("SINK", task=sink_task)
 
     # 创建工作流
@@ -576,9 +535,7 @@ def main():
     logging.info("Connect vertex_flow.workflow.")
 
     # 输出工作流图信息
-    workflow.show_graph(
-        include_params=True, include_dependencies=True, include_output=True
-    )
+    workflow.show_graph(include_params=True, include_dependencies=True, include_output=True)
 
     # 执行工作流
     workflow.execute_workflow()

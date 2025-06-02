@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统配置 - Vertex</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-arrow-left"></i> 返回首页
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text">
+                    <i class="bi bi-gear"></i> 系统配置
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="mb-4">系统配置管理</h2>
+                
+                <!-- 配置保存状态提示 -->
+                <div id="config-alert" class="alert alert-success d-none" role="alert">
+                    <i class="bi bi-check-circle"></i> 配置已保存成功！
+                </div>
+
+                <!-- 配置选项卡 -->
+                <ul class="nav nav-tabs" id="configTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="llm-tab" data-bs-toggle="tab" data-bs-target="#llm" type="button" role="tab">
+                            <i class="bi bi-cpu"></i> LLM 配置
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="vector-tab" data-bs-toggle="tab" data-bs-target="#vector" type="button" role="tab">
+                            <i class="bi bi-database"></i> 向量数据库
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="rerank-tab" data-bs-toggle="tab" data-bs-target="#rerank" type="button" role="tab">
+                            <i class="bi bi-sort-down"></i> Rerank
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="embedding-tab" data-bs-toggle="tab" data-bs-target="#embedding" type="button" role="tab">
+                            <i class="bi bi-diagram-3"></i> 嵌入模型
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="web-tab" data-bs-toggle="tab" data-bs-target="#web" type="button" role="tab">
+                            <i class="bi bi-globe"></i> Web 服务
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="env-tab" data-bs-toggle="tab" data-bs-target="#env" type="button" role="tab">
+                            <i class="bi bi-gear-wide-connected"></i> 环境变量
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- 配置内容 -->
+                <div class="tab-content" id="configTabContent">
+                    <!-- LLM 配置 -->
+                    <div class="tab-pane fade show active" id="llm" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">大语言模型配置</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- Moonshot -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-moon"></i> Moonshot</h6>
+                        <div class="mb-3">
+                            <label class="form-label">API Key</label>
+                            <input type="password" class="form-control" id="moonshot-sk" placeholder="输入 Moonshot API Key">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-control" id="moonshot-model" value="moonshot-v1-128k" readonly>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="moonshot-enabled">
+                            <label class="form-check-label" for="moonshot-enabled">启用</label>
+                        </div>
+                    </div>
+                </div>
+
+                                <!-- DeepSeek -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-search"></i> DeepSeek</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="deepseek-sk" placeholder="输入 DeepSeek API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="deepseek-model" value="deepseek-chat" readonly>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="deepseek-enabled" checked>
+                                            <label class="form-check-label" for="deepseek-enabled">启用</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 通义千问 -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-chat-dots"></i> 通义千问</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="tongyi-sk" placeholder="输入通义千问 API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="tongyi-model" value="qwen-max" readonly>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="tongyi-enabled">
+                                            <label class="form-check-label" for="tongyi-enabled">启用</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- OpenRouter -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-router"></i> OpenRouter</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="openrouter-sk" placeholder="输入 OpenRouter API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="openrouter-model" value="deepseek/deepseek-chat-v3-0324:free" readonly>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="openrouter-enabled">
+                                            <label class="form-check-label" for="openrouter-enabled">启用</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 向量数据库配置 -->
+                    <div class="tab-pane fade" id="vector" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">向量数据库配置</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-8">
+                                        <h6><i class="bi bi-database"></i> DashVector</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="dashvector-api-key" placeholder="输入 DashVector API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Endpoint</label>
+                                            <input type="text" class="form-control" id="dashvector-endpoint" placeholder="输入 DashVector Endpoint">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">集群名称</label>
+                                            <input type="text" class="form-control" id="dashvector-cluster" value="vertex-vector">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">集合名称</label>
+                                            <input type="text" class="form-control" id="dashvector-collection" placeholder="输入集合名称">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">图像集合名称</label>
+                                            <input type="text" class="form-control" id="dashvector-image-collection" placeholder="输入图像集合名称">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rerank配置 -->
+                    <div class="tab-pane fade" id="rerank" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">Rerank模型配置</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- BCE Rerank -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-sort-down"></i> BCE Rerank</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="rerank-bce-api-key" placeholder="输入BCE API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">API端点</label>
+                                            <input type="text" class="form-control" id="rerank-bce-endpoint" value="https://api.siliconflow.cn/v1/rerank">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="rerank-bce-model" value="netease-youdao/bce-reranker-base_v1">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 嵌入模型配置 -->
+                    <div class="tab-pane fade" id="embedding" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">嵌入模型配置</h5>
+                            </div>
+                            <div class="card-body">
+                                <!-- DashScope -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-diagram-3"></i> DashScope</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="dashscope-api-key" placeholder="输入 DashScope API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Endpoint</label>
+                                            <input type="text" class="form-control" id="dashscope-endpoint" value="default">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="dashscope-model" value="text-embedding-v1">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- BCE -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-cloud"></i> BCE</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="bce-api-key" placeholder="输入 BCE API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Endpoint</label>
+                                            <input type="text" class="form-control" id="bce-endpoint" value="https://api.siliconflow.cn/v1/embeddings">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="bce-model" value="netease-youdao/bce-embedding-base_v1">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Web 服务配置 -->
+                    <div class="tab-pane fade" id="web" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">Web 服务配置</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">端口</label>
+                                            <input type="number" class="form-control" id="web-port" value="8999">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">主机地址</label>
+                                            <input type="text" class="form-control" id="web-host" value="0.0.0.0">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">工作进程数</label>
+                                            <input type="number" class="form-control" id="web-workers" value="8">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 环境变量配置 -->
+                    <div class="tab-pane fade" id="env" role="tabpanel">
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">环境变量配置</h5>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="addEnvVariable()">
+                                        <i class="bi bi-plus-circle"></i> 添加变量
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <p class="text-muted">配置系统环境变量，支持覆盖配置文件中的默认值。变量名格式：模块_子模块_参数名（如：llm_deepseek_sk）</p>
+                                </div>
+                                
+                                <!-- 预设的重要环境变量 -->
+                                <div class="row mb-4">
+                                    <div class="col-12">
+                                        <h6><i class="bi bi-star"></i> 常用环境变量</h6>
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">llm_deepseek_sk</label>
+                                                <input type="password" class="form-control" id="env-llm-deepseek-sk" placeholder="DeepSeek API Key">
+                                                <small class="form-text text-muted">覆盖 llm.deepseek.sk 配置</small>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">llm_moonshoot_sk</label>
+                                                <input type="password" class="form-control" id="env-llm-moonshoot-sk" placeholder="Moonshot API Key">
+                                                <small class="form-text text-muted">覆盖 llm.moonshoot.sk 配置</small>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">llm_tongyi_sk</label>
+                                                <input type="password" class="form-control" id="env-llm-tongyi-sk" placeholder="通义千问 API Key">
+                                                <small class="form-text text-muted">覆盖 llm.tongyi.sk 配置</small>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">llm_openrouter_sk</label>
+                                                <input type="password" class="form-control" id="env-llm-openrouter-sk" placeholder="OpenRouter API Key">
+                                                <small class="form-text text-muted">覆盖 llm.openrouter.sk 配置</small>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">vector_dashvector_api_key</label>
+                                                <input type="password" class="form-control" id="env-vector-dashvector-api-key" placeholder="DashVector API Key">
+                                                <small class="form-text text-muted">覆盖 vector.dashvector.api-key 配置</small>
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">embedding_dashscope_api_key</label>
+                                                <input type="password" class="form-control" id="env-embedding-dashscope-api-key" placeholder="DashScope API Key">
+                                                <small class="form-text text-muted">覆盖 embedding.dashscope.api-key 配置</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 自定义环境变量 -->
+                                <div class="row">
+                                    <div class="col-12">
+                                        <h6><i class="bi bi-plus-square"></i> 自定义环境变量</h6>
+                                        <div id="custom-env-variables">
+                                            <!-- 动态添加的环境变量将在这里显示 -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 保存按钮 -->
+                <div class="mt-4 mb-5">
+                    <button class="btn btn-primary btn-lg" onclick="saveConfig()">
+                        <i class="bi bi-save"></i> 保存配置
+                    </button>
+                    <button class="btn btn-secondary btn-lg ms-2" onclick="resetConfig()">
+                        <i class="bi bi-arrow-clockwise"></i> 重置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script>
+        // 配置管理功能
+        function saveConfig() {
+            // 收集所有配置数据
+            const config = {
+                llm: {
+                    moonshoot: {
+                        sk: $('#moonshot-sk').val(),
+                        enabled: $('#moonshot-enabled').is(':checked'),
+                        'model-name': $('#moonshot-model').val()
+                    },
+                    deepseek: {
+                        sk: $('#deepseek-sk').val(),
+                        enabled: $('#deepseek-enabled').is(':checked'),
+                        'model-name': $('#deepseek-model').val()
+                    },
+                    tongyi: {
+                        sk: $('#tongyi-sk').val(),
+                        enabled: $('#tongyi-enabled').is(':checked'),
+                        'model-name': $('#tongyi-model').val()
+                    },
+                    openrouter: {
+                        sk: $('#openrouter-sk').val(),
+                        enabled: $('#openrouter-enabled').is(':checked'),
+                        'model-name': $('#openrouter-model').val()
+                    }
+                },
+                vector: {
+                    dashvector: {
+                        'api-key': $('#dashvector-api-key').val(),
+                        endpoint: $('#dashvector-endpoint').val(),
+                        cluster: $('#dashvector-cluster').val(),
+                        collection: $('#dashvector-collection').val(),
+                        'image-collection': $('#dashvector-image-collection').val()
+                    }
+                },
+                embedding: {
+                    dashscope: {
+                        'api-key': $('#dashscope-api-key').val(),
+                        endpoint: $('#dashscope-endpoint').val(),
+                        'model-name': $('#dashscope-model').val()
+                    },
+                    bce: {
+                        'api-key': $('#bce-api-key').val(),
+                        endpoint: $('#bce-endpoint').val(),
+                        'model-name': $('#bce-model').val()
+                    }
+                },
+                rerank: {
+                    bce: {
+                        'api-key': $('#rerank-bce-api-key').val(),
+                        endpoint: $('#rerank-bce-endpoint').val(),
+                        'model-name': $('#rerank-bce-model').val()
+                    }
+                },
+                web: {
+                     port: parseInt($('#web-port').val()),
+                     host: $('#web-host').val(),
+                     workers: parseInt($('#web-workers').val())
+                 },
+                 env: {
+                     // 常用环境变量
+                     llm_deepseek_sk: $('#env-llm-deepseek-sk').val(),
+                     llm_moonshoot_sk: $('#env-llm-moonshoot-sk').val(),
+                     llm_tongyi_sk: $('#env-llm-tongyi-sk').val(),
+                     llm_openrouter_sk: $('#env-llm-openrouter-sk').val(),
+                     vector_dashvector_api_key: $('#env-vector-dashvector-api-key').val(),
+                     embedding_dashscope_api_key: $('#env-embedding-dashscope-api-key').val(),
+                     // 自定义环境变量
+                     ...getCustomEnvVariables()
+                 }
+             };
+
+             // 发送配置到后端保存
+             $.ajax({
+                 url: '/api/config',
+                 method: 'POST',
+                 contentType: 'application/json',
+                 data: JSON.stringify(config),
+                 success: function(response) {
+                     if (response.success) {
+                         // 显示保存成功提示
+                         showAlert('配置保存成功！', 'success');
+                     } else {
+                         showAlert('保存失败：' + response.error, 'danger');
+                     }
+                 },
+                 error: function(xhr, status, error) {
+                     console.error('保存配置失败:', error);
+                     showAlert('保存配置失败：' + error, 'danger');
+                 }
+             });
+        }
+
+        // 显示提示信息
+        function showAlert(message, type) {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            
+            // 移除现有的提示
+            $('.alert').remove();
+            
+            // 在页面顶部添加新提示
+             $('.container').prepend(alertHtml);
+            
+            // 3秒后自动隐藏
+            setTimeout(function() {
+                $('.alert').fadeOut();
+            }, 3000);
+        }
+
+        function resetConfig() {
+             if (confirm('确定要重置所有配置吗？这将清空所有已填写的内容。')) {
+                 // 重置所有表单字段
+                 $('input[type="text"], input[type="password"], input[type="number"]').val('');
+                 $('input[type="checkbox"]').prop('checked', false);
+                 
+                 // 恢复默认值
+                 $('#moonshot-model').val('moonshot-v1-128k');
+                 $('#deepseek-model').val('deepseek-chat');
+                 $('#deepseek-enabled').prop('checked', true);
+                 $('#tongyi-model').val('qwen-max');
+                 $('#openrouter-model').val('deepseek/deepseek-chat-v3-0324:free');
+                 $('#dashvector-cluster').val('vertex-vector');
+                 $('#dashscope-endpoint').val('default');
+                 $('#dashscope-model').val('text-embedding-v1');
+                 $('#bce-endpoint').val('https://api.siliconflow.cn/v1/embeddings');
+                 $('#bce-model').val('netease-youdao/bce-embedding-base_v1');
+                 $('#rerank-bce-endpoint').val('https://api.siliconflow.cn/v1/rerank');
+                 $('#rerank-bce-model').val('netease-youdao/bce-reranker-base_v1');
+                 $('#web-port').val('8999');
+                 $('#web-host').val('0.0.0.0');
+                 $('#web-workers').val('8');
+                 
+                 // 清空自定义环境变量
+                 $('#custom-env-variables').empty();
+             }
+         }
+
+         // 添加自定义环境变量
+         function addEnvVariable() {
+             const customEnvContainer = $('#custom-env-variables');
+             const envVarId = 'custom-env-' + Date.now();
+             
+             const envVarHtml = `
+                 <div class="row mb-3 custom-env-item" id="${envVarId}">
+                     <div class="col-md-5">
+                         <input type="text" class="form-control env-var-name" placeholder="变量名（如：custom_api_key）">
+                     </div>
+                     <div class="col-md-6">
+                         <input type="text" class="form-control env-var-value" placeholder="变量值">
+                     </div>
+                     <div class="col-md-1">
+                         <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeEnvVariable('${envVarId}')">
+                             <i class="bi bi-trash"></i>
+                         </button>
+                     </div>
+                 </div>
+             `;
+             
+             customEnvContainer.append(envVarHtml);
+         }
+
+         // 删除自定义环境变量
+         function removeEnvVariable(envVarId) {
+             $('#' + envVarId).remove();
+         }
+
+         // 获取所有自定义环境变量
+         function getCustomEnvVariables() {
+             const customVars = {};
+             $('.custom-env-item').each(function() {
+                 const name = $(this).find('.env-var-name').val().trim();
+                 const value = $(this).find('.env-var-value').val().trim();
+                 if (name && value) {
+                     customVars[name] = value;
+                 }
+             });
+             return customVars;
+         }
+
+        // 页面加载时初始化配置
+        $(document).ready(function() {
+            loadConfig();
+        });
+
+        // 从后端加载配置
+        function loadConfig() {
+            $.ajax({
+                url: '/api/config',
+                method: 'GET',
+                success: function(response) {
+                    if (response.success && response.data) {
+                        const config = response.data;
+                        
+                        // 加载LLM配置
+                         if (config.llm) {
+                             // Moonshot配置
+                             if (config.llm.moonshoot) {
+                                 const moonshot = config.llm.moonshoot;
+                                 $('#moonshot-sk').val(moonshot.sk || '');
+                                 $('#moonshot-enabled').prop('checked', moonshot.enabled || false);
+                                 $('#moonshot-model').val(moonshot['model-name'] || 'moonshot-v1-128k');
+                             }
+                             
+                             // DeepSeek配置
+                             if (config.llm.deepseek) {
+                                 const deepseek = config.llm.deepseek;
+                                 $('#deepseek-sk').val(deepseek.sk || '');
+                                 $('#deepseek-enabled').prop('checked', deepseek.enabled || false);
+                                 $('#deepseek-model').val(deepseek['model-name'] || 'deepseek-chat');
+                             }
+                             
+                             // 通义千问配置
+                             if (config.llm.tongyi) {
+                                 const tongyi = config.llm.tongyi;
+                                 $('#tongyi-sk').val(tongyi.sk || '');
+                                 $('#tongyi-enabled').prop('checked', tongyi.enabled || false);
+                                 $('#tongyi-model').val(tongyi['model-name'] || 'qwen-max');
+                             }
+                             
+                             // OpenRouter配置
+                             if (config.llm.openrouter) {
+                                 const openrouter = config.llm.openrouter;
+                                 $('#openrouter-sk').val(openrouter.sk || '');
+                                 $('#openrouter-enabled').prop('checked', openrouter.enabled || false);
+                                 $('#openrouter-model').val(openrouter['model-name'] || 'deepseek/deepseek-chat-v3-0324:free');
+                             }
+                         }
+                        
+                        // 加载向量数据库配置
+                         if (config.vector && config.vector.dashvector) {
+                             const dashvector = config.vector.dashvector;
+                             $('#dashvector-api-key').val(dashvector['api-key'] || '');
+                             $('#dashvector-endpoint').val(dashvector.endpoint || '');
+                             $('#dashvector-cluster').val(dashvector.cluster || 'vertex-vector');
+                             $('#dashvector-collection').val(dashvector.collection || '');
+                             $('#dashvector-image-collection').val(dashvector['image-collection'] || '');
+                         }
+                        
+                        // 加载嵌入模型配置
+                         if (config.embedding) {
+                             if (config.embedding.dashscope) {
+                                 const dashscope = config.embedding.dashscope;
+                                 $('#dashscope-endpoint').val(dashscope.endpoint || 'default');
+                                 $('#dashscope-api-key').val(dashscope['api-key'] || '');
+                                 $('#dashscope-model').val(dashscope['model-name'] || 'text-embedding-v1');
+                             }
+                             
+                             if (config.embedding.bce) {
+                                 const bce = config.embedding.bce;
+                                 $('#bce-api-key').val(bce['api-key'] || '');
+                                 $('#bce-endpoint').val(bce.endpoint || 'https://api.siliconflow.cn/v1/embeddings');
+                                 $('#bce-model').val(bce['model-name'] || 'netease-youdao/bce-embedding-base_v1');
+                             }
+                         }
+                        
+                        // 加载Rerank配置
+                        if (config.rerank) {
+                            if (config.rerank.bce) {
+                                const bce = config.rerank.bce;
+                                $('#rerank-bce-api-key').val(bce['api-key'] || '');
+                                $('#rerank-bce-endpoint').val(bce.endpoint || 'https://api.siliconflow.cn/v1/rerank');
+                                $('#rerank-bce-model').val(bce['model-name'] || 'netease-youdao/bce-reranker-base_v1');
+                            }
+                        }
+                        
+                        // 加载Web服务配置
+                        if (config.web) {
+                            $('#web-port').val(config.web.port || 8999);
+                            $('#web-host').val(config.web.host || '0.0.0.0');
+                            $('#web-workers').val(config.web.workers || 8);
+                        }
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('加载配置失败:', error);
+                    showAlert('加载配置失败：' + error, 'warning');
+                }
+            });
+        }
+    </script>
+</body>
+</html>

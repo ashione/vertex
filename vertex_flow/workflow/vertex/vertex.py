@@ -1,18 +1,19 @@
 import inspect
 import re
-from vertex_flow.utils.logger import LoggerUtil
-from typing import Generic, TypeVar, Dict, Any, Callable, Set, Type, List, Union
-from vertex_flow.workflow.utils import (
-    is_method_of_class,
-    get_task_module_and_function_name,
-    is_lambda,
-)
+import time
 import traceback
 import weakref
-import time
+from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
+
+from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.edge import (
     Edge,
     EdgeType,
+)
+from vertex_flow.workflow.utils import (
+    get_task_module_and_function_name,
+    is_lambda,
+    is_method_of_class,
 )
 
 logging = LoggerUtil.get_logger()
@@ -98,17 +99,11 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             signature = inspect.signature(task)
             if len(signature.parameters) > 0:
                 first_param = next(iter(signature.parameters.values()))
-                self._input_type = (
-                    first_param.annotation
-                    if first_param.annotation != inspect.Parameter.empty
-                    else None
-                )
+                self._input_type = first_param.annotation if first_param.annotation != inspect.Parameter.empty else None
 
             # 假设返回值类型为任务函数的返回类型注解
             self._output_type = (
-                signature.return_annotation
-                if signature.return_annotation != inspect.Signature.empty
-                else None
+                signature.return_annotation if signature.return_annotation != inspect.Signature.empty else None
             )
 
     def __get_state__(self):
@@ -126,9 +121,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         if not hasattr(self, "task") or self.task is None or not callable(self.task):
             return data
         if is_method_of_class(self.task, self.__class__) or is_lambda(self.task):
-            logging.warning(
-                f"Task {self.task} is not a method of class {self.__class__}, or is a lambda function"
-            )
+            logging.warning(f"Task {self.task} is not a method of class {self.__class__}, or is a lambda function")
             return data
         task_dict = get_task_module_and_function_name(self.task)
         if task_dict:
@@ -186,14 +179,10 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         for var_def in variables:
             if not required_keys.issubset(var_def.keys()):
                 missing_keys = required_keys - var_def.keys()
-                raise ValueError(
-                    f"Variable definition missing required keys: {missing_keys}"
-                )
+                raise ValueError(f"Variable definition missing required keys: {missing_keys}")
             self.add_variable(**var_def)
 
-    def resolve_dependencies(
-        self, variable_selector: Dict[str, str] = None, inputs: Dict[str, Any] = None
-    ):
+    def resolve_dependencies(self, variable_selector: Dict[str, str] = None, inputs: Dict[str, Any] = None):
         """
         Resolves dependencies for the Vertex based on the provided context.
 
@@ -204,11 +193,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         def get_variable_value(var_def):
             source_value = None
-            if (
-                "source_scope" not in var_def
-                or var_def["source_scope"] is None
-                or len(var_def["source_scope"]) == 0
-            ):
+            if "source_scope" not in var_def or var_def["source_scope"] is None or len(var_def["source_scope"]) == 0:
                 if inputs and var_def["source_var"] in inputs:
                     source_value = inputs[var_def["source_var"]]
                 else:
@@ -218,13 +203,8 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             else:
                 source_vertex = self.workflow.get_vertice_by_id(var_def["source_scope"])
                 if source_vertex is None:
-                    raise ValueError(
-                        f"Source Vertex {var_def['source_scope']} not found."
-                    )
-                if (
-                    not source_vertex.output
-                    or var_def["source_var"] not in source_vertex.output
-                ):
+                    raise ValueError(f"Source Vertex {var_def['source_scope']} not found.")
+                if not source_vertex.output or var_def["source_var"] not in source_vertex.output:
                     raise ValueError(
                         f"Source Vertex {source_vertex.task_type}-{source_vertex.id} no {var_def['source_var']} found."
                     )
@@ -233,20 +213,14 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         resolved_values = {}
         if variable_selector:
-            logging.info(
-                f"Only fetch variable from specific selector {variable_selector}"
-            )
+            logging.info(f"Only fetch variable from specific selector {variable_selector}")
             source_value = get_variable_value(variable_selector)
-            resolved_values[
-                variable_selector.get("local_var") or variable_selector["source_var"]
-            ] = source_value
+            resolved_values[variable_selector.get("local_var") or variable_selector["source_var"]] = source_value
             return resolved_values
 
         for var_def in self.variables:
             source_value = get_variable_value(var_def=var_def)
-            resolved_values[var_def.get("local_var") or var_def["source_var"]] = (
-                source_value
-            )
+            resolved_values[var_def.get("local_var") or var_def["source_var"]] = source_value
         return resolved_values
 
     @property
@@ -333,9 +307,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
     def is_executed(self, executed: bool):
         self._is_executed = executed
 
-    def to(
-        self, next_vertex: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS
-    ) -> "Vertex[T]":
+    def to(self, next_vertex: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS) -> "Vertex[T]":
         if not isinstance(next_vertex, Vertex):
             raise ValueError("next_vertex must be an instance of Vertex")
 
@@ -345,9 +317,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         return next_vertex
 
-    def __or__(
-        self, other: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS
-    ) -> "Vertex[T]":
+    def __or__(self, other: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS) -> "Vertex[T]":
         if not isinstance(other, Vertex):
             raise ValueError("Other must be an instance of Vertex")
 
@@ -398,9 +368,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         """
         # 在执行后触发 values 事件
         if self.workflow:
-            self.workflow.emit_event(
-                "values", {"vertex_id": self.id, "output": self.output}
-            )
+            self.workflow.emit_event("values", {"vertex_id": self.id, "output": self.output})
         pass
 
     def on_failed(self):
@@ -410,9 +378,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         """
         # 在状态变化时触发 updates 事件
         if self.workflow:
-            self.workflow.emit_event(
-                "updates", {"vertex_id": self.id, "status": "failed"}
-            )
+            self.workflow.emit_event("updates", {"vertex_id": self.id, "status": "failed"})
         pass
 
     def on_workflow_finished(self):
@@ -457,14 +423,10 @@ class SourceVertex(Vertex[T]):
             for variable_selector in self.variables:
                 logging.info(f"source variable selector : {variable_selector}")
                 # source节点优先从inputs中获取.
-                variable_selected = self.resolve_dependencies(
-                    variable_selector=variable_selector, inputs=inputs
-                )
+                variable_selected = self.resolve_dependencies(variable_selector=variable_selector, inputs=inputs)
                 # 暂时不检查类型.
                 if variable_selector["required"] and not variable_selected:
-                    raise ValueError(
-                        f"No such variable {variable_selector} input, but required is true."
-                    )
+                    raise ValueError(f"No such variable {variable_selector} input, but required is true.")
                 self.output.update(variable_selected)
         elif callable(self._task):
             logging.info(f"Source vertex task calling {inputs}, {self._task}.")
@@ -503,18 +465,12 @@ class SinkVertex(Vertex[T]):
             self.output = {}
             for variable_selector in self.variables:
                 logging.info(f"sink {self.id}, variable selector : {variable_selector}")
-                self.output.update(
-                    self.resolve_dependencies(variable_selector=variable_selector)
-                )
+                self.output.update(self.resolve_dependencies(variable_selector=variable_selector))
         elif callable(self._task):
-            dependencies_outputs = {
-                dep_id: context.get_output(dep_id) for dep_id in self._dependencies
-            }
+            dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             all_inputs = {**dependencies_outputs, **(inputs or {})}
             try:
-                self.output = self._task(
-                    inputs=all_inputs, context=context, **self._params
-                )
+                self.output = self._task(inputs=all_inputs, context=context, **self._params)
             except BaseException as e:
                 logging.info(f"execute task exception {e}.")
                 traceback.print_exc()

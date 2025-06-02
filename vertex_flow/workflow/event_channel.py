@@ -1,7 +1,8 @@
+import asyncio
+import queue
 from collections import defaultdict
 from threading import Lock
-import queue
-import asyncio
+
 from vertex_flow.utils.logger import LoggerUtil
 
 logger = LoggerUtil.get_logger()

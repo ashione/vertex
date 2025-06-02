@@ -40,16 +40,27 @@ function renderWorkflows() {
     workflows.forEach(workflow => {
         const card = createWorkflowCard(workflow);
         container.append(card);
+        
+        // 异步绘制工作流预览图
+        setTimeout(() => {
+            drawWorkflowPreview(workflow);
+        }, 100);
     });
 }
 
 // 创建工作流卡片
 function createWorkflowCard(workflow) {
+    const cardId = `workflow-card-${workflow.id}`;
+    const canvasId = `workflow-canvas-${workflow.id}`;
+    
     return `
         <div class="col-md-4 mb-3">
-            <div class="card h-100">
+            <div class="card workflow-card" id="${cardId}">
                 <div class="card-body">
                     <h5 class="card-title">${workflow.name}</h5>
+                    <div class="workflow-preview">
+                        <canvas id="${canvasId}" width="300" height="80" style="border: 1px solid #dee2e6; border-radius: 4px; width: 100%;"></canvas>
+                    </div>
                     <p class="card-text">${workflow.description || '无描述'}</p>
                     <small class="text-muted">创建时间: ${formatDate(workflow.created_at)}</small>
                 </div>
@@ -189,5 +200,169 @@ function showAlert(message, type) {
 // 格式化日期
 function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN');
+    return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+}
+
+// 绘制工作流预览图
+function drawWorkflowPreview(workflow) {
+    const canvasId = `workflow-canvas-${workflow.id}`;
+    const canvas = document.getElementById(canvasId);
+    
+    if (!canvas) {
+        console.warn(`Canvas ${canvasId} not found`);
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // 清空画布
+    ctx.clearRect(0, 0, width, height);
+    
+    // 设置背景色
+    ctx.fillStyle = '#f8f9fa';
+    ctx.fillRect(0, 0, width, height);
+    
+    // 如果没有节点数据，显示空状态
+    if (!workflow.nodes || workflow.nodes.length === 0) {
+        drawEmptyWorkflow(ctx, width, height);
+        return;
+    }
+    
+    // 计算节点布局
+    const nodes = workflow.nodes || [];
+    const edges = workflow.edges || [];
+    
+    // 简化布局：将节点排列在画布中
+    const nodePositions = calculateNodePositions(nodes, width, height);
+    
+    // 绘制连接线
+    drawEdges(ctx, edges, nodePositions);
+    
+    // 绘制节点
+    drawNodes(ctx, nodes, nodePositions);
+}
+
+// 绘制空工作流状态
+function drawEmptyWorkflow(ctx, width, height) {
+    ctx.fillStyle = '#6c757d';
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('空工作流', width / 2, height / 2);
+}
+
+// 计算节点位置
+function calculateNodePositions(nodes, width, height) {
+    const positions = {};
+    const padding = 30;
+    const nodeWidth = 60;
+    const nodeHeight = 30;
+    
+    if (nodes.length === 0) return positions;
+    
+    // 简单的网格布局
+    const cols = Math.ceil(Math.sqrt(nodes.length));
+    const rows = Math.ceil(nodes.length / cols);
+    
+    const cellWidth = (width - 2 * padding) / cols;
+    const cellHeight = (height - 2 * padding) / rows;
+    
+    nodes.forEach((node, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        
+        positions[node.id] = {
+            x: padding + col * cellWidth + cellWidth / 2,
+            y: padding + row * cellHeight + cellHeight / 2,
+            width: nodeWidth,
+            height: nodeHeight
+        };
+    });
+    
+    return positions;
+}
+
+// 绘制连接线
+function drawEdges(ctx, edges, nodePositions) {
+    ctx.strokeStyle = '#6c757d';
+    ctx.lineWidth = 1;
+    
+    edges.forEach(edge => {
+        const fromPos = nodePositions[edge.from];
+        const toPos = nodePositions[edge.to];
+        
+        if (fromPos && toPos) {
+            ctx.beginPath();
+            ctx.moveTo(fromPos.x, fromPos.y);
+            ctx.lineTo(toPos.x, toPos.y);
+            ctx.stroke();
+            
+            // 绘制箭头
+            drawArrow(ctx, fromPos.x, fromPos.y, toPos.x, toPos.y);
+        }
+    });
+}
+
+// 绘制箭头
+function drawArrow(ctx, fromX, fromY, toX, toY) {
+    const headlen = 8;
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+}
+
+// 绘制节点
+function drawNodes(ctx, nodes, nodePositions) {
+    nodes.forEach(node => {
+        const pos = nodePositions[node.id];
+        if (!pos) return;
+        
+        // 根据节点类型设置颜色
+        const nodeColor = getNodeColor(node.data?.type || 'default');
+        
+        // 绘制节点背景
+        ctx.fillStyle = nodeColor;
+        ctx.fillRect(
+            pos.x - pos.width / 2,
+            pos.y - pos.height / 2,
+            pos.width,
+            pos.height
+        );
+        
+        // 绘制节点边框
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(
+            pos.x - pos.width / 2,
+            pos.y - pos.height / 2,
+            pos.width,
+            pos.height
+        );
+        
+        // 绘制节点标签
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        const label = node.label || node.data?.type || 'Node';
+        const truncatedLabel = label.length > 8 ? label.substring(0, 6) + '..' : label;
+        ctx.fillText(truncatedLabel, pos.x, pos.y + 3);
+    });
+}
+
+// 获取节点颜色
+function getNodeColor(nodeType) {
+    const colors = {
+        'start': '#28a745',
+        'llm': '#007bff',
+        'retrieval': '#ffc107',
+        'end': '#dc3545',
+        'default': '#6c757d'
+    };
+    return colors[nodeType] || colors.default;
 }

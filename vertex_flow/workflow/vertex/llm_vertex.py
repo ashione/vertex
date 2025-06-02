@@ -1,29 +1,30 @@
-from .vertex import (
-    Vertex,
-    T,
-    WorkflowContext,
-    Dict,
-    Callable,
-    Any,
-)
-from vertex_flow.workflow.chat import ChatModel
 import inspect
 import json
 import traceback
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.utils import (
-    env_str,
-    var_str,
-    compatiable_env_str,
-)
+from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
+    ENABLE_STREAM,
     MODEL,
+    POSTPROCESS,
+    PREPROCESS,
     SYSTEM,
     USER,
-    PREPROCESS,
-    POSTPROCESS,
-    ENABLE_STREAM,
+)
+from vertex_flow.workflow.utils import (
+    compatiable_env_str,
+    env_str,
+    var_str,
+)
+
+from .vertex import (
+    Any,
+    Callable,
+    Dict,
+    T,
+    Vertex,
+    WorkflowContext,
 )
 
 logging = LoggerUtil.get_logger()
@@ -48,26 +49,16 @@ class LLMVertex(Vertex[T]):
         self.preprocess = None
         self.postprocess = None
         self.tools = tools or []  # 保存可用的function tools
-        self.enable_stream = (
-            params.get(ENABLE_STREAM, False) if params else False
-        )  # 使用常量 ENABLE_STREAM
+        self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
 
         if task is None:
             logging.info("Use llm chat in task executing.")
             self.model = params[MODEL]  # 使用常量 MODEL
-            self.system_message = (
-                params[SYSTEM] if SYSTEM in params else ""
-            )  # 使用常量 SYSTEM
+            self.system_message = params[SYSTEM] if SYSTEM in params else ""  # 使用常量 SYSTEM
             self.user_messages = params[USER] if USER in params else []  # 使用常量 USER
             task = self.chat
-            self.preprocess = (
-                params[PREPROCESS] if PREPROCESS in params else None
-            )  # 使用常量 PREPROCESS
-            self.postprocess = (
-                params[POSTPROCESS]
-                if POSTPROCESS in params
-                else None  # 使用常量 POSTPROCESS
-            )
+            self.preprocess = params[PREPROCESS] if PREPROCESS in params else None  # 使用常量 PREPROCESS
+            self.postprocess = params[POSTPROCESS] if POSTPROCESS in params else None  # 使用常量 POSTPROCESS
         super().__init__(id=id, name=name, task_type="LLM", task=task, params=params)
 
     def __get_state__(self):
@@ -86,9 +77,7 @@ class LLMVertex(Vertex[T]):
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if callable(self._task):
-            dependencies_outputs = {
-                dep_id: context.get_output(dep_id) for dep_id in self._dependencies
-            }
+            dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             all_inputs = {**dependencies_outputs, **(inputs or {})}
 
             # 获取 task 函数的签名
@@ -131,9 +120,7 @@ class LLMVertex(Vertex[T]):
                 value = value if isinstance(value, str) else str(value)
                 message["content"] = message["content"].replace(env_str(key), value)
                 # For dify workflow compatiable env.
-                message["content"] = message["content"].replace(
-                    compatiable_env_str(key), value
-                )
+                message["content"] = message["content"].replace(compatiable_env_str(key), value)
 
             for key, value in context.get_user_parameters().items():
                 value = value if isinstance(value, str) else str(value)
@@ -171,9 +158,7 @@ class LLMVertex(Vertex[T]):
                 )
             full_content += msg
         self.output = full_content
-        self.workflow.emit_event(
-            "messages", {"vertex_id": self.id, "message": None, "status": "end"}
-        )
+        self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
         return full_content
 
     def _build_llm_tools(self):
@@ -193,9 +178,7 @@ class LLMVertex(Vertex[T]):
         self.messages.append(choice.message)
         for tool_call in choice.message.tool_calls:
             tool_call_name = tool_call.function.name
-            logging.info(
-                f"call tool {tool_call_name}, args: {tool_call.function.arguments}"
-            )
+            logging.info(f"call tool {tool_call_name}, args: {tool_call.function.arguments}")
             tool_call_arguments = json.loads(tool_call.function.arguments)
             tool_result = None
             for tool in self.tools:

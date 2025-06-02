@@ -4,8 +4,11 @@
 """
 
 from typing import Generator, List, Optional
+
 from openai import OpenAI
+
 from vertex_flow.utils.logger import get_logger
+
 from .chat_util import format_history
 
 logger = get_logger()
@@ -18,9 +21,7 @@ class ModelClient:
         self.model = model
         self.client = OpenAI(api_key=api_key, base_url=base_url)
 
-    def generate(
-        self, prompt: str, history: Optional[List[List[str]]] = None
-    ) -> Generator[str, None, None]:
+    def generate(self, prompt: str, history: Optional[List[List[str]]] = None) -> Generator[str, None, None]:
         full_prompt = (
             format_history(history) + f"\n\nHuman: {prompt}\nAssistant: "
             if history

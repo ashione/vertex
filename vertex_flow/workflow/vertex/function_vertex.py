@@ -1,21 +1,21 @@
-from .vertex import (
-    Vertex,
-    T,
-    Any,
-    Dict,
-    List,
-    Callable,
-    Any,
-    WorkflowContext,
-    Union,
-)
+import ast
+import inspect
+import traceback
+from functools import partial
+from types import FunctionType
 
 from vertex_flow.utils.logger import LoggerUtil
-from types import FunctionType
-import ast
-from functools import partial
-import traceback
-import inspect
+
+from .vertex import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    T,
+    Union,
+    Vertex,
+    WorkflowContext,
+)
 
 logging = LoggerUtil.get_logger()
 
@@ -47,9 +47,7 @@ class FunctionVertex(Vertex[T]):
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if callable(self._task):
-            dependencies_outputs = {
-                dep_id: context.get_output(dep_id) for dep_id in self._dependencies
-            }
+            dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             all_inputs = {**dependencies_outputs, **(inputs or {})}
 
             # 获取 task 函数的签名
@@ -63,9 +61,7 @@ class FunctionVertex(Vertex[T]):
                 else:
                     # 否则，不传递 context 参数
                     self.output = self._task(inputs=all_inputs)
-                logging.info(
-                    f"Function {self.id}, output {self.output} after executed."
-                )
+                logging.info(f"Function {self.id}, output {self.output} after executed.")
             except BaseException as e:
                 logging.warning(f"Error executing vertex {self._id}: {e}")
                 traceback.print_exc()
@@ -86,11 +82,7 @@ class IfCase:
         self.logical_operator = logical_operator
 
     def __repr__(self):
-        return (
-            f"IfCase id({self.id},"
-            f"conditions={self.conditions}, "
-            f"logical_operator={self.logical_operator}"
-        )
+        return f"IfCase id({self.id}," f"conditions={self.conditions}, " f"logical_operator={self.logical_operator}"
 
 
 class IfElseVertex(FunctionVertex):
@@ -124,9 +116,7 @@ class IfElseVertex(FunctionVertex):
                     f"Unsupported logical operator: {if_case.logical_operator}. Supported operators are 'and' and 'or'."
                 )
 
-    def evaluate_condition(
-        self, condition: Dict[str, Union[str, Callable[[str], bool]]], inputs
-    ) -> bool:
+    def evaluate_condition(self, condition: Dict[str, Union[str, Callable[[str], bool]]], inputs) -> bool:
         """
         Evaluates a single condition using the context.
 
@@ -143,9 +133,9 @@ class IfElseVertex(FunctionVertex):
         variable_name = variable_selector["source_var"]
 
         # 获取变量值
-        variable_value = self.resolve_dependencies(
-            variable_selector=variable_selector, inputs=inputs
-        ).get(variable_name)
+        variable_value = self.resolve_dependencies(variable_selector=variable_selector, inputs=inputs).get(
+            variable_name
+        )
 
         # 检查变量是否存在
         if variable_value is None:
@@ -184,10 +174,7 @@ class IfElseVertex(FunctionVertex):
         Returns:
             bool: The combined result of all conditions.
         """
-        results = [
-            self.evaluate_condition(condition, inputs)
-            for condition in if_case.conditions
-        ]
+        results = [self.evaluate_condition(condition, inputs) for condition in if_case.conditions]
 
         if if_case.logical_operator == "and":
             return all(results)
@@ -195,13 +182,9 @@ class IfElseVertex(FunctionVertex):
             return any(results)
         else:
             # 这里理论上不会触发，因为我们已经在构造函数中做了检查
-            raise ValueError(
-                f"Unsupported logical operator: {if_case.logical_operator}"
-            )
+            raise ValueError(f"Unsupported logical operator: {if_case.logical_operator}")
 
-    def expression(
-        self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None
-    ):
+    def expression(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         """
         Executes the logic of the IfElseVertex based on the given inputs and context.
 
@@ -250,9 +233,7 @@ class CodeVertex(FunctionVertex):
         try:
             # 安全检查：仅允许函数定义，并且只能有一个名为 main 的函数
             tree = ast.parse(code)
-            functions = [
-                node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-            ]
+            functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
             if self._only_main_func:
                 if len(functions) != 1 or functions[0].name != "main":
                     raise ValueError("Only one function named 'main' is allowed.")

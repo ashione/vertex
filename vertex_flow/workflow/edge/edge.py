@@ -95,6 +95,4 @@ class Edge(Generic[T]):
         return self._edge_type
 
     def __str__(self) -> str:
-        return f"->({self.edge_type})->".join(
-            [self.source_vertex.id, self.target_vertex.id]
-        )
+        return f"->({self.edge_type})->".join([self.source_vertex.id, self.target_vertex.id])

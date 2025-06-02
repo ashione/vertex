@@ -4,20 +4,17 @@ LangChain客户端实现
 """
 
 from typing import Generator, List
+
+from chat_util import format_history
 from langchain_community.llms import Ollama
 from langchain_core.callbacks import StreamingStdOutCallbackHandler
-from chat_util import format_history
 
 
 class LangChainClient:
     def __init__(self, host: str, model: str):
-        self.llm = Ollama(
-            model=model, base_url=host, callbacks=[StreamingStdOutCallbackHandler()]
-        )
+        self.llm = Ollama(model=model, base_url=host, callbacks=[StreamingStdOutCallbackHandler()])
 
-    def generate(
-        self, prompt: str, history: List[List[str]] = None
-    ) -> Generator[str, None, None]:
+    def generate(self, prompt: str, history: List[List[str]] = None) -> Generator[str, None, None]:
         full_prompt = (
             format_history(history) + f"\n\nHuman: {prompt}\nAssistant: "
             if history

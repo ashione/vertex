@@ -1,12 +1,11 @@
-from typing import Dict, Any, Callable, TypeVar
-from vertex_flow.workflow.vertex import Vertex
-from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.rerank import RerankProvider, BCERerankProvider
+from typing import Any, Callable, Dict, TypeVar
 
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.rerank import BCERerankProvider, RerankProvider
+from vertex_flow.workflow.service import VertexFlowService
 
 # import fake interface
-from .vertex import WorkflowContext
+from .vertex import Vertex, WorkflowContext
 
 logging = LoggerUtil.get_logger()
 
@@ -41,9 +40,7 @@ class RerankVertex(Vertex[T]):
                     endpoint=rerank_config["endpoint"],
                 )
             else:
-                logging.warning(
-                    "Service is not provided, using default rerank provider."
-                )
+                logging.warning("Service is not provided, using default rerank provider.")
         else:
             logging.info("Rerank provider already initialized.")
 
@@ -62,9 +59,7 @@ class RerankVertex(Vertex[T]):
         documents = local_inputs.get("documents")
         logging.info(f"inputs : {local_inputs}")
         if not query or not documents:
-            raise ValueError(
-                "Input 'query' and 'documents' are required for reranking."
-            )
+            raise ValueError("Input 'query' and 'documents' are required for reranking.")
 
         # 执行重排序
         try:

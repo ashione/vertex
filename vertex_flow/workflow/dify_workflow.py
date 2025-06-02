@@ -1,29 +1,29 @@
 # -*- coding: utf-8 -*-
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.edge import (
+    Condition,
+    Edge,
+)
 from vertex_flow.workflow.rag_config import read_yaml_config
+from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.vertex import (
-    SourceVertex,
-    SinkVertex,
-    LLMVertex,
-    IfElseVertex,
     CodeVertex,
     IfCase,
+    IfElseVertex,
+    LLMVertex,
+    SinkVertex,
+    SourceVertex,
 )
-
-from vertex_flow.workflow.edge import (
-    Edge,
-    Condition,
-)
-
 from vertex_flow.workflow.workflow import (
-    Edge as WorkflowEdge,
-    Dict,
-    List,
     Any,
+    Dict,
+)
+from vertex_flow.workflow.workflow import Edge as WorkflowEdge
+from vertex_flow.workflow.workflow import (
+    List,
     Workflow,
     WorkflowContext,
 )
-from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.utils.logger import LoggerUtil
 
 logger = LoggerUtil.get_logger()
 
@@ -57,10 +57,7 @@ class Node:
         }
 
     def to_workflow_variables(self, variables=None):
-        return [
-            self.to_workflow_variable(var_item)
-            for var_item in variables or self.variables
-        ]
+        return [self.to_workflow_variable(var_item) for var_item in variables or self.variables]
 
     def add_connection(self, edge):
         self.connections.append(edge)
@@ -91,9 +88,7 @@ class SourceNode(Node):
             ]
 
     def __repr__(self):
-        return (
-            f"SourceNode({self.id}, title={self.title}, " f"variables={self.variables})"
-        )
+        return f"SourceNode({self.id}, title={self.title}, " f"variables={self.variables})"
 
 
 class SinkNode(Node):
@@ -140,9 +135,7 @@ class CodeNode(Node):
         self.code_content = data.get("data", {}).get("code", "")
 
     def __repr__(self):
-        return (
-            f"Code({self.id}, title={self.title}, " f"code_content={self.code_content}"
-        )
+        return f"Code({self.id}, title={self.title}, " f"code_content={self.code_content}"
 
 
 class IfElseNode(Node):
@@ -326,9 +319,7 @@ class Graph:
             source_vertex = workflow.vertices[edge.source.id]
             target_vertex = workflow.vertices[edge.target.id]
             if isinstance(edge.source, IfElseNode):
-                source_vertex.to(
-                    target_vertex, Condition(id=edge.source_handle.lower())
-                )
+                source_vertex.to(target_vertex, Condition(id=edge.source_handle.lower()))
             else:
                 source_vertex | target_vertex
 
@@ -373,9 +364,7 @@ def print_graph(graph):
             logger.info(f"Undefined node type, {node}")
         logger.info("Connections:")
         for edge in node.connections:
-            logger.info(
-                f"- Edge ID: {edge.id}, Source: {edge.source.id}, Target: {edge.target.id}, Type: {edge.type}"
-            )
+            logger.info(f"- Edge ID: {edge.id}, Source: {edge.source.id}, Target: {edge.target.id}, Type: {edge.type}")
 
     logger.info("\nEdges:")
     for edge in edges:
@@ -383,9 +372,7 @@ def print_graph(graph):
 
     logger.info("\nSource Nodes:")
     for source_node in source_nodes:
-        logger.info(
-            f"SourceNode ID: {source_node.id}, Title: {source_node.title}, Variables: {source_node.variables}"
-        )
+        logger.info(f"SourceNode ID: {source_node.id}, Title: {source_node.title}, Variables: {source_node.variables}")
 
     logger.info("\nSink Nodes:")
     for sink_node in sink_nodes:
