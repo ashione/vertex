@@ -396,17 +396,17 @@ def get_dify_workflow_instances(
         return instances
 
     instances = {}
-    
+
     # 注册基于代码的深度研究工作流
     from vertex_flow.workflow.app.deep_research_workflow import create_deep_research_workflow
-    
+
     deep_research_builder = create_deep_research_workflow(vertex_service)
     instances["deep-research"] = {
         "graph": {"name": "deep-research", "description": "Deep Research Workflow for comprehensive topic analysis"},
-        "builder": deep_research_builder
+        "builder": deep_research_builder,
     }
     logger.info("已注册深度研究工作流：deep-research")
-    
+
     # 注册基于YAML配置的工作流
     dify_instances_config = vertex_service.get_dify_workflow_instances()
     logger.info(f"dify instance config : {dify_instances_config}")

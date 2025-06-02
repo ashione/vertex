@@ -12,60 +12,60 @@
 6. 总结报告 - 生成完整的研究总结报告
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
+from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER
 from vertex_flow.workflow.workflow import (
+    LLMVertex,
+    SinkVertex,
+    SourceVertex,
     Workflow,
     WorkflowContext,
-    LLMVertex,
-    SourceVertex,
-    SinkVertex,
 )
-from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER
-from vertex_flow.utils.logger import LoggerUtil
 
 logger = LoggerUtil.get_logger()
 
 
 class DeepResearchWorkflow:
     """深度研究工作流类"""
-    
+
     def __init__(self, vertex_service):
         self.vertex_service = vertex_service
         self.workflow_name = "deep-research"
         self.description = "Deep Research Workflow for comprehensive topic analysis and investigation"
-    
+
     def create_workflow(self, input_data: Dict[str, Any]) -> Workflow:
         """创建深度研究工作流
-        
+
         Args:
             input_data: 包含研究主题和其他参数的输入数据
-            
+
         Returns:
             Workflow: 配置好的工作流实例
         """
         # 创建工作流上下文
         context = WorkflowContext(
-            env_parameters=input_data.get("env_vars", {}),
-            user_parameters=input_data.get("user_vars", {})
+            env_parameters=input_data.get("env_vars", {}), user_parameters=input_data.get("user_vars", {})
         )
-        
+
         # 创建工作流
         workflow = Workflow(context)
-        
+
         # 获取研究主题
         research_topic = input_data.get("content", "")
         logger.info(f"开始深度研究，研究主题：{research_topic}")
         stream_mode = input_data.get("stream", False)
-        
+
         # 创建源顶点
         source = SourceVertex(
             id="source",
             task=lambda inputs, context: {
                 "research_topic": inputs.get("content", research_topic),
-                "message": f"开始深度研究：{inputs.get("content", research_topic)}"
-            }
+                "message": f"开始深度研究：{inputs.get('content', research_topic)}",
+            },
         )
-        
+
         # 1. 主题分析顶点
         topic_analysis = LLMVertex(
             id="topic_analysis",
@@ -74,9 +74,9 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_topic_analysis_system_prompt(),
                 USER: [self._get_topic_analysis_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 2. 研究规划顶点
         research_planning = LLMVertex(
             id="research_planning",
@@ -85,9 +85,9 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_research_planning_system_prompt(),
                 USER: [self._get_research_planning_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 3. 信息收集顶点
         information_collection = LLMVertex(
             id="information_collection",
@@ -96,9 +96,9 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_information_collection_system_prompt(),
                 USER: [self._get_information_collection_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 4. 深度分析顶点
         deep_analysis = LLMVertex(
             id="deep_analysis",
@@ -107,9 +107,9 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_deep_analysis_system_prompt(),
                 USER: [self._get_deep_analysis_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 5. 交叉验证顶点
         cross_validation = LLMVertex(
             id="cross_validation",
@@ -118,9 +118,9 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_cross_validation_system_prompt(),
                 USER: [self._get_cross_validation_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 6. 总结报告顶点
         summary_report = LLMVertex(
             id="summary_report",
@@ -129,19 +129,19 @@ class DeepResearchWorkflow:
                 SYSTEM: self._get_summary_report_system_prompt(),
                 USER: [self._get_summary_report_user_prompt()],
                 ENABLE_STREAM: stream_mode,
-            }
+            },
         )
-        
+
         # 创建汇聚顶点
         sink = SinkVertex(
             id="sink",
             task=lambda inputs, context: {
                 "final_report": inputs.get("summary_report", ""),
                 "message": "深度研究工作流执行完成",
-                "research_topic": research_topic
-            }
+                "research_topic": research_topic,
+            },
         )
-        
+
         # 添加所有顶点到工作流
         workflow.add_vertex(source)
         workflow.add_vertex(topic_analysis)
@@ -151,7 +151,7 @@ class DeepResearchWorkflow:
         workflow.add_vertex(cross_validation)
         workflow.add_vertex(summary_report)
         workflow.add_vertex(sink)
-        
+
         # 连接顶点形成工作流管道
         source | topic_analysis
         topic_analysis | research_planning
@@ -160,10 +160,10 @@ class DeepResearchWorkflow:
         deep_analysis | cross_validation
         cross_validation | summary_report
         summary_report | sink
-        
+
         logger.info(f"深度研究工作流创建完成，研究主题：{research_topic}")
         return workflow
-    
+
     def _get_topic_analysis_system_prompt(self) -> str:
         """主题分析阶段的系统提示词"""
         return """
@@ -178,7 +178,7 @@ class DeepResearchWorkflow:
 
 请提供详细、专业的分析报告。
         """.strip()
-    
+
     def _get_topic_analysis_user_prompt(self) -> str:
         """主题分析阶段的用户提示词"""
         return """
@@ -188,7 +188,7 @@ class DeepResearchWorkflow:
 
 请提供详细的主题分析报告。
         """.strip()
-    
+
     def _get_research_planning_system_prompt(self) -> str:
         """研究规划阶段的系统提示词"""
         return """
@@ -204,7 +204,7 @@ class DeepResearchWorkflow:
 
 请提供完整、可执行的研究计划方案。
         """.strip()
-    
+
     def _get_research_planning_user_prompt(self) -> str:
         """研究规划阶段的用户提示词"""
         return """
@@ -214,7 +214,7 @@ class DeepResearchWorkflow:
 
 请提供完整的研究计划方案。
         """.strip()
-    
+
     def _get_information_collection_system_prompt(self) -> str:
         """信息收集阶段的系统提示词"""
         return """
@@ -231,7 +231,7 @@ class DeepResearchWorkflow:
 
 请提供详细、全面的信息收集报告。
         """.strip()
-    
+
     def _get_information_collection_user_prompt(self) -> str:
         """信息收集阶段的用户提示词"""
         return """
@@ -241,7 +241,7 @@ class DeepResearchWorkflow:
 
 请提供详细的信息收集报告。
         """.strip()
-    
+
     def _get_deep_analysis_system_prompt(self) -> str:
         """深度分析阶段的系统提示词"""
         return """
@@ -259,7 +259,7 @@ class DeepResearchWorkflow:
 
 请提供深入、有价值的分析报告和洞察。
         """.strip()
-    
+
     def _get_deep_analysis_user_prompt(self) -> str:
         """深度分析阶段的用户提示词"""
         return """
@@ -269,7 +269,7 @@ class DeepResearchWorkflow:
 
 请提供深入的分析报告和洞察。
         """.strip()
-    
+
     def _get_cross_validation_system_prompt(self) -> str:
         """交叉验证阶段的系统提示词"""
         return """
@@ -286,7 +286,7 @@ class DeepResearchWorkflow:
 
 请提供严谨、客观的验证报告和修正建议。
         """.strip()
-    
+
     def _get_cross_validation_user_prompt(self) -> str:
         """交叉验证阶段的用户提示词"""
         return """
@@ -296,7 +296,7 @@ class DeepResearchWorkflow:
 
 请提供验证报告和修正建议。
         """.strip()
-    
+
     def _get_summary_report_system_prompt(self) -> str:
         """总结报告阶段的系统提示词"""
         return """
@@ -316,7 +316,7 @@ class DeepResearchWorkflow:
 
 请撰写专业、完整、有价值的研究总结报告。
         """.strip()
-    
+
     def _get_summary_report_user_prompt(self) -> str:
         """总结报告阶段的用户提示词"""
         return """
@@ -340,26 +340,26 @@ class DeepResearchWorkflow:
 
 def create_deep_research_workflow(vertex_service):
     """创建深度研究工作流的工厂函数
-    
+
     Args:
         vertex_service: VertexFlow服务实例
-        
+
     Returns:
         function: 返回工作流构建函数
     """
     workflow_builder = DeepResearchWorkflow(vertex_service)
-    
+
     def build_workflow(input_data: Dict[str, Any]) -> Workflow:
         """构建工作流的函数
-        
+
         Args:
             input_data: 输入数据，包含研究主题等信息
-            
+
         Returns:
             Workflow: 配置好的深度研究工作流
         """
         return workflow_builder.create_workflow(input_data)
-    
+
     return build_workflow
 
 
