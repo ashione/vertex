@@ -168,6 +168,13 @@ Vertex provides an intuitive and easy-to-use Web interface with the following ma
 - Supports multiple API services like DeepSeek, OpenRouter
 - After configuration, you can use corresponding models in chat and workflows
 
+#### Configuration File Security (Automatic Sanitization)
+- **Automatic Sanitization**: The system automatically sanitizes sensitive information (API keys, secret keys) in configuration files before commits
+- **Supported Formats**: Automatically detects and sanitizes `sk`, `api-key`, and similar sensitive fields
+- **Manual Sanitization**: Run `python scripts/sanitize_config.py` to manually sanitize configuration files
+- **Environment Variables**: Use environment variables to inject real API keys at runtime (e.g., `export llm_deepseek_sk="your-real-key"`)
+- **Documentation**: See `docs/SANITIZATION_README.md` for detailed sanitization rules and usage
+
 #### Model Parameters
 - Temperature: Controls randomness and creativity of output
 - Max Tokens: Limits maximum length of single output
@@ -178,6 +185,85 @@ Vertex provides an intuitive and easy-to-use Web interface with the following ma
 - `Ctrl/Cmd + Enter`: Send chat message
 - `Escape`: Cancel workflow node connection mode
 - `Ctrl/Cmd + S`: Save workflow (in development)
+
+## Development Guide
+
+### Pre-commit Checks
+
+The project integrates automated code quality checks and sensitive information sanitization to ensure security and quality of code commits.
+
+#### Automatic Execution (Recommended)
+
+Before each `git commit`, the system automatically executes pre-commit checks:
+
+```bash
+# Normal git commit workflow
+git add .
+git commit -m "your commit message"
+```
+
+The system automatically performs the following checks:
+1. **Configuration File Sanitization**: Automatically detects and sanitizes sensitive information in `llm.yml` and other config files
+2. **Code Quality Checks**: Runs flake8, black, isort and other tools to check code standards
+3. **Sensitive Information Scanning**: Checks for any missed API keys, passwords, and other sensitive information
+
+#### Manual Execution
+
+To manually run pre-commit checks:
+
+```bash
+# Execute complete pre-commit checks
+./scripts/precommit.sh
+
+# Execute only configuration file sanitization
+python scripts/sanitize_config.py
+```
+
+#### Pre-commit Check Details
+
+**Configuration File Sanitization**:
+- Automatically detects sensitive fields in `config/llm.yml`
+- Supports multiple key formats like `sk`, `api-key`
+- Sanitized format: `sk-***SANITIZED***`, `sk-or-***SANITIZED***`
+
+**Code Quality Checks**:
+- **flake8**: Python code style and syntax checking
+- **black**: Code formatting checks
+- **isort**: Import statement sorting checks
+
+**Sensitive Information Scanning**:
+- Checks staged files for API keys, passwords, and other sensitive information
+- Supports multiple sensitive information pattern matching
+- Prompts user for confirmation when sensitive information is found
+
+#### Environment Variable Configuration
+
+To use real API keys at runtime, it's recommended to configure environment variables:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export llm_deepseek_sk="your-real-deepseek-key"
+export llm_openrouter_sk="your-real-openrouter-key"
+
+# Or set temporarily at runtime
+llm_deepseek_sk="your-key" python vertex_flow/src/app.py
+```
+
+#### Troubleshooting
+
+**Pre-commit Check Failures**:
+1. Check if Python environment has required dependencies installed correctly
+2. Ensure code meets flake8, black, isort standards
+3. Check for any unsanitized sensitive information
+
+**Sanitization Function Issues**:
+1. Ensure `scripts/sanitize_config.py` has execute permissions
+2. Check if configuration file format is correct
+3. See detailed documentation: `docs/SANITIZATION_README.md`
+
+**More Information**:
+- Pre-commit detailed documentation: `docs/PRECOMMIT_README.md`
+- Sanitization feature documentation: `docs/SANITIZATION_README.md`
 
 ### Troubleshooting
 
@@ -348,26 +434,23 @@ This request will return a streaming response containing workflow execution resu
 ## Directory Structure
 
 ```
-vertex/
-├── src/
-│   ├── app.py              # Main application entry
-│   ├── native_client.py    # Local Ollama client
-│   ├── model_client.py     # Generic API client
-│   ├── langchain_client.py # LangChain client
-│   ├── chat_util.py        # Chat history formatting tools
-│   └── utils/
-│       └── logger.py       # Logging tools
-├── vertex_flow/
-│   ├── src/                # VertexFlow workflow main program
-│   ├── workflow/           # Workflow and LLM vertex definitions
-│   ├── utils/              # Tools and logging
-├── scripts/
-│   └── setup_ollama.py     # Ollama environment and model auto-configuration script
-├── requirements.txt
-├── setup.py
-└── README.md
+localqwen/
+├── vertex_flow/            # Core workflow engine with multi-model collaboration and advanced workflows
+├── web_ui/                 # Web user interface providing visual operation interface
+├── scripts/                # Development and deployment scripts with pre-commit checks and config sanitization
+├── docs/                   # Project documentation including development guides and usage instructions
+├── config/                 # Configuration files directory for LLM and other configurations
+├── .github/                # GitHub Actions workflow configurations
+└── Other config files      # Python project configuration, dependency management, etc.
 ```
-(VertexFlow related directories are integrated, supporting advanced workflows and multi-model collaboration)
+
+### Main Module Description
+
+- **vertex_flow/**: Core workflow engine including multi-model clients, workflow management, vector processing, etc.
+- **web_ui/**: Web user interface providing chat, configuration management, workflow visualization, etc.
+- **scripts/**: Development tool scripts including environment setup, pre-commit checks, config sanitization, etc.
+- **docs/**: Project documentation including detailed usage guides and development instructions
+- **config/**: Configuration file storage directory supporting multiple LLM service configurations
 
 ## Development Roadmap
 

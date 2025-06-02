@@ -168,6 +168,13 @@ Vertex 提供了直观易用的 Web 界面，包含以下主要功能模块：
 - 支持 DeepSeek、OpenRouter 等多种 API 服务
 - 配置后即可在聊天和工作流中使用对应模型
 
+#### 配置文件安全（自动脱敏）
+- **自动脱敏**：系统在提交前自动对配置文件中的敏感信息（API密钥、密钥等）进行脱敏处理
+- **支持格式**：自动检测并脱敏 `sk`、`api-key` 等敏感字段
+- **手动脱敏**：运行 `python scripts/sanitize_config.py` 手动对配置文件进行脱敏
+- **环境变量**：使用环境变量在运行时注入真实API密钥（如：`export llm_deepseek_sk="your-real-key"`）
+- **详细文档**：查看 `docs/SANITIZATION_README.md` 了解详细的脱敏规则和使用方法
+
 #### 模型参数
 - 温度：控制输出的随机性和创造性
 - 最大令牌数：限制单次输出的最大长度
@@ -178,6 +185,85 @@ Vertex 提供了直观易用的 Web 界面，包含以下主要功能模块：
 - `Ctrl/Cmd + Enter`：发送聊天消息
 - `Escape`：取消工作流节点连接模式
 - `Ctrl/Cmd + S`：保存工作流（开发中）
+
+## 开发指南
+
+### 代码提交前检查（Pre-commit）
+
+项目集成了自动化的代码质量检查和敏感信息脱敏功能，确保代码提交的安全性和质量。
+
+#### 自动执行（推荐）
+
+在每次 `git commit` 前，系统会自动执行预提交检查：
+
+```bash
+# 正常的git提交流程
+git add .
+git commit -m "your commit message"
+```
+
+系统会自动执行以下检查：
+1. **配置文件脱敏**：自动检测并脱敏 `llm.yml` 等配置文件中的敏感信息
+2. **代码质量检查**：运行 flake8、black、isort 等工具检查代码规范
+3. **敏感信息扫描**：检查是否有遗漏的API密钥、密码等敏感信息
+
+#### 手动执行
+
+如需手动运行预提交检查：
+
+```bash
+# 执行完整的预提交检查
+./scripts/precommit.sh
+
+# 仅执行配置文件脱敏
+python scripts/sanitize_config.py
+```
+
+#### 预提交检查详情
+
+**配置文件脱敏**：
+- 自动检测 `config/llm.yml` 中的敏感字段
+- 支持 `sk`、`api-key` 等多种密钥格式
+- 脱敏后格式：`sk-***SANITIZED***`、`sk-or-***SANITIZED***`
+
+**代码质量检查**：
+- **flake8**：Python代码风格和语法检查
+- **black**：代码格式化检查
+- **isort**：import语句排序检查
+
+**敏感信息扫描**：
+- 检查暂存区文件中的API密钥、密码等敏感信息
+- 支持多种敏感信息模式匹配
+- 发现敏感信息时会提示用户确认
+
+#### 环境变量配置
+
+为了在运行时使用真实的API密钥，建议配置环境变量：
+
+```bash
+# 在 ~/.bashrc 或 ~/.zshrc 中添加
+export llm_deepseek_sk="your-real-deepseek-key"
+export llm_openrouter_sk="your-real-openrouter-key"
+
+# 或者在运行时临时设置
+llm_deepseek_sk="your-key" python vertex_flow/src/app.py
+```
+
+#### 故障排除
+
+**预提交检查失败**：
+1. 检查Python环境是否正确安装所需依赖
+2. 确保代码符合flake8、black、isort的规范要求
+3. 检查是否有未脱敏的敏感信息
+
+**脱敏功能异常**：
+1. 确保 `scripts/sanitize_config.py` 有执行权限
+2. 检查配置文件格式是否正确
+3. 查看详细文档：`docs/SANITIZATION_README.md`
+
+**更多信息**：
+- 预提交详细说明：`docs/PRECOMMIT_README.md`
+- 脱敏功能说明：`docs/SANITIZATION_README.md`
 
 ### 故障排除
 
@@ -349,26 +435,23 @@ curl -X POST "http://localhost:8999/workflow" --no-buffer \
 ## 目录结构说明
 
 ```
-vertex/
-├── src/
-│   ├── app.py              # 主应用入口
-│   ├── native_client.py    # 本地 Ollama 客户端
-│   ├── model_client.py     # 通用 API 客户端
-│   ├── langchain_client.py # LangChain 客户端
-│   ├── chat_util.py        # 聊天历史格式化工具
-│   └── utils/
-│       └── logger.py       # 日志工具
-├── vertex_flow/
-│   ├── src/                # VertexFlow 工作流主程序
-│   ├── workflow/           # 工作流与 LLM 顶点定义
-│   ├── utils/              # 工具与日志
-├── scripts/
-│   └── setup_ollama.py     # Ollama 环境与模型自动配置脚本
-├── requirements.txt
-├── setup.py
-└── README.md
+localqwen/
+├── vertex_flow/            # 核心工作流引擎，支持多模型协同和高级工作流
+├── web_ui/                 # Web 用户界面，提供可视化操作界面
+├── scripts/                # 开发和部署脚本，包含预提交检查和配置脱敏功能
+├── docs/                   # 项目文档，包含开发指南和使用说明
+├── config/                 # 配置文件目录，存放 LLM 和其他配置
+├── .github/                # GitHub Actions 工作流配置
+└── 其他配置文件             # Python 项目配置、依赖管理等
 ```
-（VertexFlow 相关目录已集成，支持高级工作流与多模型协同）
+
+### 主要模块说明
+
+- **vertex_flow/**: 核心工作流引擎，包含多模型客户端、工作流管理、向量处理等功能
+- **web_ui/**: Web 用户界面，提供聊天、配置管理、工作流可视化等功能
+- **scripts/**: 开发工具脚本，包含环境配置、预提交检查、配置脱敏等功能
+- **docs/**: 项目文档，包含详细的使用指南和开发说明
+- **config/**: 配置文件存放目录，支持多种 LLM 服务配置
 
 ## 开发计划
 
