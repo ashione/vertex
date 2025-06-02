@@ -22,8 +22,8 @@ def sanitize_sk_values(content):
         str: 脱敏后的内容
     """
     # 匹配sk配置行的正则表达式
-    # 匹配格式: sk: ${llm.deepseek.sk:sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
-    # 也匹配: sk: ${llm.openrouter.sk:sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+    # 匹配格式: sk: ${llm.deepseek.sk:sk-[ACTUAL_KEY]}
+    # 也匹配: sk: ${llm.openrouter.sk:sk-or-v1-[ACTUAL_KEY]}
     sk_pattern = r"(\s*sk:\s*\$\{[^:]+:)(sk-[a-zA-Z0-9\-]+)(\})"
 
     def replace_sk(match):

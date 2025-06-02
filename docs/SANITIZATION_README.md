@@ -17,10 +17,10 @@
 脱敏脚本 `scripts/sanitize_config.py` 会处理以下类型的敏感信息：
 
 #### SK (Secret Key) 脱敏
-- **原始格式**: `sk: ${llm.deepseek.sk:sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}`
+- **原始格式**: `sk: ${llm.deepseek.sk:sk-[ACTUAL_KEY]}`
 - **脱敏后**: `sk: ${llm.deepseek.sk:sk-***SANITIZED***}`
 
-- **原始格式**: `sk: ${llm.openrouter.sk:sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}`
+- **原始格式**: `sk: ${llm.openrouter.sk:sk-or-v1-[ACTUAL_KEY]}`
 - **脱敏后**: `sk: ${llm.openrouter.sk:sk-or-***SANITIZED***}`
 
 #### API Key 脱敏
