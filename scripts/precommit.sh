@@ -45,8 +45,8 @@ check_package "flake8"
 check_package "black"
 check_package "isort"
 
-# Get list of Python files to check (staged files)
-PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+# Get list of Python files to check (staged files, excluding pipeline directory)
+PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep -v '^\.github/' || true)
 
 if [ -z "$PYTHON_FILES" ]; then
     print_status "No Python files to check"
@@ -95,7 +95,7 @@ SENSITIVE_PATTERNS=(
 )
 
 SENSITIVE_FOUND=false
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v '^\.github/' || true)
 
 for pattern in "${SENSITIVE_PATTERNS[@]}"; do
     if echo "$STAGED_FILES" | xargs grep -l -i "$pattern" 2>/dev/null; then
@@ -119,7 +119,7 @@ fi
 
 # Check for large files
 echo "📏 Checking for large files..."
-LARGE_FILES=$(git diff --cached --name-only --diff-filter=ACM | xargs ls -la 2>/dev/null | awk '$5 > 1048576 {print $9, "(" $5 " bytes)"}' || true)
+LARGE_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v '^\.github/' | xargs ls -la 2>/dev/null | awk '$5 > 1048576 {print $9, "(" $5 " bytes)"}' || true)
 
 if [ -n "$LARGE_FILES" ]; then
     print_warning "Large files detected:"
@@ -134,11 +134,11 @@ else
     print_status "No large files detected"
 fi
 
-# Re-add modified files to staging area
+# Re-add modified files to staging area (excluding pipeline directory)
 if [ -n "$PYTHON_FILES" ]; then
     echo "📝 Re-adding formatted files to staging area..."
     for file in $PYTHON_FILES; do
-        if [ -f "$file" ]; then
+        if [ -f "$file" ] && [[ "$file" != .github/* ]]; then
             git add "$file"
         fi
     done

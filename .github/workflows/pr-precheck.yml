@@ -89,8 +89,8 @@ jobs:
       run: |
         echo "🐍 Checking Python code formatting..."
         
-        # 查找所有Python文件
-        PYTHON_FILES=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./.git/*")
+        # 查找所有Python文件（排除流水线目录）
+        PYTHON_FILES=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./.git/*" -not -path "./.github/*")
         
         if [ -z "$PYTHON_FILES" ]; then
           echo "ℹ️ 未找到Python文件，跳过格式检查。"
