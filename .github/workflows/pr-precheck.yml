@@ -1,0 +1,162 @@
+name: PR Precheck
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Check for sensitive information
+      run: |
+        echo "🔍 Checking for sensitive information in PR..."
+        
+        # 检查常见的敏感信息模式
+        SENSITIVE_PATTERNS=(
+          "sk-[a-zA-Z0-9]{32,}"
+          "sk-or-[a-zA-Z0-9-]{32,}"
+          "api[_-]?key[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "secret[_-]?key[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "access[_-]?token[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "password[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]?"
+          "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}.*password"
+          "mongodb://[^\s]+"
+          "mysql://[^\s]+"
+          "postgres://[^\s]+"
+          "redis://[^\s]+"
+        )
+        
+        FOUND_SENSITIVE=false
+        
+        # 获取PR中修改的文件
+        git diff --name-only origin/${{ github.base_ref }}..HEAD > changed_files.txt
+        
+        echo "📁 Files changed in this PR:"
+        cat changed_files.txt
+        echo ""
+        
+        # 检查每个修改的文件
+        while IFS= read -r file; do
+          if [ -f "$file" ]; then
+            echo "🔍 Checking file: $file"
+            
+            # 获取文件的新增内容
+            git diff origin/${{ github.base_ref }}..HEAD -- "$file" | grep "^+" > temp_additions.txt
+            
+            # 检查每个敏感信息模式
+            for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+              if grep -iE "$pattern" temp_additions.txt > /dev/null 2>&1; then
+                echo "❌ 发现可能的敏感信息在文件 $file:"
+                grep -iE "$pattern" temp_additions.txt | head -5
+                echo ""
+                FOUND_SENSITIVE=true
+              fi
+            done
+            
+            rm -f temp_additions.txt
+          fi
+        done < changed_files.txt
+        
+        rm -f changed_files.txt
+        
+        if [ "$FOUND_SENSITIVE" = true ]; then
+          echo "❌ 检测到可能的敏感信息泄露！请检查并移除API密钥、密码等敏感信息。"
+          echo "💡 建议使用环境变量或配置文件来管理敏感信息。"
+          exit 1
+        else
+          echo "✅ 未发现敏感信息泄露。"
+        fi
+    
+    - name: Check Python code formatting
+      run: |
+        echo "🐍 Checking Python code formatting..."
+        
+        # 查找所有Python文件
+        PYTHON_FILES=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./.git/*")
+        
+        if [ -z "$PYTHON_FILES" ]; then
+          echo "ℹ️ 未找到Python文件，跳过格式检查。"
+          exit 0
+        fi
+        
+        echo "📁 Found Python files:"
+        echo "$PYTHON_FILES"
+        echo ""
+        
+        # 检查语法错误
+        echo "🔍 Checking for syntax errors..."
+        SYNTAX_ERRORS=false
+        for file in $PYTHON_FILES; do
+          if ! python -m py_compile "$file" 2>/dev/null; then
+            echo "❌ Syntax error in: $file"
+            python -m py_compile "$file"
+            SYNTAX_ERRORS=true
+          fi
+        done
+        
+        if [ "$SYNTAX_ERRORS" = true ]; then
+          echo "❌ 发现Python语法错误！"
+          exit 1
+        fi
+        
+        echo "✅ 未发现语法错误。"
+        
+        # 检查代码风格 (flake8)
+        echo "🔍 Checking code style with flake8..."
+        if ! flake8 $PYTHON_FILES --max-line-length=120 --ignore=E203,W503,E501; then
+          echo "❌ 发现代码风格问题！请修复上述问题。"
+          echo "💡 建议运行: flake8 --max-line-length=120 --ignore=E203,W503,E501 ."
+          exit 1
+        fi
+        
+        echo "✅ 代码风格检查通过。"
+        
+        # 检查import排序 (isort)
+        echo "🔍 Checking import sorting with isort..."
+        if ! isort --check-only --diff $PYTHON_FILES; then
+          echo "❌ 发现import排序问题！"
+          echo "💡 建议运行: isort ."
+          exit 1
+        fi
+        
+        echo "✅ Import排序检查通过。"
+        
+        # 检查代码格式 (black)
+        echo "🔍 Checking code formatting with black..."
+        if ! black --check --diff $PYTHON_FILES; then
+          echo "❌ 发现代码格式问题！"
+          echo "💡 建议运行: black ."
+          exit 1
+        fi
+        
+        echo "✅ 代码格式检查通过。"
+    
+    - name: Summary
+      if: success()
+      run: |
+        echo "🎉 所有预检查项目都已通过！"
+        echo "✅ 敏感信息检查: 通过"
+        echo "✅ Python语法检查: 通过"
+        echo "✅ 代码风格检查: 通过"
+        echo "✅ Import排序检查: 通过"
+        echo "✅ 代码格式检查: 通过"
+        echo ""
+        echo "🚀 PR已准备好进行合并审查！"

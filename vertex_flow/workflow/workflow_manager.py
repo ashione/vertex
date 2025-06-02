@@ -6,6 +6,7 @@ from vertex_flow.workflow.workflow import (
 )
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.utils import load_task_from_data, create_instance
+from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
 from vertex_flow.workflow.edge import (
     Edge,
@@ -24,6 +25,7 @@ from vertex_flow.workflow.vertex import (
     EmbeddingVertex,
     IfCase,
 )
+from vertex_flow.workflow.service import VertexFlowService
 import json
 
 logger = LoggerUtil.get_logger()
@@ -374,9 +376,12 @@ class WorkflowSerializer:
 class WorkflowManager:
     """工作流管理器，用于管理工作流的创建、保存、加载和执行"""
     
-    def __init__(self):
-        self.workflows = {}
+    def __init__(self, vertex_service=None):
+        self.workflows = {}  # 存储workflow模板
+        self.workflow_instances = {}  # 存储workflow执行实例
+        self.execution_history = {}  # 存储执行历史
         self.current_workflow = None
+        self.vertex_service = vertex_service  # 外部传入的 VertexFlowService 实例
     
     def create_workflow(self, name: str, description: str = "") -> dict:
         """创建新的工作流"""
@@ -509,219 +514,263 @@ class WorkflowManager:
         
         return default_workflow
     
+    def _create_workflow_from_nodes_edges(self, nodes: list, edges: list):
+        """基于节点和边创建工作流对象"""
+        try:
+            # 创建工作流上下文
+            context = WorkflowContext()
+            
+            # 创建工作流对象
+            workflow = Workflow(context=context)
+            
+            # 创建节点映射
+            vertex_map = {}
+            
+            # 创建顶点
+            for node in nodes:
+                node_type = node.get('data', {}).get('type', 'unknown')
+                node_config = node.get('data', {}).get('config', {})
+                
+                if node_type == 'start':
+                    # 为 start 节点创建一个默认的任务函数
+                    def default_source_task(inputs=None, context=None):
+                        # 返回节点配置中的数据或空字典
+                        return node_config.get('data', {})
+                    
+                    vertex = SourceVertex(
+                        id=node['id'],
+                        name=node_config.get('name', 'Start'),
+                        task=default_source_task,
+                        params=node_config
+                    )
+                elif node_type == 'end':
+                    # 创建结束顶点
+                    # SinkVertex 需要 name、task 或 variables 参数
+                    end_name = node_config.get('name', 'End')
+                    end_task = node_config.get('task', None)
+                    end_variables = node_config.get('variables', None)
+                    
+                    # 如果没有提供 task 和 variables，创建一个默认的 task
+                    if not end_task and not end_variables:
+                        def default_sink_task(inputs, context, **kwargs):
+                            """默认的结束节点任务，简单记录输入数据"""
+                            logger.info(f"End node {node['id']} received inputs: {inputs}")
+                            return inputs
+                        end_task = default_sink_task
+                    
+                    vertex = SinkVertex(
+                        id=node['id'],
+                        name=end_name,
+                        task=end_task,
+                        variables=end_variables,
+                        params=node_config
+                    )
+                elif node_type == 'llm':
+                    # 创建LLM顶点
+                    # 处理model参数，如果是字符串则需要转换为ChatModel对象
+                    llm_params = node_config.copy()
+                    if 'model' in llm_params and isinstance(llm_params['model'], str):
+                        # 使用 WorkflowManager 的 vertex_service 实例，避免重复创建
+                        if self.vertex_service is None:
+                            self.vertex_service = VertexFlowService()
+                        # 尝试通过provider获取ChatModel，如果失败则使用默认模型
+                        try:
+                            llm_params['model'] = self.vertex_service.get_chatmodel_by_provider(llm_params['model'])
+                        except:
+                            # 如果获取失败，使用默认的ChatModel
+                            llm_params['model'] = self.vertex_service.get_chatmodel()
+                    
+                    # 映射前端参数到 LLMVertex 期望的参数格式
+                    # 前端传递: model, model_name, system_prompt, user_message, temperature, max_tokens
+                    # LLMVertex 期望: MODEL, SYSTEM, USER, temperature, max_tokens 等
+                    from vertex_flow.workflow.constants import MODEL, SYSTEM, USER
+                    
+                    # 构建 LLMVertex 参数
+                    vertex_params = {}
+                    
+                    # 模型参数
+                    if 'model' in llm_params:
+                        vertex_params[MODEL] = llm_params['model']
+                    
+                    # 系统提示词
+                    if 'system_prompt' in llm_params:
+                        vertex_params[SYSTEM] = llm_params['system_prompt']
+                    
+                    # 用户消息
+                    if 'user_message' in llm_params:
+                        vertex_params[USER] = [llm_params['user_message']]
+                    
+                    # 其他参数直接传递
+                    for key in ['temperature', 'max_tokens', 'tools']:
+                        if key in llm_params:
+                            vertex_params[key] = llm_params[key]
+                    
+                    # 保留原始配置用于调试和其他用途
+                    vertex_params.update(llm_params)
+                    
+                    vertex = LLMVertex(
+                        id=node['id'],
+                        name=node_config.get('name', 'LLM'),
+                        params=vertex_params
+                    )
+                elif node_type == 'function':
+                    # 创建函数顶点
+                    vertex = FunctionVertex(
+                        id=node['id'],
+                        name=node_config.get('name', 'Function'),
+                        params=node_config
+                    )
+                elif node_type == 'if-else':
+                    # 创建条件顶点
+                    vertex = IfElseVertex(
+                        id=node['id'],
+                        name=node_config.get('name', 'IfElse'),
+                        params=node_config
+                    )
+                else:
+                    # 对于未知类型，创建函数顶点作为默认
+                    vertex = FunctionVertex(
+                        id=node['id'],
+                        name=node_config.get('name', f'Unknown-{node_type}'),
+                        params=node_config
+                    )
+                
+                vertex_map[node['id']] = vertex
+                workflow.add_vertex(vertex)
+            
+            # 创建边
+            for edge in edges:
+                from_vertex = vertex_map.get(edge['from'])
+                to_vertex = vertex_map.get(edge['to'])
+                
+                if from_vertex and to_vertex:
+                    # 创建边对象
+                    workflow_edge = Edge(
+                        source_vertex=from_vertex,
+                        target_vertex=to_vertex,
+                    )
+                    workflow.add_edge(workflow_edge)
+            
+            logger.info(f"Successfully created workflow from nodes and edges, {workflow.show_graph()}")
+            return workflow
+            
+        except Exception as e:
+            logger.error(f"Failed to create workflow from nodes and edges: {e}")
+            raise
+    
     def update_workflow(self, workflow_id: str, **kwargs) -> dict:
-        """更新工作流"""
+        """更新工作流模板"""
         if workflow_id in self.workflows:
             workflow = self.workflows[workflow_id]
+            
+            # 检查是否有结构性变化
+            nodes_changed = 'nodes' in kwargs and kwargs['nodes'] != workflow.get('nodes')
+            edges_changed = 'edges' in kwargs and kwargs['edges'] != workflow.get('edges')
+            
+            if nodes_changed or edges_changed:
+                # 结构发生变化，创建新版本
+                workflow['version'] = workflow.get('version', 1) + 1
+                workflow['structure_hash'] = self._calculate_structure_hash(kwargs.get('nodes', []), kwargs.get('edges', []))
+            
+            # 更新基本信息
             for key, value in kwargs.items():
                 if key in workflow:
                     workflow[key] = value
             
-            # 只有在nodes或edges真正发生变化时才重新创建workflow_obj
-            nodes_changed = 'nodes' in kwargs and kwargs['nodes'] != workflow.get('nodes')
-            edges_changed = 'edges' in kwargs and kwargs['edges'] != workflow.get('edges')
+            workflow["updated_at"] = datetime.now().isoformat()
             
-            if (nodes_changed or edges_changed) and workflow.get('nodes') and workflow.get('edges'):
-                try:
-                    workflow_obj = self._create_workflow_from_nodes_edges(workflow['nodes'], workflow['edges'])
-                    workflow['workflow_obj'] = workflow_obj
-                    logger.info(f"Recreated workflow object for workflow {workflow_id} due to structure changes")
-                except Exception as e:
-                    logger.error(f"Failed to create workflow object: {e}")
-                    # 即使创建失败，也保存基本信息
-            elif 'workflow_obj' not in workflow and workflow.get('nodes') and workflow.get('edges'):
-                # 如果workflow_obj不存在但有nodes和edges，创建它
-                try:
-                    workflow_obj = self._create_workflow_from_nodes_edges(workflow['nodes'], workflow['edges'])
-                    workflow['workflow_obj'] = workflow_obj
-                    logger.info(f"Created initial workflow object for workflow {workflow_id}")
-                except Exception as e:
-                    logger.error(f"Failed to create initial workflow object: {e}")
-            
-            workflow["updated_at"] = json.dumps(datetime.now(), default=str)
+            # 移除旧的workflow_obj，每次执行时重新创建
+            if 'workflow_obj' in workflow:
+                del workflow['workflow_obj']
+                
             return workflow
         return None
     
-    def delete_workflow(self, workflow_id: str) -> bool:
-        """删除工作流"""
-        if workflow_id in self.workflows:
-            del self.workflows[workflow_id]
-            return True
-        return False
-    
-    def save_workflow_to_file(self, workflow_id: str, file_path: str) -> bool:
-        """保存工作流到文件"""
-        try:
-            workflow = self.get_workflow(workflow_id)
-            if workflow:
-                # 如果工作流包含 Workflow 对象，使用 WorkflowSerializer
-                if 'workflow_obj' in workflow and isinstance(workflow['workflow_obj'], Workflow):
-                    WorkflowSerializer.serialize_to_yaml(workflow['workflow_obj'], file_path)
-                else:
-                    # 否则直接保存为 YAML
-                    with open(file_path, 'w') as f:
-                        yaml.dump(workflow, f, default_flow_style=False, allow_unicode=True)
-                return True
-        except Exception as e:
-            logger.error(f"Failed to save workflow to file: {e}")
-        return False
-    
-    def load_workflow_from_file(self, file_path: str) -> dict:
-        """从文件加载工作流"""
-        try:
-            # 尝试使用 WorkflowSerializer 加载
-            try:
-                workflow_obj = WorkflowSerializer.deserialize_from_yaml(file_path)
-                workflow_id = f"workflow_{len(self.workflows) + 1}"
-                workflow_data = {
-                    "id": workflow_id,
-                    "name": f"Loaded Workflow {workflow_id}",
-                    "description": "Loaded from file",
-                    "workflow_obj": workflow_obj,
-                    "nodes": [],
-                    "edges": [],
-                    "created_at": json.dumps(datetime.now(), default=str),
-                    "updated_at": json.dumps(datetime.now(), default=str)
-                }
-                self.workflows[workflow_id] = workflow_data
-                return workflow_data
-            except:
-                # 如果失败，尝试直接加载 YAML
-                with open(file_path, 'r') as f:
-                    workflow_data = yaml.safe_load(f)
-                    workflow_id = workflow_data.get('id', f"workflow_{len(self.workflows) + 1}")
-                    self.workflows[workflow_id] = workflow_data
-                    return workflow_data
-        except Exception as e:
-            logger.error(f"Failed to load workflow from file: {e}")
-        return None
-    
-    def _create_workflow_from_nodes_edges(self, nodes: list, edges: list) -> Workflow:
-        """从前端的nodes和edges创建Workflow对象"""
-        from vertex_flow.workflow.service import VertexFlowService
-        logger.info("Creating workflow from nodes and edges")
-        # 创建服务实例
-        vertex_service = VertexFlowService()
-        
-        # 创建工作流上下文
-        context = WorkflowContext()
-        
-        # 创建工作流实例
-        workflow = Workflow(context=context)
-        
-        # 创建顶点映射
-        vertex_map = {}
-        
-        logger.info("Nodes: %s", nodes)
-        logger.info("Edges: %s", edges)
-        # 处理节点
-        for node in nodes:
-            node_data = node.get('data', {})
-            node_type = node_data.get('type')
-            node_id = node.get('id')
-            
-            if node_type == 'start':
-                # 创建源顶点
-                vertex = SourceVertex(
-                    id=node_id,
-                    name=node_data.get('label', 'Start'),
-                    task=lambda inputs, context=None: inputs,  # 简单的传递函数
-                    params={}
-                )
-            elif node_type == 'llm':
-                # 创建LLM顶点
-                config = node_data.get('config', {})
-                model_name = config.get('model', 'deepseek')
-                model_config = config.get('model_name', 'deepseek-chat')
-                prompt = config.get('prompt', '')
-                
-                # 从配置获取模型实例
-                try:
-                    model = vertex_service.get_chatmodel_by_provider(model_name)
-                except:
-                    # 如果获取失败，使用默认模型
-                    model = vertex_service.get_chatmodel()
-                
-                vertex = LLMVertex(
-                    id=node_id,
-                    name=config.get('name', 'LLM'),
-                    task=None,
-                    params={
-                        'model': model,
-                        'user_messages': [config.get('user_message', '')] if config.get('user_message', '') else [],
-                        'system_message': config.get('system_prompt', ''),
-                        'temperature': config.get('temperature', 0.7),
-                        'max_tokens': config.get('max_tokens', 1000)
-                    }
-                )
-            elif node_type == 'function':
-                # 创建函数顶点
-                func_name = node_data.get('function', 'echo_func')
-                
-                # 创建默认函数实例
-                def default_func(inputs):
-                    return f"Function {func_name} executed with input: {inputs}"
-                
-                func = default_func
-                
-                vertex = FunctionVertex(
-                    id=node_id,
-                    name=node_data.get('label', 'Function'),
-                    task=func,
-                    params={}
-                )
-            elif node_type == 'end':
-                # 创建结束顶点（使用SinkVertex）
-                vertex = SinkVertex(
-                    id=node_id,
-                    name=node_data.get('label', 'End'),
-                    task=lambda inputs, context: inputs,  # 简单的传递函数
-                    params={}
-                )
-            else:
-                # 未知类型，创建默认顶点
-                vertex = FunctionVertex(
-                    id=node_id,
-                    name=node_data.get('label', f'Unknown-{node_type}'),
-                    task=lambda inputs: inputs,
-                    params={}
-                )
-            
-            vertex_map[node_id] = vertex
-            workflow.add_vertex(vertex)
-        
-        # 处理边 - 使用管道操作符连接顶点（参考default workflow的方式）
-        for edge in edges:
-            source_id = edge.get('from')
-            target_id = edge.get('to')
-            
-            if source_id in vertex_map and target_id in vertex_map:
-                source_vertex = vertex_map[source_id]
-                target_vertex = vertex_map[target_id]
-                
-                # 使用管道操作符连接顶点，这样会自动创建Edge并添加到workflow
-                source_vertex | target_vertex
-        logger.info("Workflow created: %s", workflow)
-        workflow.show_graph() 
-        return workflow
-    
     def execute_workflow(self, workflow_id: str, input_data: dict = None) -> dict:
-        """执行工作流"""
+        """执行工作流 - 每次都创建新的实例"""
         try:
-            workflow = self.get_workflow(workflow_id)
-            if not workflow:
-                return {"error": "Workflow not found"}
+            workflow_template = self.get_workflow(workflow_id)
+            if not workflow_template:
+                return {"error": "Workflow template not found", "status": "failed"}
             
-            # 如果有 workflow_obj，直接执行
-            if 'workflow_obj' in workflow and isinstance(workflow['workflow_obj'], Workflow):
-                result = workflow['workflow_obj'].execute_workflow(input_data or {})
-                return {"result": result, "status": "success"}
-            else:
-                # 模拟执行（用于演示）
-                return {
-                    "result": f"Executed workflow {workflow['name']} with {len(workflow.get('nodes', []))} nodes",
-                    "status": "success"
-                }
+            # 创建新的工作流实例
+            instance = WorkflowInstance(workflow_template, input_data, self)
+            
+            # 执行实例
+            instance.execute()
+            
+            # 保存实例到历史记录
+            self.workflow_instances[instance.id] = instance
+            
+            # 更新执行历史
+            if workflow_id not in self.execution_history:
+                self.execution_history[workflow_id] = []
+            self.execution_history[workflow_id].append({
+                'instance_id': instance.id,
+                'executed_at': instance.started_at.isoformat(),
+                'status': instance.status,
+                'input_data': instance.input_data,
+                'output_data': instance.output_data
+            })
+            
+            return {
+                "instance_id": instance.id,
+                "result": instance.output_data,
+                "status": instance.status,
+                "node_outputs": instance.node_outputs,
+                "executed_at": instance.started_at.isoformat()
+            }
+            
         except Exception as e:
-            logger.error(f"Failed to execute workflow: {e}")
-            return {"error": str(e), "status": "failed"}
+            import traceback
+            error_traceback = traceback.format_exc()
+            logger.error(f"Failed to execute workflow: {e}\nTraceback:\n{error_traceback}")
+            return {
+                "error": str(e),
+                "status": "failed",
+                "traceback": error_traceback
+            }
+    
+    def get_execution_history(self, workflow_id: str) -> list:
+        """获取工作流执行历史"""
+        return self.execution_history.get(workflow_id, [])
+    
+    def get_workflow_instance(self, instance_id: str) -> WorkflowInstance:
+        """获取特定的工作流实例"""
+        return self.workflow_instances.get(instance_id)
+    
+    def get_all_workflow_instances(self) -> list:
+        """获取所有工作流实例"""
+        instances = []
+        for instance_id, instance in self.workflow_instances.items():
+            instances.append({
+                'id': instance_id,
+                'workflow_template_id': getattr(instance, 'workflow_template_id', None),
+                'status': getattr(instance, 'status', 'unknown'),
+                'created_at': getattr(instance, 'created_at', None).isoformat() if getattr(instance, 'created_at', None) else None,
+                'started_at': getattr(instance, 'started_at', None).isoformat() if getattr(instance, 'started_at', None) else None,
+                'completed_at': getattr(instance, 'completed_at', None).isoformat() if getattr(instance, 'completed_at', None) else None,
+                'error_message': getattr(instance, 'error_message', None)
+            })
+        return instances
+    
+    def _calculate_structure_hash(self, nodes: list, edges: list) -> str:
+        """计算工作流结构的哈希值"""
+        import hashlib
+        
+        # 创建结构的字符串表示
+        structure_data = {
+            'nodes': sorted([{
+                'id': node.get('id'),
+                'type': node.get('data', {}).get('type'),
+                'config': node.get('data', {}).get('config', {})
+            } for node in nodes], key=lambda x: x['id']),
+            'edges': sorted([{
+                'from': edge.get('from'),
+                'to': edge.get('to')
+            } for edge in edges], key=lambda x: (x['from'], x['to']))
+        }
+        
+        # 转换为字符串并计算哈希
+        structure_str = json.dumps(structure_data, sort_keys=True)
+        return hashlib.md5(structure_str.encode()).hexdigest()

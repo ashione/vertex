@@ -47,6 +47,48 @@ body {
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
+/* 首页工作流卡片优化 */
+.workflow-card {
+    max-height: 350px;
+}
+
+.workflow-card .card-body {
+    padding: 1rem;
+}
+
+.workflow-card .card-title {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.workflow-card .card-text {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.workflow-card .workflow-preview {
+    margin-bottom: 0.75rem;
+}
+
+.workflow-card .workflow-preview canvas {
+    height: 80px !important;
+}
+
+.workflow-card .card-footer {
+    padding: 0.75rem 1rem;
+}
+
+.workflow-card .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    margin-right: 0.25rem;
+}
+
 /* 富文本编辑器样式 */
 .ql-container {
     font-size: 14px;
@@ -252,9 +294,62 @@ body {
 
 /* 工作流编辑器样式 */
 #workflow-canvas {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: linear-gradient(45deg, #f8f9fa 25%, transparent 25%), 
+                linear-gradient(-45deg, #f8f9fa 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #f8f9fa 75%), 
+                linear-gradient(-45deg, transparent 75%, #f8f9fa 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
     position: relative;
+}
+
+/* 节点连接状态样式 */
+.vis-network .vis-node.connecting {
+    box-shadow: 0 0 20px rgba(255, 107, 107, 0.8) !important;
+    animation: pulse-connect 1.5s infinite;
+}
+
+@keyframes pulse-connect {
+    0% {
+        box-shadow: 0 0 20px rgba(255, 107, 107, 0.8);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(255, 107, 107, 1);
+    }
+    100% {
+        box-shadow: 0 0 20px rgba(255, 107, 107, 0.8);
+    }
+}
+
+/* 连接预览线样式 */
+.vis-network .vis-edge.preview {
+    stroke-dasharray: 10,5;
+    animation: dash 1.5s linear infinite;
+    opacity: 0.7;
+}
+
+@keyframes dash {
+    0% {
+        stroke-dashoffset: 0;
+    }
+    100% {
+        stroke-dashoffset: -15;
+    }
+}
+
+/* 连接完成后的实线样式 */
+.vis-network .vis-edge.connected {
+    stroke-dasharray: none;
+    opacity: 1.0;
+    transition: all 0.3s ease;
+}
+
+/* 连接线悬停效果 */
+.vis-network .vis-edge:hover {
+    stroke-width: 3px;
+    transition: stroke-width 0.2s ease;
 }
 
 /* 节点面板拖拽样式 */

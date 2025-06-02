@@ -160,9 +160,12 @@ def default_config_path(file_path):
         # 检查环境变量是否存在
         if DEFAULT_CONFIG_PATH_KEY in os.environ:
             env_path = os.environ[DEFAULT_CONFIG_PATH_KEY]
+            logging.info(f"Using environment variable {env_path}")
             # 检查环境变量是否为绝对路径且存在
             if env_path and os.path.isabs(env_path) and os.path.isdir(env_path):
                 base_path = env_path
+        else:
+            logging.info(f"Using default path {base_path}")
     except Exception as e:
         # 处理环境变量处理过程中可能出现的异常
         logging.error(f"Error processing environment variable: {e}")
