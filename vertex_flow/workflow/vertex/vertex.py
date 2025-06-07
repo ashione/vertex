@@ -206,6 +206,10 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                         f"No local inputs in {self.task_type}-{self.id} to search non-scope variable {var_def}"
                     )
             else:
+                if self.workflow is None:
+                    raise ValueError(
+                        f"Vertex {self.id} has no workflow reference. Make sure the vertex is added to a workflow before resolving dependencies."
+                    )
                 source_vertex = self.workflow.get_vertice_by_id(var_def[SOURCE_SCOPE])
                 if source_vertex is None:
                     raise ValueError(f"Source Vertex {var_def[SOURCE_SCOPE]} not found.")

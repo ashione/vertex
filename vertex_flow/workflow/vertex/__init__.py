@@ -22,3 +22,8 @@ from .vertex import (
     SourceVertex,
     Vertex,
 )
+from .vertex_group import SubgraphContext, VertexGroup
+from .while_vertex import (
+    WhileCondition,
+    WhileVertex,
+)
