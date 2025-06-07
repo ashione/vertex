@@ -150,6 +150,7 @@ safe_globals = {
 }
 
 DEFAULT_CONFIG_PATH_KEY = "CONFIG_PATH"
+DEFAULT_CONFIG_FILE_KEY = "CONFIG_FILE"
 
 
 def default_config_path(file_path):
@@ -164,6 +165,14 @@ def default_config_path(file_path):
             # 检查环境变量是否为绝对路径且存在
             if env_path and os.path.isabs(env_path) and os.path.isdir(env_path):
                 base_path = env_path
+        # 检查 CONFIG_FILE 环境变量
+        elif DEFAULT_CONFIG_FILE_KEY in os.environ:
+            env_file = os.environ[DEFAULT_CONFIG_FILE_KEY]
+            logging.info(f"Using environment variable CONFIG_FILE {env_file}")
+            # 检查环境变量是否为绝对路径且存在
+            if env_file and os.path.isabs(env_file) and os.path.isfile(env_file):
+                # 如果是文件路径，直接返回该文件路径
+                return os.path.normpath(env_file)
         else:
             logging.info(f"Using default path {base_path}")
     except Exception as e:

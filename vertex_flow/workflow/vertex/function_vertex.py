@@ -5,6 +5,7 @@ from functools import partial
 from types import FunctionType
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import SOURCE_VAR
 
 from .vertex import (
     Any,
@@ -130,7 +131,7 @@ class IfElseVertex(FunctionVertex):
         variable_selector = condition["variable_selector"]
         value = condition["value"]
         operator = condition["operator"]
-        variable_name = variable_selector["source_var"]
+        variable_name = variable_selector[SOURCE_VAR]
 
         # 获取变量值
         variable_value = self.resolve_dependencies(variable_selector=variable_selector, inputs=inputs).get(

@@ -15,7 +15,14 @@
 from typing import Any, Dict
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER
+from vertex_flow.workflow.constants import (
+    ENABLE_STREAM,
+    LOCAL_VAR,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
+    SYSTEM,
+    USER,
+)
 from vertex_flow.workflow.workflow import (
     LLMVertex,
     SinkVertex,
@@ -130,6 +137,42 @@ class DeepResearchWorkflow:
                 USER: [self._get_summary_report_user_prompt()],
                 ENABLE_STREAM: stream_mode,
             },
+        )
+        # 配置summary_report顶点的变量依赖关系
+        # 根据vertex.py中resolve_dependencies的逻辑：
+        # 1. 当SOURCE_VAR为None时，如果源顶点输出不是字典类型，会直接返回整个输出
+        # 2. 当SOURCE_VAR为None且源顶点输出是字典类型时，会抛出KeyError
+        # 3. 当缺少SOURCE_VAR键时，会使用源顶点输出字典中的None键（通常不存在）
+        # 因此这里的配置存在问题，应该明确指定SOURCE_VAR或确保源顶点输出非字典类型
+        summary_report.add_variables(
+            [
+                {
+                    SOURCE_SCOPE: "topic_analysis",
+                    SOURCE_VAR: None,  # 注意：当SOURCE_VAR为None时，只有源顶点输出非字典类型才能正常工作
+                    LOCAL_VAR: "topic_analysis",
+                },
+                {
+                    SOURCE_SCOPE: "research_planning",
+                    LOCAL_VAR: "research_planning",
+                    SOURCE_VAR: None,  # 注意：当SOURCE_VAR为None时，只有源顶点输出非字典类型才能正常工作
+                },
+                {
+                    SOURCE_SCOPE: "information_collection",
+                    LOCAL_VAR: "information_collection",
+                    SOURCE_VAR: None,  # 注意：当SOURCE_VAR为None时，只有源顶点输出非字典类型才能正常工作
+                },
+                {
+                    SOURCE_SCOPE: "deep_analysis",
+                    LOCAL_VAR: "deep_analysis",
+                    SOURCE_VAR: None,  # 注意：当SOURCE_VAR为None时，只有源顶点输出非字典类型才能正常工作
+                },
+                {
+                    SOURCE_SCOPE: "cross_validation",
+                    LOCAL_VAR: "cross_validation",
+                    SOURCE_VAR: None,
+                    # 缺少SOURCE_VAR键，会导致在resolve_dependencies中尝试访问None键，可能引发错误
+                },
+            ]
         )
 
         # 创建汇聚顶点

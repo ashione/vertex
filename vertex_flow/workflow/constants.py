@@ -26,3 +26,8 @@ TMPFILE_PATH = "tmpfile_path"
 # 其它常用 key
 ENV_PARAMETERS = "env_parameters"
 USER_PARAMETERS = "user_parameters"
+
+# 变量定义相关常量
+LOCAL_VAR = "local_var"
+SOURCE_VAR = "source_var"
+SOURCE_SCOPE = "source_scope"
