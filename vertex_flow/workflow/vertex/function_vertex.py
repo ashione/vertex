@@ -49,8 +49,8 @@ class FunctionVertex(Vertex[T]):
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if callable(self._task):
             dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
-            all_inputs = {**dependencies_outputs, **(inputs or {})}
-
+            local_inputs = {**dependencies_outputs, **(inputs or {})}
+            all_inputs = self.resolve_dependencies(inputs=local_inputs)
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
             has_context = "context" in sig.parameters
