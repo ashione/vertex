@@ -6,6 +6,11 @@ import weakref
 from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import (
+    LOCAL_VAR,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
+)
 from vertex_flow.workflow.edge import (
     Edge,
     EdgeType,
@@ -159,9 +164,9 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         """
         self.variables.append(
             {
-                "source_scope": source_scope,
-                "source_var": source_var,
-                "local_var": local_var,
+                SOURCE_SCOPE: source_scope,
+                SOURCE_VAR: source_var,
+                LOCAL_VAR: local_var,
             }
         )
 
@@ -175,7 +180,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         Raises:
             ValueError: If one of the dictionaries does not contain all required keys.
         """
-        required_keys = {"source_scope", "source_var", "local_var"}
+        required_keys = {SOURCE_SCOPE, SOURCE_VAR, LOCAL_VAR}
         for var_def in variables:
             if not required_keys.issubset(var_def.keys()):
                 missing_keys = required_keys - var_def.keys()
@@ -193,34 +198,39 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         def get_variable_value(var_def):
             source_value = None
-            if "source_scope" not in var_def or var_def["source_scope"] is None or len(var_def["source_scope"]) == 0:
-                if inputs and var_def["source_var"] in inputs:
-                    source_value = inputs[var_def["source_var"]]
+            if SOURCE_SCOPE not in var_def or var_def[SOURCE_SCOPE] is None or len(var_def[SOURCE_SCOPE]) == 0:
+                if inputs and var_def[SOURCE_VAR] in inputs:
+                    source_value = inputs[var_def[SOURCE_VAR]]
                 else:
                     raise ValueError(
                         f"No local inputs in {self.task_type}-{self.id} to search non-scope variable {var_def}"
                     )
             else:
-                source_vertex = self.workflow.get_vertice_by_id(var_def["source_scope"])
+                source_vertex = self.workflow.get_vertice_by_id(var_def[SOURCE_SCOPE])
                 if source_vertex is None:
-                    raise ValueError(f"Source Vertex {var_def['source_scope']} not found.")
-                if not source_vertex.output or var_def["source_var"] not in source_vertex.output:
+                    raise ValueError(f"Source Vertex {var_def[SOURCE_SCOPE]} not found.")
+
+                # 如果源顶点的输出不是字典类型，并且没有指定源变量，则直接返回源顶点的输出。
+                if not isinstance(source_vertex.output, dict) and var_def[SOURCE_VAR] is None:
+                    return source_vertex.output
+
+                if not source_vertex.output or var_def[SOURCE_VAR] not in source_vertex.output:
                     raise ValueError(
-                        f"Source Vertex {source_vertex.task_type}-{source_vertex.id} no {var_def['source_var']} found."
+                        f"Source Vertex {source_vertex.task_type}-{source_vertex.id} no {var_def[SOURCE_VAR]} found."
                     )
-                source_value = source_vertex.output[var_def["source_var"]]
+                source_value = source_vertex.output[var_def[SOURCE_VAR]]
             return source_value
 
         resolved_values = {}
         if variable_selector:
             logging.info(f"Only fetch variable from specific selector {variable_selector}")
             source_value = get_variable_value(variable_selector)
-            resolved_values[variable_selector.get("local_var") or variable_selector["source_var"]] = source_value
+            resolved_values[variable_selector.get(LOCAL_VAR) or variable_selector[SOURCE_VAR]] = source_value
             return resolved_values
 
         for var_def in self.variables:
             source_value = get_variable_value(var_def=var_def)
-            resolved_values[var_def.get("local_var") or var_def["source_var"]] = source_value
+            resolved_values[var_def.get(LOCAL_VAR) or var_def[SOURCE_VAR]] = source_value
         return resolved_values
 
     @property
@@ -334,6 +344,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         patterns = [
             (r"\{\{\#([\w-]+)\.(.*?)#\}\}", "pattern1"),  # {{#vertex_id.var_name#}}
             (r"\{\{([\w-]+)\.([\w-]+)\}\}", "pattern2"),  # {{vertex_id.var_name}}
+            (r"\{\{([\w-]+)\}\}", "pattern3"),  # {{vertex_id}}
         ]
 
         for pattern, pattern_name in patterns:
@@ -346,18 +357,14 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         matches = re.finditer(pattern, text)
         for match in matches:
             vertex_id = match.group(1)
-            var_name = match.group(2)
+            # pattern3 ({{vertex_id}}) 没有var_name，其他模式有
+            var_name = match.group(2) if len(match.groups()) > 1 else None
             logging.debug(f"match {pattern_name} {vertex_id}, {var_name}, {match.group(0)}")
 
-            # 查找对应的顶点
-            target_vertex = self._find_vertex_by_id(vertex_id)
-            if target_vertex is None:
-                continue
-
-            # 替换占位符
-            replacement_value = self._get_replacement_value(target_vertex, var_name, vertex_id)
+            # 使用resolve_dependencies方法获取替换值
+            replacement_value = self._get_replacement_value_via_dependencies(vertex_id, var_name)
             if replacement_value is not None:
-                text = text.replace(match.group(0), replacement_value)
+                text = text.replace(match.group(0), str(replacement_value))
                 logging.debug(f"replaced text : {text}")
 
         return text
@@ -372,8 +379,36 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         logging.warning(f"{vertex_id} not found.")
         return None
 
+    def _get_replacement_value_via_dependencies(self, vertex_id, var_name):
+        """通过resolve_dependencies方法获取替换值"""
+        try:
+            # 构造variable_selector
+            variable_selector = {
+                SOURCE_SCOPE: vertex_id,
+                SOURCE_VAR: var_name,
+                LOCAL_VAR: vertex_id if var_name is None else var_name,
+            }
+
+            # 使用resolve_dependencies方法获取变量值
+            resolved_values = self.resolve_dependencies(variable_selector=variable_selector)
+
+            # 获取解析后的值
+            local_var_name = var_name if var_name else vertex_id
+            if local_var_name in resolved_values:
+                return resolved_values[local_var_name]
+            else:
+                logging.warning(f"Variable {var_name} not found in vertex {vertex_id} resolved values")
+                return None
+
+        except Exception as e:
+            import traceback
+
+            logging.warning(f"Failed to resolve variable {var_name} from vertex {vertex_id}: {e}")
+            logging.warning(f"Stack trace: {traceback.format_exc()}")
+            return None
+
     def _get_replacement_value(self, vertex, var_name, vertex_id):
-        """获取替换值"""
+        """获取替换值（保留原方法以兼容性）"""
         if var_name in vertex.output:
             return str(vertex.output[var_name])
         else:

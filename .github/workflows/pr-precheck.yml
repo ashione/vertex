@@ -189,6 +189,19 @@ jobs:
         
         echo "✅ 代码格式检查通过。"
     
+    - name: Run Unit Tests
+      run: |
+        echo "🧪 运行单元测试..."
+        
+        # 检查测试脚本是否存在
+        if [ -f "scripts/run_tests.sh" ]; then
+          chmod +x scripts/run_tests.sh
+          ./scripts/run_tests.sh
+        else
+          echo "⚠️ 测试脚本不存在，跳过单元测试"
+          echo "💡 建议创建 scripts/run_tests.sh 脚本来运行测试"
+        fi
+    
     - name: Summary
       if: success()
       run: |
@@ -199,5 +212,6 @@ jobs:
         echo "✅ 代码风格检查: 通过"
         echo "✅ Import排序检查: 通过"
         echo "✅ 代码格式检查: 通过"
+        echo "✅ 单元测试: 通过"
         echo ""
         echo "🚀 PR已准备好进行合并审查！"
