@@ -18,6 +18,7 @@ fi
 # 安装依赖（如果需要）
 echo "安装测试依赖..."
 pip install -r requirements.txt
+pip install -e .
 pip install pytest pytest-cov
 
 # 运行测试
