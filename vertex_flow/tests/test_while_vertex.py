@@ -3,9 +3,11 @@ from unittest.mock import Mock
 import pytest
 
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
-from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.vertex import WhileCondition, WhileVertex
-from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.workflow import (
+    Workflow,
+    WorkflowContext,
+)
 
 
 class TestWhileVertex:

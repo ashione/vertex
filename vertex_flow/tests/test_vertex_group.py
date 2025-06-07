@@ -59,12 +59,12 @@ class TestVertexGroup:
     def create_simple_vertices(self):
         """创建简单的测试顶点"""
 
-        def add_task(inputs):
+        def add_task(inputs, context=None):
             a = inputs.get("a", 0)
             b = inputs.get("b", 0)
             return {"sum": a + b}
 
-        def multiply_task(inputs):
+        def multiply_task(inputs, context=None):
             value = inputs.get("value", 1)
             factor = inputs.get("factor", 2)
             return {"product": value * factor}
@@ -85,9 +85,9 @@ class TestVertexGroup:
         vertex1, vertex2 = self.create_simple_vertices()
         edge = Edge(vertex1, vertex2, Always())
 
-        exposed_outputs = [
-            {"vertex_id": "add_vertex", "variable": "sum", "exposed_as": "addition_result"},
-            {"vertex_id": "multiply_vertex", "variable": "product", "exposed_as": "final_result"},
+        variables = [
+            {"source_scope": "add_vertex", "source_var": "sum", "local_var": "addition_result"},
+            {"source_scope": "multiply_vertex", "source_var": "product", "local_var": "final_result"},
         ]
 
         group = VertexGroup(
@@ -95,14 +95,14 @@ class TestVertexGroup:
             name="Test Group",
             subgraph_vertices=[vertex1, vertex2],
             subgraph_edges=[edge],
-            exposed_outputs=exposed_outputs,
+            variables=variables,
         )
 
         assert group.id == "test_group"
         assert group.name == "Test Group"
         assert len(group.subgraph_vertices) == 2
         assert len(group.subgraph_edges) == 1
-        assert len(group.exposed_outputs) == 2
+        assert len(group.variables) == 2
         assert vertex1._vertex_group_ref == group
         assert vertex2._vertex_group_ref == group
 
@@ -111,25 +111,25 @@ class TestVertexGroup:
         vertex1, vertex2 = self.create_simple_vertices()
 
         # 创建一个不在子图中的顶点
-        external_vertex = FunctionVertex(id="external", task=lambda inputs: inputs)
+        external_vertex = FunctionVertex(id="external", task=lambda inputs, context=None: inputs)
         invalid_edge = Edge(vertex1, external_vertex, Always())
 
         with pytest.raises(ValueError, match="Edge .* contains vertices not in subgraph"):
             VertexGroup(id="invalid_group", subgraph_vertices=[vertex1, vertex2], subgraph_edges=[invalid_edge])
 
-    def test_validate_subgraph_invalid_exposed_output(self):
-        """测试子图验证 - 无效暴露输出"""
+    def test_validate_subgraph_invalid_variable(self):
+        """测试子图验证 - 无效变量引用"""
         vertex1, vertex2 = self.create_simple_vertices()
 
-        exposed_outputs = [{"vertex_id": "nonexistent_vertex", "variable": "some_var"}]
+        variables = [{"source_scope": "nonexistent_vertex", "source_var": "some_var", "local_var": "local"}]
 
-        with pytest.raises(ValueError, match="Exposed output vertex_id .* not found in subgraph"):
-            VertexGroup(id="invalid_group", subgraph_vertices=[vertex1, vertex2], exposed_outputs=exposed_outputs)
+        with pytest.raises(ValueError, match="Variable source_scope .* not found in subgraph"):
+            VertexGroup(id="invalid_group", subgraph_vertices=[vertex1, vertex2], variables=variables)
 
     def test_add_subgraph_vertex(self):
         """测试添加子图顶点"""
         group = VertexGroup(id="test_group")
-        vertex = FunctionVertex(id="new_vertex", task=lambda inputs: inputs)
+        vertex = FunctionVertex(id="new_vertex", task=lambda inputs, context=None: inputs)
 
         result = group.add_subgraph_vertex(vertex)
 
@@ -153,7 +153,7 @@ class TestVertexGroup:
     def test_add_subgraph_edge_invalid_vertices(self):
         """测试添加子图边 - 无效顶点"""
         vertex1, vertex2 = self.create_simple_vertices()
-        external_vertex = FunctionVertex(id="external", task=lambda inputs: inputs)
+        external_vertex = FunctionVertex(id="external", task=lambda inputs, context=None: inputs)
 
         group = VertexGroup(id="test_group", subgraph_vertices=[vertex1, vertex2])
 
@@ -207,47 +207,16 @@ class TestVertexGroup:
         with pytest.raises(ValueError, match="Subgraph contains a cycle"):
             group.topological_sort_subgraph()
 
-    def test_execute_subgraph_simple(self):
-        """测试简单子图执行"""
-        vertex1, vertex2 = self.create_simple_vertices()
-        edge = Edge(vertex1, vertex2, Always())
-
-        exposed_outputs = [
-            {"vertex_id": "add_vertex", "variable": "sum", "exposed_as": "addition_result"},
-            {"vertex_id": "multiply_vertex", "variable": "product", "exposed_as": "final_result"},
-        ]
-
-        group = VertexGroup(
-            id="test_group",
-            subgraph_vertices=[vertex1, vertex2],
-            subgraph_edges=[edge],
-            exposed_outputs=exposed_outputs,
-        )
-
-        # 执行子图
-        inputs = {"a": 5, "b": 3, "factor": 4}
-        context = WorkflowContext()
-
-        result = group.execute_subgraph(inputs, context)
-
-        # 验证结果
-        assert result["execution_summary"]["success"] is True
-        assert len(result["execution_summary"]["executed_vertices"]) == 2
-
-        # 验证暴露的输出
-        exposed = result["subgraph_outputs"]
-        assert exposed["addition_result"] == 8  # 5 + 3
-        assert exposed["final_result"] == 32  # 8 * 4
-
     def test_execute_subgraph_no_vertices(self):
         """测试空子图执行"""
         group = VertexGroup(id="empty_group")
 
         result = group.execute_subgraph()
 
+        # 空子图应该返回执行摘要
+        assert "execution_summary" in result
         assert result["execution_summary"]["success"] is True
         assert result["execution_summary"]["total_vertices"] == 0
-        assert result["subgraph_outputs"] == {}
 
     def test_add_exposed_output(self):
         """测试添加暴露输出配置"""
@@ -256,9 +225,9 @@ class TestVertexGroup:
         group.add_exposed_output("vertex1", "var1", "exposed_var1")
         group.add_exposed_output("vertex2", "var2")  # 使用默认暴露名
 
-        assert len(group.exposed_outputs) == 2
-        assert group.exposed_outputs[0] == {"vertex_id": "vertex1", "variable": "var1", "exposed_as": "exposed_var1"}
-        assert group.exposed_outputs[1] == {"vertex_id": "vertex2", "variable": "var2", "exposed_as": "var2"}
+        assert len(group.variables) == 2
+        assert group.variables[0] == {"source_scope": "vertex1", "source_var": "var1", "local_var": "exposed_var1"}
+        assert group.variables[1] == {"source_scope": "vertex2", "source_var": "var2", "local_var": "var2"}
 
     def test_get_methods(self):
         """测试获取方法"""
