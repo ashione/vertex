@@ -223,7 +223,12 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
     if workflow_name in dify_workflow_instances:
         logger.info("Build new workflow from graph")
         instance = dify_workflow_instances[input_data.workflow_name]
-        workflow = instance["builder"](instance["graph"])
+        # 根据工作流名称构建不同的workflow实例
+        workflow = instance["builder"](
+            {**input_data.user_vars, **{"stream": input_data.stream}}
+            if input_data.workflow_name == "deep-research"
+            else instance["graph"]
+        )
     else:
         logger.info("Build new workflow from code")
         workflow = get_default_workflow(input_data=input_data)

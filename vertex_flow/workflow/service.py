@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
@@ -33,13 +33,31 @@ class VectorConfig:
 
 class VertexFlowService:
     """
-    Tenserverice/LLMConfigurator 类用于初始化和管理LLM（大型语言模型）的相关配置。
+    VertexFlowService 单例类用于初始化和管理LLM（大型语言模型）的相关配置。
     它通过读取配置文件来加载模型的配置信息，并初始化一些关键的路径变量。
     """
 
+    _instance = None
+    _lock = None
+
+    def __new__(cls, config_file=None):
+        """单例模式实现"""
+        if cls._instance is None:
+            # 导入threading模块用于线程安全
+            import threading
+
+            if cls._lock is None:
+                cls._lock = threading.Lock()
+
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(VertexFlowService, cls).__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self, config_file=default_config_path("llm.yml")):
         """
-        初始化LLMConfigurator实例。
+        初始化VertexFlowService实例。
 
         参数:
         config_file (str): 配置文件的路径，默认为'llm.yml'。这个配置文件包含了LLM的配置信息，
@@ -47,11 +65,32 @@ class VertexFlowService:
 
         该方法主要负责读取配置文件，并初始化实例变量，供类的其他方法使用。
         """
+        # 防止重复初始化
+        if self._initialized:
+            return
+
         # 读取并解析配置文件，初始化_config实例变量
         self._config = read_yaml_config_env_placeholder(config_file)
 
         # 初始化工作流的根路径
         self.__workflow_root_path = self._config["workflow"]["dify"]["root-path"]
+
+        # 标记为已初始化
+        self._initialized = True
+
+    @classmethod
+    def get_instance(cls, config_file=None):
+        """获取单例实例的类方法
+
+        Args:
+            config_file: 配置文件路径，仅在首次创建时有效
+
+        Returns:
+            VertexFlowService单例实例
+        """
+        if config_file is None:
+            config_file = default_config_path("llm.yml")
+        return cls(config_file)
 
     def get_chatmodel(self):
         """
@@ -324,6 +363,73 @@ class VertexFlowService:
             )
         else:
             raise ValueError(f"Unsupported embedding type: {embedding_type}")
+
+    def get_web_search_config(self, provider: str = "bocha") -> Dict[str, Any]:
+        """获取Web搜索配置
+
+        Args:
+            provider: 搜索提供商，默认为"bocha"
+
+        Returns:
+            包含API密钥和启用状态的配置字典
+
+        Raises:
+            ValueError: 如果配置中缺少必需信息
+        """
+        # 获取web-search配置，如果配置不存在，则使用空字典作为默认值
+        web_search_config = self._config.get("web-search", {})
+
+        if provider == "bocha":
+            # 从web-search配置中获取博查特定的配置
+            bocha_config = web_search_config.get("bocha", {})
+
+            # 获取API key，如果未配置，则尝试从环境变量中获取
+            api_key = bocha_config.get("sk") or os.getenv("WEB_SEARCH_BOCHA_SK")
+
+            # 获取启用状态
+            enabled = bocha_config.get("enabled", False)
+
+            logging.info(f"博查搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
+
+            return {"api_key": api_key, "enabled": enabled}
+
+        elif provider == "bing":
+            # 从web-search配置中获取Bing特定的配置
+            bing_config = web_search_config.get("bing", {})
+
+            # 获取API key，如果未配置，则尝试从环境变量中获取
+            api_key = bing_config.get("sk") or os.getenv("WEB_SEARCH_BING_SK")
+
+            # 获取启用状态
+            enabled = bing_config.get("enabled", False)
+
+            logging.info(f"Bing搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
+
+            return {"api_key": api_key, "enabled": enabled}
+
+        else:
+            raise ValueError(f"不支持的搜索提供商: {provider}")
+
+    def get_web_search_tool(self, provider: str = "bocha"):
+        """获取Web搜索工具实例
+
+        Args:
+            provider: 搜索提供商，默认为"bocha"
+
+        Returns:
+            配置好的Web搜索工具实例
+        """
+        from vertex_flow.workflow.tools.web_search import create_web_search_tool
+
+        # 验证配置
+        config = self.get_web_search_config(provider)
+        if not config.get("enabled", False):
+            raise ValueError(f"{provider}搜索服务未启用，请检查配置文件")
+
+        if not config.get("api_key"):
+            raise ValueError(f"{provider}搜索API密钥未配置，请检查配置文件")
+
+        return create_web_search_tool()
 
     def get_rerank_config(self, rerank_type="bce"):
         """

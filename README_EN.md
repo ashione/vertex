@@ -4,17 +4,15 @@ Vertex is a tool that supports local and cloud-based large language model (LLM) 
 
 ## Features
 
-- Support for locally deployed Qwen-7B models via Ollama (chatbox chat interface)
-- Support for calling external models via API such as DeepSeek, OpenRouter, etc.
-- Web UI chat experience with contextual multi-turn conversations
-- Extensible client architecture for easy integration of more models
-- Support for streaming output with real-time display of generated content
-- Support for VertexFlow workflow orchestration and multi-model collaboration
-- Support for custom System Prompt
-- Support for multiple vector engines like DashVector and knowledge base retrieval
-- Support for multiple embedding and rerank configurations
-- Compatible with Dify workflow definitions for easy migration and extension
-- **New: Function Tools** - Allows users to define and register custom function tools for dynamic invocation in workflows, enhancing workflow orchestration and real-time chat interaction capabilities.
+### Core Capabilities
+- **Multi-Model Support**: Ollama local models and external APIs (OpenAI, DeepSeek, Claude)
+- **Interactive Web UI**: Real-time chat with configuration management
+- **Workflow Engine**: VertexFlow-based visual workflow orchestration
+
+### Advanced Features
+- **Function Tools**: Custom tool integration for workflows
+- **Deep Research Workflow**: Multi-stage research with web search and structured output
+- **VertexGroup**: Modular subgraph management with variable control and nesting
 
 ## Requirements
 
@@ -443,6 +441,23 @@ localqwen/
 ├── .github/                # GitHub Actions workflow configurations
 └── Other config files      # Python project configuration, dependency management, etc.
 ```
+
+## Documentation
+
+For detailed information, please refer to the documentation:
+
+### Project Documentation
+- [Pre-commit Guide](docs/PRECOMMIT_README.md) - Development workflow and code quality checks
+- [Configuration Sanitization](docs/SANITIZATION_README.md) - Security and configuration management
+
+### Workflow Documentation
+- [LLM Vertex](vertex_flow/docs/llm_vertex.md) - Language model integration
+- [Function Vertex](vertex_flow/docs/function_vertex.md) - Custom function tools
+- [VertexGroup](vertex_flow/docs/vertex_group.md) - Subgraph management
+- [Web Search](vertex_flow/docs/web_search.md) - Web search capabilities
+- [Embedding Vertex](vertex_flow/docs/embedding_vertex.md) - Text embedding processing
+- [Vector Vertex](vertex_flow/docs/vector_vertex.md) - Vector operations
+- [While Vertex](vertex_flow/docs/while_vertex.md) - Loop control structures
 
 ### Main Module Description
 
