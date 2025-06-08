@@ -31,3 +31,10 @@ USER_PARAMETERS = "user_parameters"
 LOCAL_VAR = "local_var"
 SOURCE_VAR = "source_var"
 SOURCE_SCOPE = "source_scope"
+
+# 深度研究工作流阶段常量
+STAGE_TOPIC_ANALYSIS = "主题分析"
+STAGE_RESEARCH_PLANNING = "研究规划"
+STAGE_INFORMATION_COLLECTION = "信息收集"
+STAGE_DEEP_ANALYSIS = "深度分析"
+STAGE_CROSS_VALIDATION = "交叉验证"

@@ -20,6 +20,14 @@ llm:
     enabled: false
     model-name: deepseek/deepseek-chat-v3-0324:free
 
+web-search:
+  bocha:
+    sk: ${web-search.bocha.sk:}
+    enabled: true
+  bing:
+    sk: ${web-search.bing.sk:}
+    enabled: false
+
 workflow:
   dify:
     root-path: config/
