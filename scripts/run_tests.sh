@@ -15,15 +15,49 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# 安装依赖（如果需要）
-echo "安装测试依赖..."
-pip install -r requirements.txt
-pip install -e .
-pip install pytest pytest-cov
+# 检测并使用合适的包管理工具
+echo "检测包管理工具..."
+
+# 检查是否有uv命令可用
+if command -v uv >/dev/null 2>&1; then
+    echo "使用uv进行依赖管理..."
+    PYTHON_CMD="uv run python"
+    PIP_CMD="uv pip"
+    
+    # 使用uv安装依赖
+    uv pip install -r requirements.txt
+    uv pip install -e .
+    uv pip install pytest pytest-cov pytest-asyncio
+    
+else
+    echo "使用标准python/pip进行依赖管理..."
+    
+    # 检查是否在虚拟环境中或有python命令
+    if command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+        PIP_CMD="python -m pip"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON_CMD="python3"
+        PIP_CMD="python3 -m pip"
+    else
+        echo "❌ 未找到python命令！"
+        exit 1
+    fi
+    
+    # 安装依赖
+    echo "安装测试依赖..."
+    $PIP_CMD install -r requirements.txt
+    $PIP_CMD install -e .
+    $PIP_CMD install pytest pytest-cov pytest-asyncio
+fi
 
 # 运行测试
 echo "运行pytest测试..."
-pytest vertex_flow/tests/ -v --tb=short --cov=vertex_flow --cov-report=term-missing
+if command -v uv >/dev/null 2>&1; then
+    uv run pytest vertex_flow/tests/ -v --tb=short --cov=vertex_flow --cov-report=term-missing
+else
+    $PYTHON_CMD -m pytest vertex_flow/tests/ -v --tb=short --cov=vertex_flow --cov-report=term-missing
+fi
 
 # 检查测试结果
 if [ $? -eq 0 ]; then

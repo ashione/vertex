@@ -9,6 +9,7 @@ build>=0.10.0
 twine>=4.0.0
 pytest>=7.0.0
 pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0
 pre-commit>=3.0.0
 
 # Ollama API 交互依赖

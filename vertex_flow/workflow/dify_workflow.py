@@ -1,29 +1,12 @@
 # -*- coding: utf-8 -*-
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.edge import (
-    Condition,
-    Edge,
-)
+from vertex_flow.workflow.edge import Condition, Edge
 from vertex_flow.workflow.rag_config import read_yaml_config
 from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.workflow.vertex import (
-    CodeVertex,
-    IfCase,
-    IfElseVertex,
-    LLMVertex,
-    SinkVertex,
-    SourceVertex,
-)
-from vertex_flow.workflow.workflow import (
-    Any,
-    Dict,
-)
+from vertex_flow.workflow.vertex import CodeVertex, IfCase, IfElseVertex, LLMVertex, SinkVertex, SourceVertex
+from vertex_flow.workflow.workflow import Any, Dict
 from vertex_flow.workflow.workflow import Edge as WorkflowEdge
-from vertex_flow.workflow.workflow import (
-    List,
-    Workflow,
-    WorkflowContext,
-)
+from vertex_flow.workflow.workflow import List, Workflow, WorkflowContext
 
 logger = LoggerUtil.get_logger()
 

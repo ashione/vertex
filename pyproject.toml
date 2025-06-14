@@ -53,6 +53,7 @@ Documentation = "https://github.com/ashione/vertex/blob/main/README.md"
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
     "pre-commit>=3.0.0",
     "twine>=4.0.0",
     "build>=0.10.0"
@@ -123,3 +124,29 @@ exclude = [
     "build",
     "dist"
 ]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = [
+    "vertex_flow/tests",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+python_classes = [
+    "Test*",
+]
+python_functions = [
+    "test_*",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "asyncio: marks tests as async tests",
+]
+
+[tool.pytest_asyncio]
+mode = "strict"
