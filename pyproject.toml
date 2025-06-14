@@ -1,8 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "localqwen"
+name = "vertex"
 version = "0.1.0"
-description = "Local Qwen workflow system"
+description = "A powerful local AI workflow system with multi-model support and visual workflow orchestration"
+authors = [
+    {name = "Vertex Team", email = "skyzlxuan@gmail.com"}
+]
+maintainers = [
+    {name = "Vertex Team", email = "skyzlxuan@gmail.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing"
+]
+keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow"]
 dependencies = [
     "autopep8>=2.3.2",
     "black>=25.1.0",
@@ -15,9 +43,26 @@ dependencies = [
     "tqdm>=4.65.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ashione/vertex"
+Repository = "https://github.com/ashione/vertex.git"
+Documentation = "https://github.com/ashione/vertex/blob/main/README.md"
+"Bug Tracker" = "https://github.com/ashione/vertex/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pre-commit>=3.0.0",
+    "twine>=4.0.0",
+    "build>=0.10.0"
+]
+
 [project.scripts]
 vertex = "vertex_flow.src.app:main"
 vertex-workflow = "vertex_flow.workflow.app.app:main"
+
+
 
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"

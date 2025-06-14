@@ -1,0 +1,23 @@
+include README.md
+include README_EN.md
+include README_ZH.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+recursive-include vertex_flow *.py
+recursive-include vertex_flow/docs *.md
+recursive-include vertex_flow/examples *.py
+recursive-include web_ui *.py *.html *.css *.js
+recursive-include config *.yml *.yaml
+recursive-include scripts *.py *.sh
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude * .git*
+recursive-exclude * .pytest_cache
+recursive-exclude * .coverage
+recursive-exclude * *.egg-info
+recursive-exclude * build
+recursive-exclude * dist
+recursive-exclude * .venv
+recursive-exclude * venv
