@@ -144,10 +144,11 @@ class LLMVertex(Vertex[T]):
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         finish_reason = None
         if self.enable_stream and hasattr(self.model, "chat_stream"):
-            return self._chat_stream()
+            return self._chat_stream(inputs, context)
         llm_tools = self._build_llm_tools()
+        option = self._build_llm_option()
         while finish_reason is None or finish_reason == "tool_calls":
-            choice = self.model.chat(self.messages, tools=llm_tools)
+            choice = self.model.chat(self.messages, option=option, tools=llm_tools)
             finish_reason = choice.finish_reason
             if finish_reason == "tool_calls":
                 self._handle_tool_calls(choice, context)
@@ -159,18 +160,58 @@ class LLMVertex(Vertex[T]):
         logging.debug(f"chat bot response : {result}")
         return result
 
-    def _chat_stream(self):
-        full_content = ""
-        for msg in self.model.chat_stream(self.messages):
-            if self.workflow:
-                self.workflow.emit_event(
-                    "messages",
-                    {"vertex_id": self.id, "message": msg, "status": "running"},
-                )
-            full_content += msg
-        self.output = full_content
-        self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
-        return full_content
+    def _chat_stream(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
+        llm_tools = self._build_llm_tools()
+        option = self._build_llm_option()
+        finish_reason = None
+        
+        while finish_reason is None or finish_reason == "tool_calls":
+            full_content = ""
+            choice = None
+            
+            # 如果有tools，先尝试非流式调用检查是否需要tool_calls
+            if llm_tools:
+                choice = self.model.chat(self.messages, option=option, tools=llm_tools)
+                finish_reason = choice.finish_reason
+                
+                if finish_reason == "tool_calls":
+                    # 处理tool调用
+                    self._handle_tool_calls(choice, context)
+                    continue
+                else:
+                    # 没有tool调用，使用流式输出已获得的内容
+                    if choice.message.content:
+                        if self.workflow:
+                            self.workflow.emit_event(
+                                "messages",
+                                {"vertex_id": self.id, "message": choice.message.content, "status": "running"},
+                            )
+                        full_content = choice.message.content
+            else:
+                # 没有tools，直接使用流式输出
+                for msg in self.model.chat_stream(self.messages, option=option):
+                    if self.workflow:
+                        self.workflow.emit_event(
+                            "messages",
+                            {"vertex_id": self.id, "message": msg, "status": "running"},
+                        )
+                    full_content += msg
+                finish_reason = "stop"  # 流式输出完成
+            
+            break  # 退出while循环
+        
+        # 应用postprocess处理
+        result = (
+            full_content
+            if self.postprocess is None
+            else self.postprocess(full_content, inputs, context)
+        )
+        
+        self.output = result
+        if self.workflow:
+            self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
+        logging.debug(f"chat bot response : {result}")
+        return result
 
     def _build_llm_tools(self):
         return [
@@ -184,6 +225,17 @@ class LLMVertex(Vertex[T]):
             }
             for tool in self.tools
         ]
+
+    def _build_llm_option(self):
+        """构建LLM调用的option参数，从params中提取temperature、max_tokens等参数"""
+        option = {}
+        if self._params:
+            # 提取LLM相关参数
+            llm_params = ["temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "response_format"]
+            for param in llm_params:
+                if param in self._params:
+                    option[param] = self._params[param]
+        return option
 
     def _handle_tool_calls(self, choice, context):
         self.messages.append(choice.message)

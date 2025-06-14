@@ -332,7 +332,7 @@ chatmodel_config = None
 @vertex_flow.on_event("startup")
 async def on_startup():
     logger.info(f"Application startup, config file : ${chatmodel_config}")
-    vertex_service = VertexFlowService(chatmodel_config)
+    vertex_service = VertexFlowService(chatmodel_config) if chatmodel_config is not None else VertexFlowService()
     global dify_workflow_instances
     dify_workflow_instances = get_dify_workflow_instances(vertex_service=vertex_service)
     logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
@@ -359,9 +359,10 @@ def main():
     import uvicorn
 
     uvicorn.run(
-        vertex_flow,
+        "vertex_flow.workflow.app.app:vertex_flow",
         host=vertex_service.get_service_host(),
         port=vertex_service.get_service_port(),
+        reload=True,
     )
 
 

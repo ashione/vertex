@@ -1,3 +1,4 @@
+import logging
 from typing import Callable
 
 
@@ -17,4 +18,8 @@ class FunctionTool:
         self.schema = schema or {}
 
     def execute(self, inputs: dict, context=None):
+        # 打印工具调用参数
+        logging.info(f"Tool '{self.name}' called with inputs: {inputs}")
+        if context:
+            logging.info(f"Tool '{self.name}' context: {context}")
         return self.func(inputs, context)

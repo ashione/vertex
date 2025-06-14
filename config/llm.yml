@@ -28,6 +28,17 @@ web-search:
     sk: ${web-search.bing.sk:}
     enabled: false
 
+# 金融工具配置
+finance:
+  alpha-vantage:
+    api-key: ${finance.alpha-vantage.api-key:-}
+    enabled: false
+  finnhub:
+    api-key: ${finance.finnhub.api-key:-}
+    enabled: false
+  yahoo-finance:
+    enabled: true
+
 workflow:
   dify:
     root-path: config/
