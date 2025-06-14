@@ -4,6 +4,8 @@ import sys
 import threading
 import time
 
+import pytest
+
 from vertex_flow.src.model_client import ModelClient
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
@@ -30,6 +32,7 @@ class MockModel:
             yield f"chunk_{i} "
 
 
+@pytest.mark.asyncio
 async def test_stream_fix():
     """测试流式处理修复 - 使用简化的事件通道测试"""
     print("Testing stream fix with EventChannel...")

@@ -1,9 +1,12 @@
 import asyncio
 import time
 
+import pytest
+
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 
 
+@pytest.mark.asyncio
 async def test_workflow_complete_handling():
     """测试workflow_complete事件处理是否会卡住"""
     print("开始测试workflow_complete事件处理...")

@@ -7,9 +7,12 @@
 import asyncio
 import time
 
+import pytest
+
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 
 
+@pytest.mark.asyncio
 async def test_streaming_output():
     """测试流式输出是否真正按顺序进行"""
     print("=== 测试流式输出 ===")
@@ -74,6 +77,7 @@ async def test_streaming_output():
         print("❌ 流式输出异常：事件可能被批量处理")
 
 
+@pytest.mark.asyncio
 async def test_concurrent_events():
     """测试并发事件的处理"""
     print("\n=== 测试并发事件处理 ===")

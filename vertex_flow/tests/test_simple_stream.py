@@ -7,9 +7,12 @@
 import asyncio
 import time
 
+import pytest
+
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 
 
+@pytest.mark.asyncio
 async def test_simple_stream():
     """简单的流式输出测试"""
     print("=== 简单流式输出测试 ===")

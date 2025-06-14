@@ -149,4 +149,4 @@ markers = [
 ]
 
 [tool.pytest_asyncio]
-mode = "auto"
+mode = "strict"
