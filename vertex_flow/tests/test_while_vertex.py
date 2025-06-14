@@ -4,10 +4,7 @@ import pytest
 
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
 from vertex_flow.workflow.vertex import WhileCondition, WhileVertex
-from vertex_flow.workflow.workflow import (
-    Workflow,
-    WorkflowContext,
-)
+from vertex_flow.workflow.workflow import Workflow, WorkflowContext
 
 
 class TestWhileVertex:

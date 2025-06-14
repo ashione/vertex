@@ -15,14 +15,7 @@ from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.functions import FunctionTool
 from vertex_flow.workflow.utils import default_config_path
-from vertex_flow.workflow.workflow import (
-    Any,
-    LLMVertex,
-    SinkVertex,
-    SourceVertex,
-    Workflow,
-    WorkflowContext,
-)
+from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
 
 logger = LoggerUtil.get_logger()
 
@@ -243,11 +236,12 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                     logger.info(f"workflow result {result}")
                     yield json.dumps(
                         {
+                            "vertex_id": result["vertex_id"],
                             "output": result["message"],
                             "status": True,
                         },
                         ensure_ascii=False,
-                    )
+                    ) + "\n"
             except BaseException as e:
                 logger.info(f"workflow run exception {e}")
                 traceback.print_exc()
@@ -258,9 +252,13 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                         "message": str(e),
                         "vertices_status": workflow.status(),
                     }
-                )
+                ) + "\n"
 
-        return StreamingResponse(result_generator(), media_type="application/json")
+        return StreamingResponse(
+            result_generator(),
+            media_type="application/json",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
     else:
         try:
             workflow.execute_workflow(input_data.user_vars, stream=False)

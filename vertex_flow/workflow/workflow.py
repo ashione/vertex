@@ -2,29 +2,13 @@ import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event, Lock
-from typing import (
-    Any,
-    Dict,
-    Generic,
-    List,
-    Set,
-    TypeVar,
-)
+from typing import Any, Dict, Generic, List, Set, TypeVar
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.edge import (
-    Edge,
-)
-from vertex_flow.workflow.event_channel import EventChannel
+from vertex_flow.workflow.edge import Edge
+from vertex_flow.workflow.event_channel import EventChannel, EventType
 from vertex_flow.workflow.utils import timer_decorator
-from vertex_flow.workflow.vertex import (
-    FunctionVertex,
-    IfElseVertex,
-    LLMVertex,
-    SinkVertex,
-    SourceVertex,
-    Vertex,
-)
+from vertex_flow.workflow.vertex import FunctionVertex, IfElseVertex, LLMVertex, SinkVertex, SourceVertex, Vertex
 
 logging = LoggerUtil.get_logger()
 
@@ -71,6 +55,8 @@ class WorkflowContext(Generic[T]):
 def around_workflow(func):
     def on_workflow_finished(self):
         logging.info("on workflow finished.")
+        # 发送工作流完成事件
+        self.emit_event("updates", {"status": "workflow_complete", "message": "工作流执行完成"})
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
@@ -80,6 +66,8 @@ def around_workflow(func):
 
     def on_workflow_failed(self):
         logging.info("on workflow failed.")
+        # 发送工作流异常事件
+        self.emit_event("updates", {"status": "workflow_failed", "message": "工作流执行异常"})
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
@@ -118,10 +106,33 @@ class Workflow(Generic[T]):
     def subscribe(self, event_type: str, callback):
         self.event_channel.subscribe(event_type, callback)
 
-    async def astream(self, event_type: str):
-        """代理到 EventChannel 的 astream 方法"""
-        async for event_data in self.event_channel.astream(event_type):
-            yield event_data
+    async def astream(self, event_types):
+        """代理到 EventChannel 的 astream 方法
+
+        Args:
+            event_types: 可以是单个事件类型字符串，或者事件类型列表
+        """
+        try:
+            async for event_data in self.event_channel.astream(event_types):
+                yield event_data
+
+                # 检查是否收到工作流完成或异常事件，确保能正常退出
+                status = event_data.get("status")
+                if status in ["workflow_complete", "workflow_error", "workflow_failed"]:
+                    break
+
+        except Exception as e:
+            # 发生异常时也要确保能退出
+            from vertex_flow.utils.logger import get_logger
+
+            logger = get_logger()
+            logger.error(f"Error in workflow astream: {e}")
+            # 发送异常事件通知
+            self.emit_event(
+                EventType.UPDATES,
+                {"vertex_id": "workflow", "status": "workflow_error", "message": f"Workflow astream error: {e}"},
+            )
+            raise e
 
     def add_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         self.vertices[vertex.id] = vertex

@@ -5,11 +5,7 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import DOCS, QUERY, STATUS, SUCCESS
 from vertex_flow.workflow.vector import VectorEngine
 
-from .vertex import (
-    T,
-    Vertex,
-    WorkflowContext,
-)
+from .vertex import T, Vertex, WorkflowContext
 
 logging = LoggerUtil.get_logger()
 
