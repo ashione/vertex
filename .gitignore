@@ -46,6 +46,15 @@ ENV/
 *.swp
 *.swo
 
+# 测试覆盖率
+.coverage
+
+# 配置目录
+.config/
+
+# UV锁文件
+uv.lock
+
 # 操作系统
 .DS_Store
 .DS_Store?

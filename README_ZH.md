@@ -144,7 +144,7 @@ curl -X POST "http://localhost:8999/workflow" \
 ## 项目结构
 
 ```
-localqwen/
+vertex/
 ├── vertex_flow/          # 核心工作流引擎
 ├── workflows/           # 工作流配置文件
 ├── web_ui/             # Web 界面

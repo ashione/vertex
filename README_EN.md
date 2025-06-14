@@ -432,7 +432,7 @@ This request will return a streaming response containing workflow execution resu
 ## Directory Structure
 
 ```
-localqwen/
+vertex/
 ├── vertex_flow/            # Core workflow engine with multi-model collaboration and advanced workflows
 ├── web_ui/                 # Web user interface providing visual operation interface
 ├── scripts/                # Development and deployment scripts with pre-commit checks and config sanitization
