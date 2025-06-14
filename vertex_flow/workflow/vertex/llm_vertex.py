@@ -164,16 +164,16 @@ class LLMVertex(Vertex[T]):
         llm_tools = self._build_llm_tools()
         option = self._build_llm_option()
         finish_reason = None
-        
+
         while finish_reason is None or finish_reason == "tool_calls":
             full_content = ""
             choice = None
-            
+
             # 如果有tools，先尝试非流式调用检查是否需要tool_calls
             if llm_tools:
                 choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                 finish_reason = choice.finish_reason
-                
+
                 if finish_reason == "tool_calls":
                     # 处理tool调用
                     self._handle_tool_calls(choice, context)
@@ -197,16 +197,12 @@ class LLMVertex(Vertex[T]):
                         )
                     full_content += msg
                 finish_reason = "stop"  # 流式输出完成
-            
+
             break  # 退出while循环
-        
+
         # 应用postprocess处理
-        result = (
-            full_content
-            if self.postprocess is None
-            else self.postprocess(full_content, inputs, context)
-        )
-        
+        result = full_content if self.postprocess is None else self.postprocess(full_content, inputs, context)
+
         self.output = result
         if self.workflow:
             self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
@@ -231,7 +227,14 @@ class LLMVertex(Vertex[T]):
         option = {}
         if self._params:
             # 提取LLM相关参数
-            llm_params = ["temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "response_format"]
+            llm_params = [
+                "temperature",
+                "max_tokens",
+                "top_p",
+                "frequency_penalty",
+                "presence_penalty",
+                "response_format",
+            ]
             for param in llm_params:
                 if param in self._params:
                     option[param] = self._params[param]
