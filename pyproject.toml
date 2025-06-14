@@ -37,10 +37,14 @@ dependencies = [
     "flake8>=7.2.0",
     "isort>=6.0.1",
     "requests>=2.28.2",
-    "gradio>=3.50.0",
+    "gradio>=3.50.0,<5.0.0",
     "python-dotenv>=0.21.0",
     "openai>=1.0.0",
     "tqdm>=4.65.0",
+    "websockets>=10.0,<13.0",
+    "dashscope>=1.23.4",
+    "ruamel-yaml>=0.18.14",
+    "dashvector>=1.0.19",
 ]
 
 [project.urls]

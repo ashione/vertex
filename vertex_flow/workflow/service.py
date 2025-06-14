@@ -427,6 +427,65 @@ class VertexFlowService:
 
         return create_web_search_tool()
 
+    def get_finance_config(self):
+        """获取金融工具配置
+
+        Returns:
+            dict: 包含金融工具配置信息的字典
+        """
+        finance_config = self._config.get("finance", {})
+
+        # 获取Alpha Vantage配置
+        alpha_vantage_config = finance_config.get("alpha-vantage", {})
+        alpha_vantage_api_key = alpha_vantage_config.get("api-key") or os.getenv("FINANCE_ALPHA_VANTAGE_API_KEY")
+        alpha_vantage_enabled = alpha_vantage_config.get("enabled", False)
+
+        # 获取Finnhub配置
+        finnhub_config = finance_config.get("finnhub", {})
+        finnhub_api_key = finnhub_config.get("api-key") or os.getenv("FINANCE_FINNHUB_API_KEY")
+        finnhub_enabled = finnhub_config.get("enabled", False)
+
+        # 获取Yahoo Finance配置
+        yahoo_finance_config = finance_config.get("yahoo-finance", {})
+        yahoo_finance_enabled = yahoo_finance_config.get("enabled", True)
+
+        logging.info(
+            f"金融工具配置 - Alpha Vantage启用: {alpha_vantage_enabled}, API密钥已配置: {bool(alpha_vantage_api_key)}"
+        )
+        logging.info(f"金融工具配置 - Finnhub启用: {finnhub_enabled}, API密钥已配置: {bool(finnhub_api_key)}")
+        logging.info(f"金融工具配置 - Yahoo Finance启用: {yahoo_finance_enabled}")
+
+        return {
+            "alpha_vantage": {"api_key": alpha_vantage_api_key, "enabled": alpha_vantage_enabled},
+            "finnhub": {"api_key": finnhub_api_key, "enabled": finnhub_enabled},
+            "yahoo_finance": {"enabled": yahoo_finance_enabled},
+        }
+
+    def get_finance_tool(self):
+        """获取金融工具实例
+
+        Returns:
+            配置好的金融工具实例
+        """
+        from vertex_flow.workflow.tools.finance import create_finance_tool
+
+        # 获取配置
+        config = self.get_finance_config()
+
+        # 提取API密钥
+        alpha_vantage_key = None
+        finnhub_key = None
+
+        if config["alpha_vantage"]["enabled"] and config["alpha_vantage"]["api_key"]:
+            alpha_vantage_key = config["alpha_vantage"]["api_key"]
+
+        if config["finnhub"]["enabled"] and config["finnhub"]["api_key"]:
+            finnhub_key = config["finnhub"]["api_key"]
+
+        # 创建并返回金融工具实例
+        # 注意：create_finance_tool() 从配置文件自动加载API密钥，无需手动传递
+        return create_finance_tool()
+
     def get_rerank_config(self, rerank_type="bce"):
         """
         根据配置信息创建并返回一个重排序配置实例。
