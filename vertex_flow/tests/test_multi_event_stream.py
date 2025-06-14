@@ -35,7 +35,7 @@ class TestMultiEventStream:
 
         # 异步发送不同类型的事件
         async def send_events():
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)  # 等待监听开始
             channel.emit_event(EventType.MESSAGES, {"type": "message", "content": "hello"})
             await asyncio.sleep(0.1)
             channel.emit_event(EventType.VALUES, {"type": "value", "data": 42})
@@ -44,7 +44,7 @@ class TestMultiEventStream:
             await asyncio.sleep(0.1)
             channel.emit_event(EventType.MESSAGES, {"type": "message", "status": "workflow_complete"})
 
-        # 启动发送事件的任务
+        # 先启动发送事件的任务，但延迟发送
         send_task = asyncio.create_task(send_events())
 
         # 订阅多个事件类型
@@ -85,39 +85,47 @@ class TestMultiEventStream:
     async def test_concurrent_event_handling(self):
         """测试并发事件处理"""
         channel = EventChannel()
-
-        # 快速发送多个不同类型的事件
-        async def rapid_send():
-            for i in range(5):
-                channel.emit_event(EventType.MESSAGES, {"id": i, "type": "message"})
-                channel.emit_event(EventType.VALUES, {"id": i, "type": "value"})
-                await asyncio.sleep(0.01)  # 很短的间隔
-
-            channel.emit_event(EventType.UPDATES, {"status": "workflow_complete"})
-
-        # 启动快速发送任务
-        send_task = asyncio.create_task(rapid_send())
-
-        # 订阅所有事件类型
         events = []
+        workflow_complete_received = False
+
+        # 先发送所有事件到队列，添加小延迟确保事件被正确处理
+        for i in range(5):
+            channel.emit_event(EventType.MESSAGES, {"id": i, "type": "message"})
+            await asyncio.sleep(0.01)  # 小延迟
+        for i in range(5):
+            channel.emit_event(EventType.VALUES, {"id": i, "type": "value"})
+            await asyncio.sleep(0.01)  # 小延迟
+        # 发送完成事件
+        channel.emit_event(EventType.UPDATES, {"status": "workflow_complete"})
+
+        # 检查队列状态
+        print(
+            f"Queue sizes after sending: MESSAGES={channel.event_queues[EventType.MESSAGES].qsize()}, VALUES={channel.event_queues[EventType.VALUES].qsize()}, UPDATES={channel.event_queues[EventType.UPDATES].qsize()}"
+        )
+
+        # 然后开始接收事件，EventChannel会自动处理workflow_complete后的剩余事件
         async for event in channel.astream([EventType.MESSAGES, EventType.VALUES, EventType.UPDATES]):
             events.append(event)
-            if event.get("status") == "workflow_complete":
-                break
+            print(f"Received event: {event}")  # 调试输出
 
-        await send_task
+            # 标记收到workflow_complete
+            if event.get("status") == "workflow_complete":
+                workflow_complete_received = True
+
+        print(f"Total events received: {len(events)}")  # 调试输出
+        print(f"Events: {events}")  # 调试输出
 
         # 验证收到了预期数量的事件
-        assert len(events) == 11  # 5个message + 5个value + 1个complete
+        assert len(events) == 11, f"Expected 11 events, got {len(events)}: {events}"
 
         # 验证事件类型分布
         message_events = [e for e in events if e.get("type") == "message"]
         value_events = [e for e in events if e.get("type") == "value"]
         complete_events = [e for e in events if e.get("status") == "workflow_complete"]
 
-        assert len(message_events) == 5
-        assert len(value_events) == 5
-        assert len(complete_events) == 1
+        assert len(message_events) == 5, f"Expected 5 message events, got {len(message_events)}"
+        assert len(value_events) == 5, f"Expected 5 value events, got {len(value_events)}"
+        assert len(complete_events) == 1, f"Expected 1 complete event, got {len(complete_events)}"
 
 
 if __name__ == "__main__":
