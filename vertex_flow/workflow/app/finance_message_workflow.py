@@ -77,7 +77,7 @@ class FinanceMessageWorkflow:
         llm_asset = LLMVertex(
             id="llm_asset",
             params=llm_asset_params,
-            tools=[self.finance_tool],
+            # tools=[self.finance_tool],
         )
 
         # LLM3：消息总结和新闻可信度判断

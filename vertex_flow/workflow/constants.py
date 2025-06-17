@@ -38,3 +38,10 @@ STAGE_RESEARCH_PLANNING = "研究规划"
 STAGE_INFORMATION_COLLECTION = "信息收集"
 STAGE_DEEP_ANALYSIS = "深度分析"
 STAGE_CROSS_VALIDATION = "交叉验证"
+
+# Workflow 状态常量
+WORKFLOW_COMPLETE = "workflow_complete"  # 工作流正常完成
+WORKFLOW_FAILED = "workflow_failed"  # 工作流执行失败
+WORKFLOW_ERROR = "workflow_error"  # 工作流执行异常
+
+WORKFLOW_END_STATES = [WORKFLOW_COMPLETE, WORKFLOW_FAILED, WORKFLOW_ERROR]

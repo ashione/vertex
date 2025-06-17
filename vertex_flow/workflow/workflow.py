@@ -5,6 +5,11 @@ from threading import Event, Lock
 from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, cast
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import (
+    WORKFLOW_COMPLETE,
+    WORKFLOW_ERROR,
+    WORKFLOW_FAILED,
+)
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 from vertex_flow.workflow.utils import timer_decorator
@@ -56,7 +61,12 @@ def around_workflow(func):
     def on_workflow_finished(self):
         logger.info("on workflow finished.")
         # 发送工作流完成事件
-        self.emit_event(EventType.UPDATES, {"status": "workflow_complete", "message": "工作流执行完成"})
+        try:
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_COMPLETE, "message": "工作流执行完成"})
+            logger.info(f"emit event {EventType.UPDATES} workflow_complete")
+        except Exception as e:
+            logger.error(f"Failed to emit event {EventType.UPDATES} workflow_complete: {e}")
+
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
@@ -67,7 +77,12 @@ def around_workflow(func):
     def on_workflow_failed(self):
         logger.info("on workflow failed.")
         # 发送工作流异常事件
-        self.emit_event(EventType.UPDATES, {"status": "workflow_failed", "message": "工作流执行异常"})
+        try:
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_FAILED, "message": "工作流执行异常"})
+            logger.info(f"emit event {EventType.UPDATES} workflow_failed")
+        except Exception as e:
+            logger.error(f"Failed to emit event {EventType.UPDATES} workflow_failed: {e}")
+
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
@@ -150,6 +165,7 @@ class Workflow(Generic[T]):
         logger.info(f"工作流 DAG 长度: {dag_length}, 设置等待时间: {self.wait_time} 秒")
 
     def emit_event(self, event_type: str, event_data: dict):
+        logger.debug(f"emit event {event_type} {event_data}")
         self.event_channel.emit_event(event_type, event_data)
 
     def subscribe(self, event_type: str, callback):
@@ -161,6 +177,9 @@ class Workflow(Generic[T]):
         Args:
             event_types: 可以是单个事件类型字符串，或者事件类型列表
         """
+        if isinstance(event_types, str):
+            event_types = [event_types]
+
         try:
             # 如果启用了智能等待时间，设置事件通道的等待时间
             if self.smart_wait_time_enabled:
@@ -171,7 +190,7 @@ class Workflow(Generic[T]):
 
                 # 检查是否收到工作流完成或异常事件，确保能正常退出
                 status = event_data.get("status")
-                if status in ["workflow_complete", "workflow_error", "workflow_failed"]:
+                if status in [WORKFLOW_COMPLETE, WORKFLOW_FAILED, WORKFLOW_ERROR]:
                     break
 
         except Exception as e:
