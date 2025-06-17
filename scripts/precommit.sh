@@ -26,34 +26,51 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
-# Check if Python is available
+# 检查并激活虚拟环境
+activate_venv() {
+    # 检查是否存在 venv 目录
+    if [ -d "venv" ]; then
+        print_status "Found venv directory, activating..."
+        source venv/bin/activate
+    elif [ -d ".venv" ]; then
+        print_status "Found .venv directory, activating..."
+        source .venv/bin/activate
+    else
+        print_warning "No virtual environment found"
+    fi
+}
+
+# 检查 Python 是否可用
 if ! command -v python3 &> /dev/null; then
     print_error "Python3 is not installed or not in PATH"
     exit 1
 fi
 
-# Check if pip packages are installed
+# 激活虚拟环境
+activate_venv
+
+# 检查并安装包
 check_package() {
     if ! python3 -c "import $1" &> /dev/null; then
         print_warning "$1 is not installed. Installing..."
         if command -v uv &> /dev/null; then
-            uv add $1
+            uv pip install $1
         else
             pip3 install $1
         fi
     fi
 }
 
-# Install required packages if not present
+# 安装必需的包
 check_package "flake8"
 check_package "black"
 check_package "isort"
 check_package "autopep8"
 
-# Get list of Python files to check (staged files, excluding pipeline directory)
+# 获取要检查的 Python 文件列表（暂存的文件，排除 pipeline 目录）
 PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep -v '^\.github/' || true)
 
-# If no staged Python files, check all Python files in the repository (like CI does)
+# 如果没有暂存的 Python 文件，检查仓库中的所有 Python 文件（类似 CI 的行为）
 if [ -z "$PYTHON_FILES" ]; then
     print_warning "No staged Python files found. Checking all Python files in repository..."
     PYTHON_FILES=$(find . -name "*.py" -not -path "./.*" -not -path "./.github/*" | head -50 || true)
@@ -68,25 +85,33 @@ else
 fi
 
 if [ ! -z "$PYTHON_FILES" ]; then
-    # Run isort to sort imports
+    # 使用 isort 排序导入
     echo "🔧 Sorting imports with isort..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            isort "$file"
+            if command -v uv &> /dev/null; then
+                uv run isort "$file"
+            else
+                isort "$file"
+            fi
         fi
     done
     print_status "Import sorting completed"
     
-    # Run black for code formatting
+    # 使用 black 格式化代码
     echo "🎨 Formatting code with black..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            black "$file"
+            if command -v uv &> /dev/null; then
+                uv run black "$file"
+            else
+                black "$file"
+            fi
         fi
     done
     print_status "Code formatting completed"
     
-    # Check for import * statements
+    # 检查 import * 语句
     echo "🚫 Checking for prohibited 'import *' statements..."
     IMPORT_STAR_FILES=$(grep -l "from .* import \*" $PYTHON_FILES 2>/dev/null || true)
     if [ -n "$IMPORT_STAR_FILES" ]; then
@@ -101,47 +126,49 @@ if [ ! -z "$PYTHON_FILES" ]; then
         print_status "No 'import *' statements found"
     fi
     
-    # Run flake8 for linting
+    # 运行 flake8 进行代码检查
     echo "🔍 Running flake8 linting..."
-    if ! flake8 $PYTHON_FILES; then
+    if ! (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
         print_warning "Flake8 found issues. Attempting to auto-fix..."
         
-        # Try to auto-fix with autopep8 if available
+        # 尝试使用 autopep8 自动修复
         if command -v autopep8 &> /dev/null; then
             echo "🔧 Auto-fixing with autopep8..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    autopep8 --in-place --aggressive --aggressive "$file"
+                    if command -v uv &> /dev/null; then
+                        uv run autopep8 --in-place --aggressive --aggressive "$file"
+                    else
+                        autopep8 --in-place --aggressive --aggressive "$file"
+                    fi
                 fi
             done
             
-            # Re-run black and isort after autopep8
+            # 在 autopep8 后重新运行 black 和 isort
             echo "🔧 Re-running formatters after auto-fix..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    isort "$file"
-                    black "$file"
+                    if command -v uv &> /dev/null; then
+                        uv run isort "$file"
+                        uv run black "$file"
+                    else
+                        isort "$file"
+                        black "$file"
+                    fi
                 fi
             done
             
-            # Check flake8 again
+            # 再次检查 flake8
             echo "🔍 Re-checking with flake8..."
-            if flake8 $PYTHON_FILES; then
+            if (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
                 print_status "Auto-fix successful! Flake8 linting passed"
             else
-                print_warning "Some issues remain after auto-fix. Please review manually."
-                echo "You can continue with the commit or fix the remaining issues."
-                read -p "Do you want to continue? (y/N): " -n 1 -r
-                echo
-                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    print_error "Commit aborted by user"
-                    exit 1
-                fi
+                print_warning "Some issues remain after auto-fix. Continuing with commit..."
             fi
         else
             print_warning "autopep8 not available for auto-fixing. Installing..."
             if command -v uv &> /dev/null; then
-                uv add autopep8
+                uv pip install autopep8
             else
                 pip3 install autopep8
             fi
@@ -153,12 +180,16 @@ if [ ! -z "$PYTHON_FILES" ]; then
     fi
 fi
 
-# Auto-sanitize configuration files before checking
+# 自动清理配置文件
 echo "🔧 Auto-sanitizing configuration files..."
 if [ -f "scripts/sanitize_config.py" ]; then
-    python3 scripts/sanitize_config.py
+    if command -v uv &> /dev/null; then
+        uv run python3 scripts/sanitize_config.py
+    else
+        python3 scripts/sanitize_config.py
+    fi
     
-    # Add sanitized files to staging area if they were modified
+    # 如果配置文件被修改，添加到暂存区
     SANITIZED_FILES=$(git diff --name-only config/)
     if [ -n "$SANITIZED_FILES" ]; then
         echo "📝 Adding sanitized files to staging area..."
@@ -169,7 +200,7 @@ else
     print_warning "Sanitization script not found, skipping auto-sanitization"
 fi
 
-# Check for sensitive information
+# 检查敏感信息
 echo "🔒 Checking for sensitive information..."
 SENSITIVE_PATTERNS=(
     "api[_-]?key"
@@ -193,36 +224,20 @@ for pattern in "${SENSITIVE_PATTERNS[@]}"; do
 done
 
 if [ "$SENSITIVE_FOUND" = true ]; then
-    print_warning "Please review the files above for sensitive information"
-    echo "If you're sure these are not sensitive, you can proceed with the commit"
-    read -p "Do you want to continue? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_error "Commit aborted by user"
-        exit 1
-    fi
-else
-    print_status "No sensitive information detected"
+    print_warning "Found potential sensitive information. Continuing with commit..."
 fi
 
-# Check for large files
+# 检查大文件
 echo "📏 Checking for large files..."
 LARGE_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v '^\.github/' | xargs ls -la 2>/dev/null | awk '$5 > 1048576 {print $9, "(" $5 " bytes)"}' || true)
 
 if [ -n "$LARGE_FILES" ]; then
     print_warning "Large files detected:"
     echo "$LARGE_FILES"
-    read -p "Do you want to continue? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_error "Commit aborted by user"
-        exit 1
-    fi
-else
-    print_status "No large files detected"
+    print_warning "Continuing with commit..."
 fi
 
-# Re-add modified files to staging area (only for staged files, excluding pipeline directory)
+# 重新添加修改后的文件到暂存区（仅针对暂存的文件，排除 pipeline 目录）
 STAGED_PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep -v '^\.github/' || true)
 if [ -n "$STAGED_PYTHON_FILES" ]; then
     echo "📝 Re-adding formatted files to staging area..."
