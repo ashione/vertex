@@ -2,15 +2,20 @@ import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event, Lock
-from typing import Any, Dict, Generic, List, Set, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, cast
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import (
+    WORKFLOW_COMPLETE,
+    WORKFLOW_ERROR,
+    WORKFLOW_FAILED,
+)
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 from vertex_flow.workflow.utils import timer_decorator
 from vertex_flow.workflow.vertex import FunctionVertex, IfElseVertex, LLMVertex, SinkVertex, SourceVertex, Vertex
 
-logging = LoggerUtil.get_logger()
+logger = LoggerUtil.get_logger()
 
 T = TypeVar("T")  # 泛型类型变量
 
@@ -20,21 +25,21 @@ class WorkflowContext(Generic[T]):
 
     def __init__(
         self,
-        env_parameters: Dict[str, Any] = None,
-        user_parameters: Dict[str, Any] = None,
+        env_parameters: Optional[Dict[str, Any]] = None,
+        user_parameters: Optional[Dict[str, Any]] = None,
     ):
         self.env_parameters = env_parameters or {}
         self.user_parameters = user_parameters or {}
         self.outputs = {}  # 新增属性来存储顶点的输出
 
-    def get_env_parameter(self, key: str, default: T = {}) -> T:
-        return self.env_parameters.get(key, default)
+    def get_env_parameter(self, key: str, default: T = None) -> T:
+        return cast(T, self.env_parameters.get(key, default))
 
     def get_env_parameters(self) -> Dict[str, Any]:
         return self.env_parameters
 
-    def get_user_parameter(self, key: str, default: T = {}) -> T:
-        return self.user_parameters.get(key, default)
+    def get_user_parameter(self, key: str, default: T = None) -> T:
+        return cast(T, self.user_parameters.get(key, default))
 
     def get_user_parameters(self) -> Dict[str, Any]:
         return self.user_parameters
@@ -45,7 +50,7 @@ class WorkflowContext(Generic[T]):
 
     def get_output(self, vertex_id: str) -> T:
         """从上下文中获取指定顶点的输出数据"""
-        return self.outputs.get(vertex_id, None)
+        return cast(T, self.outputs.get(vertex_id, None))
 
     def get_outputs(self) -> Dict[str, Any]:
         """从上下文中获取所有顶点的输出数据"""
@@ -54,26 +59,36 @@ class WorkflowContext(Generic[T]):
 
 def around_workflow(func):
     def on_workflow_finished(self):
-        logging.info("on workflow finished.")
+        logger.info("on workflow finished.")
         # 发送工作流完成事件
-        self.emit_event("updates", {"status": "workflow_complete", "message": "工作流执行完成"})
+        try:
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_COMPLETE, "message": "工作流执行完成"})
+            logger.info(f"emit event {EventType.UPDATES} workflow_complete")
+        except Exception as e:
+            logger.error(f"Failed to emit event {EventType.UPDATES} workflow_complete: {e}")
+
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
                     vertex.on_workflow_finished()
                 except BaseException as e:
-                    logging.error(f"Failed to execute vertex {vertex.id} workflow finished callback.")
+                    logger.error(f"Failed to execute vertex {vertex.id} workflow finished callback.")
 
     def on_workflow_failed(self):
-        logging.info("on workflow failed.")
+        logger.info("on workflow failed.")
         # 发送工作流异常事件
-        self.emit_event("updates", {"status": "workflow_failed", "message": "工作流执行异常"})
+        try:
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_FAILED, "message": "工作流执行异常"})
+            logger.info(f"emit event {EventType.UPDATES} workflow_failed")
+        except Exception as e:
+            logger.error(f"Failed to emit event {EventType.UPDATES} workflow_failed: {e}")
+
         for vertex in self.vertices.values():
             if vertex.is_executed:
                 try:
                     vertex.on_workflow_failed()
                 except BaseException as e:
-                    logging.error(f"Failed to execute vertex {vertex.id} workflow failed callback.")
+                    logger.error(f"Failed to execute vertex {vertex.id} workflow failed callback.")
 
     def wrapper(self, *args, **kwargs):
         try:
@@ -90,7 +105,7 @@ def around_workflow(func):
 class Workflow(Generic[T]):
     """工作流类，管理顶点和边，并提供执行工作流的方法"""
 
-    def __init__(self, context: WorkflowContext[T] = None):
+    def __init__(self, context: Optional[WorkflowContext[T]] = None):
         self.vertices = {}
         self.edges = set()
         self.context = context or WorkflowContext[T]()
@@ -99,8 +114,58 @@ class Workflow(Generic[T]):
         self.executed = False
         # 新增事件通道
         self.event_channel = EventChannel()
+        # 新增智能等待时间配置
+        self.smart_wait_time_enabled = False
+        self.wait_time = 30  # 默认等待时间（秒）
+
+    def enable_smart_wait_time(self):
+        """启用智能等待时间功能"""
+        self.smart_wait_time_enabled = True
+        self._calculate_wait_time()
+
+    def _calculate_dag_length(self) -> int:
+        """计算工作流 DAG 的长度（从源顶点到汇顶点的最长路径）
+
+        Returns:
+            int: DAG 的长度
+        """
+
+        def dfs(vertex_id: str, visited: set, path_length: int) -> int:
+            if vertex_id in visited:
+                return path_length
+            visited.add(vertex_id)
+            max_length = path_length
+
+            # 获取当前顶点的所有出边
+            out_edges = [edge for edge in self.edges if edge.source_vertex.id == vertex_id]
+            for edge in out_edges:
+                target_id = edge.target_vertex.id
+                length = dfs(target_id, visited.copy(), path_length + 1)
+                max_length = max(max_length, length)
+
+            return max_length
+
+        # 从所有源顶点开始计算
+        source_vertices = self.get_sources()
+        max_dag_length = 0
+        for source in source_vertices:
+            length = dfs(source.id, set(), 0)
+            max_dag_length = max(max_dag_length, length)
+
+        return max_dag_length
+
+    def _calculate_wait_time(self):
+        """根据 DAG 长度计算合适的等待时间"""
+        if not self.smart_wait_time_enabled:
+            return
+
+        dag_length = self._calculate_dag_length()
+        # 基础等待时间 30 秒，每个顶点额外增加 15 秒，最大不超过 300 秒
+        self.wait_time = min(300, 30 + dag_length * 15)
+        logger.info(f"工作流 DAG 长度: {dag_length}, 设置等待时间: {self.wait_time} 秒")
 
     def emit_event(self, event_type: str, event_data: dict):
+        logger.debug(f"emit event {event_type} {event_data}")
         self.event_channel.emit_event(event_type, event_data)
 
     def subscribe(self, event_type: str, callback):
@@ -112,27 +177,26 @@ class Workflow(Generic[T]):
         Args:
             event_types: 可以是单个事件类型字符串，或者事件类型列表
         """
+        if isinstance(event_types, str):
+            event_types = [event_types]
+
         try:
+            # 如果启用了智能等待时间，设置事件通道的等待时间
+            if self.smart_wait_time_enabled:
+                self.event_channel.set_wait_time(self.wait_time)
+
             async for event_data in self.event_channel.astream(event_types):
                 yield event_data
 
                 # 检查是否收到工作流完成或异常事件，确保能正常退出
                 status = event_data.get("status")
-                if status in ["workflow_complete", "workflow_error", "workflow_failed"]:
+                if status in [WORKFLOW_COMPLETE, WORKFLOW_FAILED, WORKFLOW_ERROR]:
                     break
 
         except Exception as e:
             # 发生异常时也要确保能退出
-            from vertex_flow.utils.logger import get_logger
-
-            logger = get_logger()
-            logger.error(f"Error in workflow astream: {e}")
-            # 发送异常事件通知
-            self.emit_event(
-                EventType.UPDATES,
-                {"vertex_id": "workflow", "status": "workflow_error", "message": f"Workflow astream error: {e}"},
-            )
-            raise e
+            logger.error(f"Error in astream: {e}")
+            raise
 
     def add_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         self.vertices[vertex.id] = vertex
@@ -171,7 +235,7 @@ class Workflow(Generic[T]):
         #   edge.source_vertex.output_type is not None and \
         #   edge.source_vertex.output_type != edge.target_vertex.input_type:
         #    raise TypeError(f"Incompatible types between vertex {edge.source_vertex.id} and {edge.target_vertex.id}")
-        logging.info(f"Edge add {edge}.")
+        logger.info(f"Edge add {edge}.")
         self.edges.add(edge)
         self.vertices[edge.target_vertex.id].in_degree += 1  # 更新入度
         self.vertices[edge.target_vertex.id].dependencies.add(edge.source_vertex.id)
@@ -181,11 +245,11 @@ class Workflow(Generic[T]):
     def topological_sort(self):
         queue = deque(self.get_sources())
         self.topological_order = []
-        logging.info(f"Source vertex length : {len(queue)}")
+        logger.info(f"Source vertex length : {len(queue)}")
         while queue:
             vertex = queue.popleft()
             self.topological_order.append(vertex)
-            logging.debug(f"Topological in {vertex}")
+            logger.debug(f"Topological in {vertex}")
             for edge in self.edges:
                 if edge.get_source_vertex().id == vertex.id:
                     target_vertex = edge.get_target_vertex()
@@ -227,7 +291,7 @@ class Workflow(Generic[T]):
 
         # 4. 出度为0的必须为sink
         for vertex in self.vertices.values():
-            logging.debug(f"check out degress : {vertex}, {vertex.out_degree}")
+            logger.debug(f"check out degress : {vertex}, {vertex.out_degree}")
             if vertex.out_degree > 0 and vertex.task_type == "SINK":
                 raise ValueError(f"Vertex {vertex.id} has out-degree of 0 but is not a sink vertex.")
             if vertex.task_type == "SINK" and vertex.out_degree > 0:
@@ -322,7 +386,7 @@ class Workflow(Generic[T]):
             if not stream:
                 self.process_results(futures, checked_futures)
 
-        logging.info("workflow finished.")
+        logger.info("workflow finished.")
         return True
 
     def execute_vertex(
@@ -335,10 +399,10 @@ class Workflow(Generic[T]):
         executor,
         stream,
     ):
-        logging.info(f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}.")
+        logger.info(f"Executing {vertex.id}, task_type : {vertex.task_type} deps : {vertex._dependencies}.")
 
         if vertex.id in filtered_vertices:
-            logging.info(f"skip {vertex.id}.")
+            logger.info(f"skip {vertex.id}.")
             return
 
         self.wait_for_dependencies(vertex, futures, checked_futures)
@@ -347,7 +411,7 @@ class Workflow(Generic[T]):
 
         filter_result = self.mayebe_filter_subgraph(vertex=vertex)
         if filter_result[0]:
-            logging.info(f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}")
+            logger.info(f"vertex : {vertex} has been filterd, its subgraph might be skipped {filter_result[1]}")
             filtered_vertices.update(filter_result[1])
             return
 
@@ -372,35 +436,35 @@ class Workflow(Generic[T]):
                 for item in dep_future:
                     f, v = item[0], item[1]
                     try:
-                        logging.info(f"waiting for {v.id}.")
+                        logger.info(f"waiting for {v.id}.")
                         f.result()
                         checked_futures.add(f)
                         self.context.store_output(v._id, v.output)
-                        logging.info(f"deps finished, info {v.id}")
+                        logger.info(f"deps finished, info {v.id}")
                     except Exception as e:
                         raise e
 
     def process_stream_result(self, future, vertex):
         try:
             future.result()
-            logging.debug(f"vertex finished, detail {vertex}")
+            logger.debug(f"vertex finished, detail {vertex}")
             self.context.store_output(vertex._id, vertex.output)
         except Exception as e:
-            logging.error(f"Failed to execute vertex {vertex}: {e}")
+            logger.error(f"Failed to execute vertex {vertex}: {e}")
             raise e
 
     def process_results(self, futures, checked_futures):
         for future in as_completed(futures):
             if future in checked_futures:
-                logging.debug(f"skip already checked future {future}.")
+                logger.debug(f"skip already checked future {future}.")
                 continue
             with self.lock:
                 vertex = futures[future]
                 try:
                     future.result()
-                    logging.debug(f"vertex finished, detail {vertex}")
+                    logger.debug(f"vertex finished, detail {vertex}")
                 except Exception as e:
-                    logging.error(f"Failed to execute vertex {vertex}: {e}")
+                    logger.error(f"Failed to execute vertex {vertex}: {e}")
                     raise e
                 else:
                     self.context.store_output(vertex._id, vertex.output)
@@ -497,61 +561,71 @@ class Workflow(Generic[T]):
 
 def main():
     # 示例任务函数
-    def source_task(inputs: Dict[str, str], context: WorkflowContext[str]) -> str:
+    def source_task(inputs: Dict[str, Any], context: WorkflowContext[str]) -> str:
         env_param = context.get_env_parameter("example_key", "default_value")
-        logging.info("executing in source task")
+        logger.info("executing in source task")
         return f"Source input with env parameter: {env_param}"
 
-    def sink_task(inputs: Dict[str, str], context: WorkflowContext[str]):
+    def llm_task(inputs: Dict[str, Any], context: WorkflowContext[str]) -> str:
+        env_param = context.get_env_parameter("example_key", "default_value")
+        logger.info("executing in llm task")
+        return f"LLM output with input: {inputs} and env parameter: {env_param}"
+
+    def function_task(inputs: Dict[str, Any], context: WorkflowContext[str]) -> str:
+        env_param = context.get_env_parameter("example_key", "default_value")
+        logger.info("executing in function task")
+        return f"Function output with input: {inputs} and env parameter: {env_param}"
+
+    def sink_task(inputs: Dict[str, Any], context: WorkflowContext[str]) -> None:
         env_param = context.get_env_parameter("example_key", "default_value")
         # SINK 类型的任务，这里假设只是打印输出
         result = f"Sink output with input: {inputs} and env parameter: {env_param}"
-        logging.info(f"Sink result : {result}")
+        logger.info(f"Sink result : {result}")
 
     # 创建顶点
-    vertex_source = SourceVertex("SOURCE", task=source_task, params={})
-    vertex_llm = LLMVertex(
-        id="my_llm",
-        task=lambda inputs: f"Processed: {inputs}",
+    vertex_source = SourceVertex(
+        id="SOURCE",
+        task=source_task,
     )
-    vertex_function_a = FunctionVertex("FUNCTION_A", task=lambda inputs: f"Function A output: {inputs}")
-    vertex_function_b = FunctionVertex("FUNCTION_B", task=lambda inputs: f"Function B output: {inputs}")
-    vertex_sink = SinkVertex("SINK", task=sink_task)
+
+    vertex_llm = LLMVertex(
+        id="LLM",
+        task=llm_task,
+    )
+
+    vertex_function = FunctionVertex(
+        id="FUNCTION",
+        task=function_task,
+    )
+
+    vertex_sink = SinkVertex(
+        id="SINK",
+        task=sink_task,
+    )
 
     # 创建工作流
     workflow = Workflow()
-    logging.info("Create workflow")
+    logger.info("Create workflow")
 
     # 构建工作流图
-    (
-        workflow.ensure_vertex_added(vertex_source)
-        | workflow.ensure_vertex_added(vertex_llm)
-        | workflow.ensure_vertex_added(vertex_function_a)
-        | workflow.ensure_vertex_added(vertex_function_b)
-        | workflow.ensure_vertex_added(vertex_sink)
-    )
-    # 连接顶点
-    # vertex_source | vertex_llm
-    # vertex_llm | vertex_function_a
-    # vertex_function_a | vertex_function_b
-    # vertex_function_b | vertex_sink
+    vertex_source | vertex_llm | vertex_function | vertex_sink
 
     # 创建 WorkflowContext
     workflow_context = WorkflowContext(env_parameters={"example_key": "example_value"})
-    logging.info("Create workflow context.")
+    logger.info("Create workflow context.")
 
     # 设置工作流的上下文
     workflow.context = workflow_context
 
-    logging.info("Connect vertex_flow.workflow.")
+    logger.info("Connect vertex_flow.workflow.")
 
     # 输出工作流图信息
     workflow.show_graph(include_params=True, include_dependencies=True, include_output=True)
 
     # 执行工作流
     workflow.execute_workflow()
-    logging.info(f"Workflow result : {workflow.result()}")
-    logging.info(f"Workflow result : {workflow.context.get_outputs()}")
+    logger.info(f"Workflow result : {workflow.result()}")
+    logger.info(f"Workflow result : {workflow.context.get_outputs()}")
 
 
 if __name__ == "__main__":

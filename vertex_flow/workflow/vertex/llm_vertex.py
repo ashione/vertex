@@ -1,6 +1,7 @@
 import inspect
 import json
 import traceback
+import asyncio
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
@@ -240,24 +241,47 @@ class LLMVertex(Vertex[T]):
                     option[param] = self._params[param]
         return option
 
-    def _handle_tool_calls(self, choice, context):
+    async def _handle_tool_calls_async(self, choice, context):
         self.messages.append(choice.message)
-        for tool_call in choice.message.tool_calls:
+        async def call_tool(tool, tool_call, context):
             tool_call_name = tool_call.function.name
-            logging.info(f"call tool {tool_call_name}, args: {tool_call.function.arguments}")
             tool_call_arguments = json.loads(tool_call.function.arguments)
-            tool_result = None
+            return tool_call, await asyncio.to_thread(tool.execute, tool_call_arguments, context)
+        tasks = []
+        for tool_call in choice.message.tool_calls:
             for tool in self.tools:
-                if tool.name == tool_call_name:
-                    tool_result = tool.execute(tool_call_arguments, context)
+                if tool.name == tool_call.function.name:
+                    tasks.append(call_tool(tool, tool_call, context))
                     break
-            if tool_result is None:
-                tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
-            self.messages.append(
-                {
+            else:
+                # 未找到tool
+                self.messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "name": tool_call_name,
-                    "content": json.dumps(tool_result),
-                }
-            )
+                    "name": tool_call.function.name,
+                    "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
+                })
+        results = await asyncio.gather(*tasks) if tasks else []
+        for tool_call, tool_result in results:
+            self.messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": json.dumps(tool_result),
+            })
+
+    def _handle_tool_calls(self, choice, context):
+        # 兼容同步/异步环境
+        try:
+            loop = asyncio.get_running_loop()
+            # 已在事件循环中
+            coro = self._handle_tool_calls_async(choice, context)
+            if loop.is_running():
+                import nest_asyncio
+                nest_asyncio.apply()
+                loop.run_until_complete(coro)
+            else:
+                loop.run_until_complete(coro)
+        except RuntimeError:
+            # 不在事件循环中
+            asyncio.run(self._handle_tool_calls_async(choice, context))

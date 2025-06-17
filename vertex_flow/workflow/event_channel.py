@@ -3,6 +3,7 @@ from collections import defaultdict
 from threading import Lock
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import WORKFLOW_END_STATES
 
 logger = LoggerUtil.get_logger()
 
@@ -33,7 +34,7 @@ class EventChannel:
     - 实时数据流处理
     """
 
-    def __init__(self, max_empty_count=100, max_empty_duration=10.0, queue_timeout=0.1):
+    def __init__(self, max_empty_duration=10.0, queue_timeout=0.1):
         """
         初始化事件通道
 
@@ -57,7 +58,6 @@ class EventChannel:
         self.event_lock = Lock()
 
         # 智能退出策略配置参数
-        self.max_empty_count = max_empty_count
         self.max_empty_duration = max_empty_duration
         self.queue_timeout = queue_timeout
 
@@ -65,6 +65,16 @@ class EventChannel:
         self.event_queues[EventType.MESSAGES] = asyncio.Queue()
         self.event_queues[EventType.VALUES] = asyncio.Queue()
         self.event_queues[EventType.UPDATES] = asyncio.Queue()
+
+    def set_wait_time(self, wait_time: float):
+        """
+        设置等待时间
+
+        Args:
+            wait_time (float): 等待时间（秒）
+        """
+        self.max_empty_duration = wait_time
+        logger.info(f"Set wait time to {wait_time} seconds")
 
     def emit_event(self, event_type, event_data):
         """
@@ -115,13 +125,12 @@ class EventChannel:
 
         特性：
         1. 并发监听：同时监听多个事件队列
-        2. 智能退出：基于空事件计数和持续时间的退出策略
-        3. workflow_complete处理：特殊处理工作流完成事件
+        2. 智能退出：基于空事件持续时间的退出策略
+        3. workflow状态处理：处理workflow_complete和workflow_failed两种结束状态
         4. 异常安全：妥善处理取消和异常情况
 
         退出条件：
-        - 接收到workflow_complete事件且所有队列为空
-        - 连续空事件超过max_empty_count次
+        - 接收到workflow_complete或workflow_failed事件且所有队列为空
         - 空事件持续时间超过max_empty_duration秒
         """
         # 统一处理为列表格式：支持单个事件类型或事件类型列表
@@ -153,10 +162,9 @@ class EventChannel:
 
         current_tasks = []
         # 智能退出策略相关变量
-        empty_count = 0  # 连续空事件计数器
         empty_start_time = None  # 空事件开始时间
-        workflow_complete_event = None  # 暂存workflow_complete事件，等待合适时机发送
-        workflow_complete = False
+        workflow_complete_event = None  # 暂存workflow状态事件，等待合适时机发送
+        workflow_ended = False  # 标记workflow是否已结束（包括完成和失败）
 
         try:
             while True:
@@ -167,7 +175,7 @@ class EventChannel:
 
                 try:
                     # 等待所有任务完成
-                    done, pending = await asyncio.wait(current_tasks, return_when=asyncio.ALL_COMPLETED)
+                    done, _ = await asyncio.wait(current_tasks, return_when=asyncio.ALL_COMPLETED)
 
                     # 处理所有完成的任务
                     has_valid_event = False
@@ -181,21 +189,22 @@ class EventChannel:
                                 logger.info(f"Event received from {event_type}: {event_data}")
                                 logger.debug(f"About to yield event: {event_data}")
 
-                                # 检查是否收到 workflow_complete 事件
-                                if event_data.get("status") == "workflow_complete":
-                                    workflow_complete = True
+                                # 检查是否收到 workflow 状态事件
+                                status = event_data.get("status")
+                                if status in WORKFLOW_END_STATES:
+                                    workflow_ended = True
                                     workflow_complete_event = event_data
                                     logger.info(
-                                        "Workflow complete event received, will be deferred until other queues are empty"
+                                        f"Workflow {status} event received, will be deferred until other queues are empty"
                                     )
                                     # 不立即yield，而是暂存起来
                                 else:
-                                    # 非workflow_complete事件加入待yield列表
+                                    # 非workflow状态事件加入待yield列表
                                     events_to_yield.append(event_data)
                         except Exception as e:
                             logger.error(f"Error processing task result: {e}")
 
-                    # yield所有非workflow_complete事件
+                    # yield所有非workflow状态事件
                     for event_data in events_to_yield:
                         yield event_data
                         logger.debug(f"Event yielded: {event_data}")
@@ -204,21 +213,21 @@ class EventChannel:
                     if not has_valid_event:
                         await asyncio.sleep(self.queue_timeout)
 
-                    # 检查是否应该发送暂存的workflow_complete事件
+                    # 检查是否应该发送暂存的workflow状态事件
                     if workflow_complete_event:
                         # 检查除了UPDATES队列外的其他队列是否为空
                         other_event_types = [et for et in event_types if et != EventType.UPDATES]
                         other_queues_empty = all(self.event_queues[et].empty() for et in other_event_types)
 
                         if other_queues_empty:
-                            # 其他队列都空了，现在可以发送workflow_complete事件
-                            logger.info("Other queues empty, now yielding workflow complete event")
+                            # 其他队列都空了，现在可以发送workflow状态事件
+                            logger.info("Other queues empty, now yielding workflow status event")
                             yield workflow_complete_event
-                            logger.debug(f"Workflow complete event yielded: {workflow_complete_event}")
+                            logger.debug(f"Workflow status event yielded: {workflow_complete_event}")
                             break
                         else:
                             logger.info(
-                                "Workflow completed but other queues not empty, continuing to process remaining events"
+                                "Workflow ended but other queues not empty, continuing to process remaining events"
                             )
                             # 继续处理剩余事件，不退出循环
 
@@ -230,18 +239,15 @@ class EventChannel:
                         current_time = asyncio.get_event_loop().time()
                         if empty_start_time is None:
                             empty_start_time = current_time
-                            empty_count = 0
 
-                        empty_count += 1
                         empty_duration = current_time - empty_start_time
 
                         # 退出条件：
-                        # 1. 连续空事件超过配置的最大次数
-                        # 2. 或者空事件持续时间超过配置的最大时长
-                        # 3. 且所有队列确实为空
-                        # 4. 但如果还没收到workflow_complete，则延长等待时间
-                        max_duration = self.max_empty_duration if workflow_complete else self.max_empty_duration * 2
-                        if (empty_count > self.max_empty_count or empty_duration > max_duration) and all_queues_empty:
+                        # 1. 空事件持续时间超过配置的最大时长
+                        # 2. 且所有队列确实为空
+                        # 3. 但如果还没收到workflow状态事件，则延长等待时间
+                        max_duration = self.max_empty_duration if workflow_ended else self.max_empty_duration * 2
+                        if empty_duration > max_duration and all_queues_empty:
                             logger.info(
                                 f"No events for extended period (count: {empty_count}, duration: {empty_duration:.2f}s), stopping stream"
                             )
@@ -249,7 +255,11 @@ class EventChannel:
                     else:
                         # 重置空事件计数器
                         empty_start_time = None
-                        empty_count = 0
+
+                    # 如果收到 workflow 状态事件，且所有队列都为空，则退出
+                    if workflow_ended and all_queues_empty:
+                        logger.info("Workflow ended and all queues are empty, stopping event channel")
+                        break
 
                 except Exception as e:
                     # 取消所有任务
@@ -267,6 +277,10 @@ class EventChannel:
                     for task in current_tasks:
                         if not task.done():
                             task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
                     if current_tasks:
                         await asyncio.gather(*current_tasks, return_exceptions=True)
                     raise
@@ -278,6 +292,10 @@ class EventChannel:
             for task in current_tasks:
                 if not task.done():
                     task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
             if current_tasks:
                 await asyncio.gather(*current_tasks, return_exceptions=True)
 

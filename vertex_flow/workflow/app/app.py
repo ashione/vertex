@@ -10,8 +10,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
 from vertex_flow.workflow.constants import ENABLE_STREAM
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
+from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.functions import FunctionTool
 from vertex_flow.workflow.utils import default_config_path
@@ -217,11 +219,19 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         logger.info("Build new workflow from graph")
         instance = dify_workflow_instances[input_data.workflow_name]
         # 根据工作流名称构建不同的workflow实例
-        workflow = instance["builder"](
-            {**input_data.user_vars, **{"stream": input_data.stream}}
-            if input_data.workflow_name == "deep-research"
-            else instance["graph"]
-        )
+        if input_data.workflow_name == "deep-research":
+            workflow = instance["builder"]({**input_data.user_vars, **{"stream": input_data.stream}})
+        elif input_data.workflow_name == "finance-message":
+            workflow = instance["builder"](
+                {
+                    "content": input_data.content,
+                    "env_vars": input_data.env_vars,
+                    "user_vars": input_data.user_vars,
+                    "stream": input_data.stream,
+                }
+            )
+        else:
+            workflow = instance["builder"](instance["graph"])
     else:
         logger.info("Build new workflow from code")
         workflow = get_default_workflow(input_data=input_data)
@@ -232,16 +242,17 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
 
         async def result_generator():
             try:
-                async for result in workflow.astream("messages"):
+                async for result in workflow.astream([EventType.MESSAGES, EventType.UPDATES]):
                     logger.info(f"workflow result {result}")
-                    yield json.dumps(
-                        {
-                            "vertex_id": result["vertex_id"],
-                            "output": result["message"],
-                            "status": True,
-                        },
-                        ensure_ascii=False,
-                    ) + "\n"
+                    if result.get("vertex_id"):
+                        yield json.dumps(
+                            {
+                                "vertex_id": result["vertex_id"],
+                                "output": result["message"],
+                                "status": True,
+                            },
+                            ensure_ascii=False,
+                        ) + "\n"
             except BaseException as e:
                 logger.info(f"workflow run exception {e}")
                 traceback.print_exc()
@@ -335,6 +346,11 @@ async def on_startup():
     vertex_service = VertexFlowService(chatmodel_config) if chatmodel_config is not None else VertexFlowService()
     global dify_workflow_instances
     dify_workflow_instances = get_dify_workflow_instances(vertex_service=vertex_service)
+    # 注册finance-message workflow
+    dify_workflow_instances["finance-message"] = {
+        "builder": create_finance_message_workflow(vertex_service),
+        "graph": None,
+    }
     logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
 
 
