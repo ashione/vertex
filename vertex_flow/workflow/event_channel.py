@@ -33,7 +33,7 @@ class EventChannel:
     - 实时数据流处理
     """
 
-    def __init__(self, max_empty_count=100, max_empty_duration=10.0, queue_timeout=0.1):
+    def __init__(self, max_empty_duration=10.0, queue_timeout=0.1):
         """
         初始化事件通道
 
@@ -57,7 +57,6 @@ class EventChannel:
         self.event_lock = Lock()
 
         # 智能退出策略配置参数
-        self.max_empty_count = max_empty_count
         self.max_empty_duration = max_empty_duration
         self.queue_timeout = queue_timeout
 
@@ -65,6 +64,16 @@ class EventChannel:
         self.event_queues[EventType.MESSAGES] = asyncio.Queue()
         self.event_queues[EventType.VALUES] = asyncio.Queue()
         self.event_queues[EventType.UPDATES] = asyncio.Queue()
+
+    def set_wait_time(self, wait_time: float):
+        """
+        设置等待时间
+
+        Args:
+            wait_time (float): 等待时间（秒）
+        """
+        self.max_empty_duration = wait_time
+        logger.info(f"Set wait time to {wait_time} seconds")
 
     def emit_event(self, event_type, event_data):
         """
@@ -241,7 +250,7 @@ class EventChannel:
                         # 3. 且所有队列确实为空
                         # 4. 但如果还没收到workflow_complete，则延长等待时间
                         max_duration = self.max_empty_duration if workflow_complete else self.max_empty_duration * 2
-                        if (empty_count > self.max_empty_count or empty_duration > max_duration) and all_queues_empty:
+                        if empty_duration > max_duration and all_queues_empty:
                             logger.info(
                                 f"No events for extended period (count: {empty_count}, duration: {empty_duration:.2f}s), stopping stream"
                             )
