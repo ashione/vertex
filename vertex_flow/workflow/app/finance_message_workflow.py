@@ -1,18 +1,18 @@
 import json
-from typing import Any, Dict, Optional, TypeVar, Generic, cast
 from datetime import datetime
+from typing import Any, Dict, Generic, Optional, TypeVar, cast
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import (
     ENABLE_STREAM,
-    SYSTEM,
-    USER,
+    LOCAL_VAR,
     SOURCE_SCOPE,
     SOURCE_VAR,
-    LOCAL_VAR,
+    SYSTEM,
+    USER,
 )
-from vertex_flow.workflow.workflow import LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
 from vertex_flow.workflow.tools.finance import create_finance_tool
+from vertex_flow.workflow.workflow import LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
 
 logger = LoggerUtil.get_logger()
 
@@ -101,15 +101,15 @@ class FinanceMessageWorkflow:
             detect_result = inputs.get("detect_result", {})
             if isinstance(detect_result, dict):
                 result.update(detect_result)
-            
+
             asset_result = inputs.get("asset_result", {})
             if isinstance(asset_result, dict):
                 result.update(asset_result)
-            
+
             summary_result = inputs.get("summary_result", {})
             if isinstance(summary_result, dict):
                 result.update(summary_result)
-            
+
             context.outputs["result"] = result
 
         sink = SinkVertex(
@@ -117,23 +117,25 @@ class FinanceMessageWorkflow:
             task=sink_task,
         )
         # 添加变量选择器
-        sink.add_variables([
-            {
-                SOURCE_SCOPE: "llm_detect",
-                SOURCE_VAR: None,
-                LOCAL_VAR: "detect_result",
-            },
-            {
-                SOURCE_SCOPE: "llm_asset",
-                SOURCE_VAR: None,
-                LOCAL_VAR: "asset_result",
-            },
-            {
-                SOURCE_SCOPE: "llm_summary",
-                SOURCE_VAR: None,
-                LOCAL_VAR: "summary_result",
-            },
-        ])
+        sink.add_variables(
+            [
+                {
+                    SOURCE_SCOPE: "llm_detect",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "detect_result",
+                },
+                {
+                    SOURCE_SCOPE: "llm_asset",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "asset_result",
+                },
+                {
+                    SOURCE_SCOPE: "llm_summary",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "summary_result",
+                },
+            ]
+        )
 
         workflow.add_vertex(source)
         workflow.add_vertex(llm_detect)
@@ -163,10 +165,7 @@ class FinanceMessageWorkflow:
         )
 
     def _get_detect_user_prompt(self) -> str:
-        return (
-            "请判断以下消息是否与金融相关，并评估其可信度：\n"
-            "{{source.message}}"
-        )
+        return "请判断以下消息是否与金融相关，并评估其可信度：\n" "{{source.message}}"
 
     def _get_asset_system_prompt(self) -> str:
         return (
@@ -213,13 +212,17 @@ class FinanceMessageWorkflow:
             "资产和情感分析：{{llm_asset}}"
         )
 
+
 def create_finance_message_workflow(vertex_service):
     workflow_builder = FinanceMessageWorkflow(vertex_service)
+
     def build_workflow(input_data: Dict[str, Any]) -> Workflow:
         return workflow_builder.create_workflow(input_data)
+
     return build_workflow
+
 
 __all__ = [
     "FinanceMessageWorkflow",
     "create_finance_message_workflow",
-] 
+]

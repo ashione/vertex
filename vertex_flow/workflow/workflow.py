@@ -2,13 +2,12 @@ import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event, Lock
-from typing import Any, Dict, Generic, List, Set, TypeVar, cast, Optional
+from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, cast
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 from vertex_flow.workflow.utils import timer_decorator
-
 from vertex_flow.workflow.vertex import FunctionVertex, IfElseVertex, LLMVertex, SinkVertex, SourceVertex, Vertex
 
 logger = LoggerUtil.get_logger()
@@ -115,19 +114,20 @@ class Workflow(Generic[T]):
         Returns:
             int: DAG 的长度
         """
+
         def dfs(vertex_id: str, visited: set, path_length: int) -> int:
             if vertex_id in visited:
                 return path_length
             visited.add(vertex_id)
             max_length = path_length
-            
+
             # 获取当前顶点的所有出边
             out_edges = [edge for edge in self.edges if edge.source_vertex.id == vertex_id]
             for edge in out_edges:
                 target_id = edge.target_vertex.id
                 length = dfs(target_id, visited.copy(), path_length + 1)
                 max_length = max(max_length, length)
-            
+
             return max_length
 
         # 从所有源顶点开始计算

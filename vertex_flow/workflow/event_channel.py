@@ -124,13 +124,12 @@ class EventChannel:
 
         特性：
         1. 并发监听：同时监听多个事件队列
-        2. 智能退出：基于空事件计数和持续时间的退出策略
+        2. 智能退出：基于空事件持续时间的退出策略
         3. workflow_complete处理：特殊处理工作流完成事件
         4. 异常安全：妥善处理取消和异常情况
 
         退出条件：
         - 接收到workflow_complete事件且所有队列为空
-        - 连续空事件超过max_empty_count次
         - 空事件持续时间超过max_empty_duration秒
         """
         # 统一处理为列表格式：支持单个事件类型或事件类型列表
@@ -245,20 +244,29 @@ class EventChannel:
                         empty_duration = current_time - empty_start_time
 
                         # 退出条件：
-                        # 1. 连续空事件超过配置的最大次数
-                        # 2. 或者空事件持续时间超过配置的最大时长
-                        # 3. 且所有队列确实为空
-                        # 4. 但如果还没收到workflow_complete，则延长等待时间
+                        # 1. 空事件持续时间超过配置的最大时长
+                        # 2. 且所有队列确实为空
+                        # 3. 但如果还没收到workflow_complete，则延长等待时间
                         max_duration = self.max_empty_duration if workflow_complete else self.max_empty_duration * 2
                         if empty_duration > max_duration and all_queues_empty:
                             logger.info(
                                 f"No events for extended period (count: {empty_count}, duration: {empty_duration:.2f}s), stopping stream"
                             )
                             break
+                        else:
+                            logger.info(
+                                f"No events for extended period (count: {empty_count}, duration: {empty_duration:.2f}s), continuing to process remaining events"
+                            )
+                            logger.info(f"workflow_complete: {workflow_complete}, all_queues_empty: {all_queues_empty}")
                     else:
                         # 重置空事件计数器
                         empty_start_time = None
                         empty_count = 0
+
+                    # 如果收到 workflow_complete 事件，且所有队列都为空，则退出
+                    if workflow_complete and all_queues_empty:
+                        logger.info("Workflow completed and all queues are empty, stopping event channel")
+                        break
 
                 except Exception as e:
                     # 取消所有任务
@@ -276,6 +284,10 @@ class EventChannel:
                     for task in current_tasks:
                         if not task.done():
                             task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
                     if current_tasks:
                         await asyncio.gather(*current_tasks, return_exceptions=True)
                     raise
@@ -287,6 +299,10 @@ class EventChannel:
             for task in current_tasks:
                 if not task.done():
                     task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
             if current_tasks:
                 await asyncio.gather(*current_tasks, return_exceptions=True)
 

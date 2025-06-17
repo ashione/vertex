@@ -10,13 +10,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
 from vertex_flow.workflow.constants import ENABLE_STREAM
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.functions import FunctionTool
 from vertex_flow.workflow.utils import default_config_path
 from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
-from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
 
 logger = LoggerUtil.get_logger()
 
@@ -221,12 +221,14 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         if input_data.workflow_name == "deep-research":
             workflow = instance["builder"]({**input_data.user_vars, **{"stream": input_data.stream}})
         elif input_data.workflow_name == "finance-message":
-            workflow = instance["builder"]({
-                "content": input_data.content,
-                "env_vars": input_data.env_vars,
-                "user_vars": input_data.user_vars,
-                "stream": input_data.stream
-            })
+            workflow = instance["builder"](
+                {
+                    "content": input_data.content,
+                    "env_vars": input_data.env_vars,
+                    "user_vars": input_data.user_vars,
+                    "stream": input_data.stream,
+                }
+            )
         else:
             workflow = instance["builder"](instance["graph"])
     else:
