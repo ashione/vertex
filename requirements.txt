@@ -14,6 +14,7 @@ pre-commit>=3.0.0
 
 # Ollama API 交互依赖
 requests>=2.28.2
+PySocks>=1.7.1
 
 # Web UI 依赖
 gradio>=3.50.0
@@ -40,3 +41,9 @@ numpy>=1.21.0
 # 文档处理依赖（可选，使用预编译包）
 PyPDF2>=3.0.0
 python-docx>=0.8.11
+
+# 网络和HTTP客户端依赖
+urllib3>=2.0.0
+aiohttp>=3.8.0
+httpx>=0.24.0
+socksio>=1.0.0
