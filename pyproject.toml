@@ -30,7 +30,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing"
 ]
-keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow"]
+keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow", "rag"]
 dependencies = [
     "autopep8>=2.3.2",
     "black>=25.1.0",
@@ -44,7 +44,14 @@ dependencies = [
     "websockets>=10.0,<13.0",
     "dashscope>=1.23.4",
     "ruamel-yaml>=0.18.14",
-    "dashvector>=1.0.19",
+    # RAG系统依赖（使用预编译包，排除grpcio相关）
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.21.0",
+    # 文档处理依赖（可选，使用预编译包）
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+    "reportlab>=4.4.2",
 ]
 
 [project.urls]
@@ -61,6 +68,19 @@ dev = [
     "pre-commit>=3.0.0",
     "twine>=4.0.0",
     "build>=0.10.0"
+]
+
+rag = [
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.21.0",
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+]
+
+# 云端向量存储（可选，需要编译grpcio）
+cloud-vector = [
+    "dashvector>=1.0.19",
 ]
 
 [project.scripts]

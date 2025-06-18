@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 import traceback
+from typing import List
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
@@ -41,9 +42,11 @@ class LLMVertex(Vertex[T]):
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
         tools: list = None,  # 新增参数
+        variables: List[Dict[str, Any]] = None,
+        model: ChatModel = None,  # 添加model参数
     ):
         # """如果传入task则以task为执行单元，否则执行当前llm的chat方法."""
-        self.model: ChatModel = None
+        self.model: ChatModel = model  # 优先使用传入的model
         self.messages = []
         self.system_message = None
         self.user_messages = []
@@ -54,13 +57,15 @@ class LLMVertex(Vertex[T]):
 
         if task is None:
             logging.info("Use llm chat in task executing.")
-            self.model = params[MODEL]  # 使用常量 MODEL
+            # 如果没有传入model，则从params中获取
+            if self.model is None:
+                self.model = params[MODEL]  # 使用常量 MODEL
             self.system_message = params[SYSTEM] if SYSTEM in params else ""  # 使用常量 SYSTEM
             self.user_messages = params[USER] if USER in params else []  # 使用常量 USER
             task = self.chat
             self.preprocess = params[PREPROCESS] if PREPROCESS in params else None  # 使用常量 PREPROCESS
             self.postprocess = params[POSTPROCESS] if POSTPROCESS in params else None  # 使用常量 POSTPROCESS
-        super().__init__(id=id, name=name, task_type="LLM", task=task, params=params)
+        super().__init__(id=id, name=name, task_type="LLM", task=task, params=params, variables=variables or [])
 
     def __get_state__(self):
         data = super().__get_state__()

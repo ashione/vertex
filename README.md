@@ -1,22 +1,17 @@
 # Vertex
 
-Vertex is a powerful tool for local and cloud-based LLM inference and workflow orchestration, featuring an intuitive Web interface and advanced VertexFlow engine.
+A powerful tool for local and cloud-based LLM inference and workflow orchestration, featuring an intuitive Web interface and advanced VertexFlow engine.
 
-## Key Features
+## Features
 
-### Core Capabilities
-- **Local & Cloud Models**: Support for Ollama-based local models (Qwen-7B) and external APIs (DeepSeek, OpenRouter)
+- **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter)
 - **Web Chat Interface**: Real-time streaming conversations with multi-turn context
-- **VertexFlow Engine**: Visual workflow orchestration with multi-model collaboration
-- **Knowledge Base**: Vector search, embedding, and reranking capabilities
+- **VertexFlow Engine**: Visual workflow orchestration with drag-and-drop nodes
+- **RAG System**: Local Retrieval-Augmented Generation with document processing
+- **Function Tools**: Custom function registration for dynamic workflows
+- **Document Processing**: Support for TXT, MD, PDF, DOCX formats
 
-### Advanced Features
-- **Function Tools**: Custom function registration for dynamic workflow invocation
-- **Deep Research Workflow**: Automated research with web search, analysis, and structured reporting
-- **VertexGroup**: Modular subgraph management with nested organization
-- **Dify Compatibility**: Seamless migration from Dify workflow definitions
-
-## Quick Setup
+## Quick Start
 
 ### Requirements
 - Python 3.8+
@@ -29,11 +24,14 @@ git clone git@github.com:ashione/vertex.git
 cd vertex
 
 # Install dependencies
-pip install -r requirements.txt
-pip install -e .
+uv pip install -r requirements.txt
+uv pip install -e .
 
 # Setup local model (optional)
 python scripts/setup_ollama.py
+
+# Install RAG dependencies
+./scripts/install_rag_deps.sh
 ```
 
 ### Launch
@@ -47,62 +45,32 @@ python -m vertex_flow.src.app
 
 Access the Web interface at [http://localhost:7860](http://localhost:7860)
 
-## Usage Guide
+## Usage
 
 ### Web Interface
-The Web UI provides three main modules:
-- **Chat Interface**: Multi-turn conversations with streaming output and model switching
-- **Workflow Editor**: Visual workflow design with drag-and-drop nodes
-- **Configuration**: API keys, model parameters, and system settings
+- **Chat**: Multi-turn conversations with streaming output
+- **Workflow Editor**: Visual workflow design at [http://localhost:7860/workflow](http://localhost:7860/workflow)
+- **Configuration**: API keys and model parameters
 
-### Workflow Editor
-Access at [http://localhost:7860/workflow](http://localhost:7860/workflow)
+### RAG System
+```python
+from vertex_flow.workflow.unified_rag_workflow import UnifiedRAGSystem
 
-**Available Node Types**:
-- **LLM Node**: Text generation with configurable models
-- **Retrieval Node**: Knowledge base search
-- **Condition Node**: Conditional branching
-- **Function Node**: Custom function execution
+# Create RAG system
+rag_system = UnifiedRAGSystem()
 
-**Variable System**:
-- Environment: `{{#env.variable_name#}}`
-- User: `{{user.var.variable_name}}`
-- Node Output: `{{node_id.output_field}}`
+# Index documents
+documents = ["document1.txt", "document2.pdf"]
+rag_system.index_documents(documents)
 
-### Configuration
-- Set API keys for external models (DeepSeek, OpenRouter)
-- Configure model parameters (temperature, max tokens)
-- Automatic sanitization of sensitive information in config files
-
-## Development
-
-### Code Quality
-The project includes automated pre-commit checks:
-```bash
-# Run pre-commit checks
-./scripts/precommit.sh
-
-# Sanitize config files
-python scripts/sanitize_config.py
+# Query the knowledge base
+answer = rag_system.query("What is the main topic?")
+print(answer)
 ```
-
-### Environment Variables
-Use environment variables for API keys:
-```bash
-export llm_deepseek_sk="your-key"
-export llm_openrouter_sk="your-key"
-```
-
-### Common Issues
-- **Ollama connection**: Ensure Ollama is running
-- **API errors**: Verify API keys and network connection
-- **Workflow issues**: Check browser console for errors
-
-## API Examples
 
 ### Basic Workflow
 ```python
-from vertex_flow.workflow.vertex.vertex import SourceVertex, SinkVertex
+from vertex_flow.workflow.vertex.vertex import SourceVertex
 from vertex_flow.workflow.workflow import Workflow, WorkflowContext
 
 def source_func(inputs, context):
@@ -115,63 +83,41 @@ workflow.add_vertex(source)
 workflow.execute_workflow()
 ```
 
-### Function Tools
-```python
-from vertex_flow.workflow.tools.functions import FunctionTool
+## Configuration
 
-def example_func(inputs, context):
-    return {"result": inputs["value"] * 2}
-
-tool = FunctionTool(
-    name="example_tool",
-    description="A simple example tool",
-    func=example_func
-)
-```
-
-### REST API
+Set API keys for external models:
 ```bash
-curl -X POST "http://localhost:8999/workflow" \
-   -H "Content-Type: application/json" \
-   -d '{
-     "stream": true,
-     "workflow_name": "research_workflow",
-     "user_vars": {"topic": "AI trends"},
-     "content": "Research latest AI developments"
-   }'
-```
-
-## Project Structure
-
-```
-vertex/
-├── vertex_flow/          # Core workflow engine
-├── workflows/           # Workflow configuration files
-├── web_ui/             # Web interface
-├── docs/                # Project documentation
-└── scripts/            # Helper scripts
+export llm_deepseek_sk="your-key"
+export llm_openrouter_sk="your-key"
 ```
 
 ## Documentation
 
-For detailed information, please refer to the documentation:
+- [RAG System](vertex_flow/docs/RAG_README.md)
+- [Document Update](vertex_flow/docs/DOCUMENT_UPDATE.md)
+- [Deduplication](vertex_flow/docs/DEDUPLICATION.md)
+- [Workflow Components](vertex_flow/docs/)
 
-### Project Documentation
-- [Pre-commit Guide](docs/PRECOMMIT_README.md) - Development workflow and code quality checks
-- [Configuration Sanitization](docs/SANITIZATION_README.md) - Security and configuration management
+## Examples
 
-### Workflow Documentation
-- [LLM Vertex](vertex_flow/docs/llm_vertex.md) - Language model integration
-- [Function Vertex](vertex_flow/docs/function_vertex.md) - Custom function tools
-- [VertexGroup](vertex_flow/docs/vertex_group.md) - Subgraph management
-- [Web Search](vertex_flow/docs/web_search.md) - Web search capabilities
-- [Embedding Vertex](vertex_flow/docs/embedding_vertex.md) - Text embedding processing
-- [Vector Vertex](vertex_flow/docs/vector_vertex.md) - Vector operations
-- [While Vertex](vertex_flow/docs/while_vertex.md) - Loop control structures
+```bash
+# Run RAG example
+cd vertex_flow/examples
+python rag_example.py
 
-## Contributing
+# Run deduplication demo
+python deduplication_demo.py
+```
 
-Contributions are welcome! Please check existing issues before submitting new ones.
+## Development
+
+```bash
+# Run pre-commit checks
+./scripts/precommit.sh
+
+# Sanitize config files
+python scripts/sanitize_config.py
+```
 
 ## License
 

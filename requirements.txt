@@ -25,10 +25,18 @@ python-dotenv>=0.21.0
 tqdm>=4.65.0
 openai>=1.0.0
 
-# LangChain相关依赖
-dashvector
+# LangChain相关依赖（排除dashvector）
 dashscope
 langchain-core>=0.1.0
 langchain-community>=0.0.1
 ruamel.yaml>=0.18.10
 flask>=2.0.0
+
+# RAG系统依赖（使用预编译包，排除grpcio相关）
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+numpy>=1.21.0
+
+# 文档处理依赖（可选，使用预编译包）
+PyPDF2>=3.0.0
+python-docx>=0.8.11

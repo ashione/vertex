@@ -269,6 +269,7 @@ class Graph:
                         "user": [node.user_prompt],
                         "postprocess": source_post_process_func,
                     },
+                    variables=node.to_workflow_variables(),
                 )
             elif node.type.upper() == "SINK":
                 vertex = SinkVertex(

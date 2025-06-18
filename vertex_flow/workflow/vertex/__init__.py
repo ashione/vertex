@@ -1,3 +1,9 @@
+from .embedding_providers import (
+    BCEEmbedding,
+    DashScopeEmbedding,
+    LocalEmbeddingProvider,
+    TextEmbeddingProvider,
+)
 from .embedding_vertex import (
     EmbeddingVertex,
 )
@@ -12,6 +18,12 @@ from .llm_vertex import (
 )
 from .rerank_vertex import (
     RerankVertex,
+)
+from .vector_engines import (
+    DashVector,
+    Doc,
+    LocalVectorEngine,
+    VectorEngine,
 )
 from .vector_vertex import (
     VectorQueryVertex,

@@ -240,11 +240,11 @@ class WorkflowSerializer:
             name=vertex_data["name"],
             task=None,  # 暂时不设置 task，稍后处理
             params=params,
+            variables=vertex_data.get("variables", []),  # 添加variables参数
         )
 
-        # 设置 dependencies 和 variables
+        # 设置 dependencies
         vertex.dependencies = set(vertex_data.get("dependencies", []))
-        vertex.variables = vertex_data.get("variables", {})
 
         return vertex
 
@@ -557,7 +557,12 @@ class WorkflowManager:
                     # 保留原始配置用于调试和其他用途
                     vertex_params.update(llm_params)
 
-                    vertex = LLMVertex(id=node["id"], name=node_config.get("name", "LLM"), params=vertex_params)
+                    vertex = LLMVertex(
+                        id=node["id"],
+                        name=node_config.get("name", "LLM"),
+                        params=vertex_params,
+                        variables=node_config.get("variables", []),  # 添加variables参数
+                    )
                 elif node_type == "function":
                     # 创建函数顶点
                     vertex = FunctionVertex(id=node["id"], name=node_config.get("name", "Function"), params=node_config)

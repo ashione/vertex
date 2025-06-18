@@ -3,9 +3,6 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 from typing import List, Optional
 
-import dashscope
-import requests
-
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.utils import factory_creator
 
@@ -39,7 +36,6 @@ class DashScopeEmbedding(TextEmbeddingProvider):
         """
         self.api_key = api_key
         self.model_name = model_name
-        dashscope.api_key = self.api_key
 
     def __get_state__(self):
         return {
@@ -57,6 +53,8 @@ class DashScopeEmbedding(TextEmbeddingProvider):
         @return: 对应于文本的嵌入向量（以浮点数列表形式），如果请求失败或发生异常则返回 None。
         """
         try:
+            import dashscope
+            dashscope.api_key = self.api_key
             response = dashscope.TextEmbedding.call(model=self.model_name, input=text)
             if response["status_code"] == 200:
                 logging.debug(response)
@@ -65,6 +63,9 @@ class DashScopeEmbedding(TextEmbeddingProvider):
                 # 记录请求失败的错误信息
                 logging.error(f"请求失败。错误代码: {response['status_code']}，错误信息: {response['message']}")
                 return None
+        except ImportError:
+            logging.error("请安装dashscope: pip install dashscope")
+            return None
         except Exception as e:
             # 记录详细的异常信息
             logging.exception(f"发生异常: {e}")
@@ -98,6 +99,7 @@ class BCEEmbedding(TextEmbeddingProvider):
         @return: 对应于文本的嵌入向量（以浮点数列表形式），如果请求失败或发生异常则返回 None。
         """
         try:
+            import requests
             payload = {
                 "model": self.model_name,
                 "input": text,
@@ -113,7 +115,52 @@ class BCEEmbedding(TextEmbeddingProvider):
                 # 记录请求失败的错误信息
                 logging.error(f"请求失败。错误代码: {response.status_code}，错误信息: {response.text}")
                 return None
+        except ImportError:
+            logging.error("请安装requests: pip install requests")
+            return None
         except Exception as e:
             # 记录详细的异常信息
             logging.exception(f"发生异常: {e}")
             return None
+
+
+class LocalEmbeddingProvider(TextEmbeddingProvider):
+    """本地嵌入提供者，使用sentence-transformers"""
+    
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        """
+        初始化本地嵌入提供者
+        
+        Args:
+            model_name: 使用的模型名称，默认为all-MiniLM-L6-v2
+        """
+        try:
+            from sentence_transformers import SentenceTransformer
+            self.model = SentenceTransformer(model_name)
+            self.model_name = model_name
+            logging.info(f"初始化本地嵌入模型: {model_name}")
+        except ImportError:
+            raise ImportError("请安装sentence-transformers: pip install sentence-transformers")
+    
+    def embedding(self, text: str) -> Optional[List[float]]:
+        """
+        生成文本嵌入向量
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            嵌入向量列表
+        """
+        try:
+            embedding = self.model.encode(text)
+            return embedding.tolist()
+        except Exception as e:
+            logging.error(f"生成嵌入向量失败: {e}")
+            return None
+    
+    def __get_state__(self):
+        return {
+            "class_name": self.__class__.__name__.lower(),
+            "model_name": self.model_name,
+        } 
