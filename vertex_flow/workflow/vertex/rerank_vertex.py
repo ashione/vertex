@@ -1,8 +1,7 @@
-from typing import Any, Callable, Dict, TypeVar
+from typing import Any, Callable, Dict, List, TypeVar
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.rerank import BCERerankProvider, RerankProvider
-from vertex_flow.workflow.service import VertexFlowService
 
 # import fake interface
 from .vertex import Vertex, WorkflowContext
@@ -22,12 +21,13 @@ class RerankVertex(Vertex[T]):
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
         rerank_provider: RerankProvider = None,
+        variables: List[Dict[str, Any]] = None,
     ):
-        super().__init__(id=id, name=name, task_type="RERANK", task=task, params=params)
+        super().__init__(id=id, name=name, task_type="RERANK", task=task, params=params, variables=variables or [])
         self.rerank_provider: RerankProvider = rerank_provider
         # 这里还需要设置一个怎么从上层vertex拿具体对象的key。
 
-    def initialize_rerank_provider(self, service: VertexFlowService = None):
+    def initialize_rerank_provider(self, service: any = None):
         """根据服务配置初始化重排序提供者"""
         if not self.rerank_provider:
             logging.info("Initializing rerank provider...")

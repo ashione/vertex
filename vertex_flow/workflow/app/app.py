@@ -2,8 +2,9 @@ import argparse
 import json
 import threading
 import traceback
-from typing import Dict, List
+from typing import Any, Dict, List
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -18,10 +19,83 @@ from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.functions import FunctionTool
 from vertex_flow.workflow.utils import default_config_path
 from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
+from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
-logger = LoggerUtil.get_logger()
+logger = LoggerUtil.get_logger(__name__)
 
-vertex_flow = FastAPI()
+vertex_flow = FastAPI(title="Vertex Flow API", version="1.0.0")
+
+# 全局变量
+dify_workflow_instances = {}
+workflow_instances = {}  # 存储workflow实例
+
+
+class WorkflowInput(BaseModel):
+    workflow_name: str
+    env_vars: Dict[str, Any] = {}
+    user_vars: Dict[str, Any] = {}
+    content: str = ""
+    stream: bool = False  # 新增参数，用于指定是否为流式模式
+
+
+class WorkflowOutput(BaseModel):
+    output: Any
+    status: bool = False
+    message: str = ""
+    vertices_status: Dict[str, Any] = {}
+
+
+class WorkflowInstanceManager:
+    """管理workflow实例，避免重复运行"""
+
+    def __init__(self):
+        self.instances = {}
+
+    def create_instance(self, workflow: Workflow, input_data: Dict[str, Any] = None) -> WorkflowInstance:
+        """创建新的workflow实例"""
+        # 创建workflow模板数据
+        workflow_template = {
+            "id": f"workflow_{len(self.instances)}",
+            "name": "Dynamic Workflow",
+            "nodes": [],
+            "edges": [],
+        }
+
+        # 创建WorkflowInstance
+        instance = WorkflowInstance(workflow_template, input_data, None)
+        instance.workflow_obj = workflow  # 直接设置workflow对象
+
+        # 存储实例
+        self.instances[instance.id] = instance
+
+        return instance
+
+    def execute_instance(self, workflow: Workflow, input_data: Dict[str, Any] = None, stream: bool = False):
+        """执行workflow实例"""
+        # 创建新实例
+        instance = self.create_instance(workflow, input_data)
+
+        try:
+            # 直接执行workflow对象，而不是通过WorkflowInstance的execute方法
+            if stream:
+                # 流式执行
+                return instance.workflow_obj.execute_workflow(input_data, stream=True)
+            else:
+                # 普通执行
+                result = instance.workflow_obj.execute_workflow(input_data, stream=False)
+                # 收集输出
+                instance.output_data = instance.workflow_obj.context.get_outputs()
+                instance.status = "completed"
+                return instance.output_data
+        except Exception as e:
+            logger.error(f"Failed to execute workflow instance: {e}")
+            instance.status = "failed"
+            instance.error_message = str(e)
+            raise
+
+
+# 创建全局的WorkflowInstanceManager
+workflow_instance_manager = WorkflowInstanceManager()
 
 
 # 添加全局异常处理器
@@ -46,24 +120,6 @@ async def http_exception_handler(request, exc):
 @vertex_flow.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     return JSONResponse(status_code=422, content={"message": f"Validation error: {exc}"})
-
-
-dify_workflow_instances = {}
-
-
-class WorkflowInput(BaseModel):
-    workflow_name: str
-    env_vars: Dict[str, Any] = {}
-    user_vars: Dict[str, Any] = {}
-    content: str = ""
-    stream: bool = False  # 新增参数，用于指定是否为流式模式
-
-
-class WorkflowOutput(BaseModel):
-    output: Any
-    status: bool = False
-    message: str = ""
-    vertices_status: Dict[str, Any] = {}
 
 
 vertex_service = None
@@ -237,12 +293,14 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         workflow = get_default_workflow(input_data=input_data)
 
     if input_data.stream:
+        # 使用WorkflowInstanceManager创建新实例进行流式执行
+        workflow_instance = workflow_instance_manager.create_instance(workflow, input_data.user_vars)
 
-        execute_workflow_in_thread(workflow, input_data.user_vars)
+        execute_workflow_in_thread(workflow_instance.workflow_obj, input_data.user_vars)
 
         async def result_generator():
             try:
-                async for result in workflow.astream([EventType.MESSAGES, EventType.UPDATES]):
+                async for result in workflow_instance.workflow_obj.astream([EventType.MESSAGES, EventType.UPDATES]):
                     logger.info(f"workflow result {result}")
                     if result.get("vertex_id"):
                         yield json.dumps(
@@ -261,7 +319,7 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                         "output": "error",
                         "status": False,
                         "message": str(e),
-                        "vertices_status": workflow.status(),
+                        "vertices_status": workflow_instance.workflow_obj.status(),
                     }
                 ) + "\n"
 
@@ -272,9 +330,10 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
         )
     else:
         try:
-            workflow.execute_workflow(input_data.user_vars, stream=False)
+            # 使用WorkflowInstanceManager执行，避免重复运行
+            result = workflow_instance_manager.execute_instance(workflow, input_data.user_vars, stream=False)
             return {
-                "output": list(workflow.result().values())[0],
+                "output": result,
                 "status": True,
                 "vertices_status": workflow.status(),
             }

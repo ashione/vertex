@@ -62,7 +62,10 @@ class FunctionVertex(Vertex[T]):
                 else:
                     # 否则，不传递 context 参数
                     self.output = self._task(inputs=all_inputs)
-                logging.info(f"Function {self.id}, output {self.output} after executed.")
+                output_str = str(self.output)
+                if len(output_str) > 256:
+                    output_str = output_str[:250] + "..."
+                logging.info(f"Function {self.id}, output {output_str} after executed.")
             except BaseException as e:
                 logging.warning(f"Error executing vertex {self._id}: {e}")
                 traceback.print_exc()

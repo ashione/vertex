@@ -30,21 +30,35 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing"
 ]
-keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow"]
+keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow", "rag"]
 dependencies = [
     "autopep8>=2.3.2",
     "black>=25.1.0",
     "flake8>=7.2.0",
     "isort>=6.0.1",
     "requests>=2.28.2",
+    "PySocks>=1.7.1",
     "gradio>=3.50.0,<5.0.0",
     "python-dotenv>=0.21.0",
     "openai>=1.0.0",
     "tqdm>=4.65.0",
     "websockets>=10.0,<13.0",
+    "dashvector>=1.0.19",
     "dashscope>=1.23.4",
     "ruamel-yaml>=0.18.14",
-    "dashvector>=1.0.19",
+    # RAG系统依赖（使用预编译包，排除grpcio相关）
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.21.0",
+    # 文档处理依赖（可选，使用预编译包）
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+    "reportlab>=4.4.2",
+    # 网络和HTTP客户端依赖
+    "urllib3>=2.0.0",
+    "aiohttp>=3.8.0",
+    "httpx>=0.24.0",
+    "socksio>=1.0.0",
 ]
 
 [project.urls]
@@ -63,6 +77,19 @@ dev = [
     "build>=0.10.0"
 ]
 
+rag = [
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.21.0",
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+]
+
+# 云端向量存储（可选，需要编译grpcio）
+cloud-vector = [
+    "dashvector>=1.0.19",
+]
+
 [project.scripts]
 vertex = "vertex_flow.src.app:main"
 vertex-workflow = "vertex_flow.workflow.app.app:main"
@@ -72,7 +99,6 @@ vertex-workflow = "vertex_flow.workflow.app.app:main"
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
 extra-index-url = ["https://pypi.org/simple/"]
-trusted-hosts = ["mirrors.aliyun.com"]
 
 [tool.black]
 line-length = 120
