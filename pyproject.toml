@@ -92,7 +92,6 @@ vertex-workflow = "vertex_flow.workflow.app.app:main"
 [tool.uv]
 index-url = "https://mirrors.aliyun.com/pypi/simple/"
 extra-index-url = ["https://pypi.org/simple/"]
-trusted-hosts = ["mirrors.aliyun.com"]
 
 [tool.black]
 line-length = 120
