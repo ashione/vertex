@@ -139,3 +139,17 @@ class OpenRouter(ChatModel):
             base_url="https://openrouter.ai/api/v1",
             provider="openrouter",
         )
+
+
+class Ollama(ChatModel):
+    def __init__(self, name="qwen:7b", sk="ollama-local", base_url="http://localhost:11434"):
+        # Ollama不需要真实的API key，使用占位符
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=f"{base_url}/v1",
+            provider="ollama",
+        )
+    
+    def model_name(self) -> str:
+        return self.name

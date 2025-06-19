@@ -27,7 +27,7 @@ class TextEmbeddingProvider(ABC):
 
 # Class that implements the TextEmbeddingProvider abstract class to use the DashScope service for text embedding.
 class DashScopeEmbedding(TextEmbeddingProvider):
-    def __init__(self, api_key: str = API_KEY, model_name: str = MODEL_NAME):
+    def __init__(self, api_key: Optional[str] = API_KEY, model_name: str = MODEL_NAME):
         """
         初始化 DashScopeEmbedding 实例，配置 DashScope API key 和使用的模型名称。
 
@@ -54,6 +54,7 @@ class DashScopeEmbedding(TextEmbeddingProvider):
         """
         try:
             import dashscope
+
             dashscope.api_key = self.api_key
             response = dashscope.TextEmbedding.call(model=self.model_name, input=text)
             if response["status_code"] == 200:
@@ -100,6 +101,7 @@ class BCEEmbedding(TextEmbeddingProvider):
         """
         try:
             import requests
+
             payload = {
                 "model": self.model_name,
                 "input": text,
@@ -126,41 +128,102 @@ class BCEEmbedding(TextEmbeddingProvider):
 
 class LocalEmbeddingProvider(TextEmbeddingProvider):
     """本地嵌入提供者，使用sentence-transformers"""
-    
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+
+    def __init__(
+        self, model_name: str = "all-MiniLM-L6-v2", use_mirror: bool = True, mirror_url: str = "https://hf-mirror.com"
+    ):
         """
         初始化本地嵌入提供者
-        
+
         Args:
             model_name: 使用的模型名称，默认为all-MiniLM-L6-v2
+            use_mirror: 是否使用国内镜像源，默认为True
+            mirror_url: 镜像源URL，默认为https://hf-mirror.com
         """
         try:
+            import os
+
+            # 根据配置决定是否使用镜像源
+            if use_mirror and mirror_url:
+                original_endpoint = os.environ.get("HF_ENDPOINT", "")
+                os.environ["HF_ENDPOINT"] = mirror_url
+                logging.info(f"使用Hugging Face镜像源: {mirror_url}")
+            elif use_mirror and not mirror_url:
+                # 如果启用镜像但没有指定URL，使用默认镜像
+                original_endpoint = os.environ.get("HF_ENDPOINT", "")
+                os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+                logging.info("使用默认Hugging Face镜像源: https://hf-mirror.com")
+            else:
+                logging.info("不使用镜像源，直接访问Hugging Face官方")
+
             from sentence_transformers import SentenceTransformer
+
             self.model = SentenceTransformer(model_name)
             self.model_name = model_name
+            self.use_mirror = use_mirror
+            self.mirror_url = mirror_url
+
             logging.info(f"初始化本地嵌入模型: {model_name}")
         except ImportError:
             raise ImportError("请安装sentence-transformers: pip install sentence-transformers")
-    
+
     def embedding(self, text: str) -> Optional[List[float]]:
         """
-        生成文本嵌入向量
-        
+        生成文本嵌入向量，支持编码异常兜底
+
         Args:
             text: 输入文本
-            
+
         Returns:
             嵌入向量列表
         """
         try:
-            embedding = self.model.encode(text)
+            # 对输入文本进行编码异常处理
+            safe_text = self._safe_encode_text(text)
+            embedding = self.model.encode(safe_text)
             return embedding.tolist()
         except Exception as e:
             logging.error(f"生成嵌入向量失败: {e}")
             return None
-    
+
+    def _safe_encode_text(self, text: str) -> str:
+        """
+        安全处理输入文本，避免编码异常
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            处理后的安全文本
+        """
+        if not isinstance(text, str):
+            try:
+                text = str(text)
+            except Exception:
+                return ""
+
+        try:
+            # 尝试编码和解码，以确保文本可以安全处理
+            text.encode("utf-8")
+            return text
+        except UnicodeEncodeError:
+            # 如果编码失败，使用忽略错误的方式处理
+            try:
+                safe_bytes = text.encode("utf-8", errors="ignore")
+                safe_text = safe_bytes.decode("utf-8")
+                logging.warning("输入文本包含无法编码的字符，已忽略相关字符")
+                return safe_text
+            except Exception:
+                logging.error("文本编码处理失败，返回空文本")
+                return ""
+        except Exception as e:
+            logging.error(f"文本处理异常: {e}")
+            return ""
+
     def __get_state__(self):
         return {
             "class_name": self.__class__.__name__.lower(),
             "model_name": self.model_name,
-        } 
+            "use_mirror": self.use_mirror,
+            "mirror_url": self.mirror_url,
+        }

@@ -1,56 +1,85 @@
 # Vertex
 
-A powerful tool for local and cloud-based LLM inference and workflow orchestration, featuring an intuitive Web interface and advanced VertexFlow engine.
+A powerful local AI workflow system with multi-model support and visual workflow orchestration.
 
 ## Features
 
-- **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter)
-- **Web Chat Interface**: Real-time streaming conversations with multi-turn context
+- **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter, Tongyi)
+- **Unified CLI**: Simple command interface with multiple operation modes
 - **VertexFlow Engine**: Visual workflow orchestration with drag-and-drop nodes
 - **RAG System**: Local Retrieval-Augmented Generation with document processing
-- **Function Tools**: Custom function registration for dynamic workflows
+- **Smart Configuration**: Template-based config with automatic setup
 - **Document Processing**: Support for TXT, MD, PDF, DOCX formats
 
 ## Quick Start
 
 ### Requirements
-- Python 3.8+
+- Python 3.9+
 - Ollama (for local models) - [Download here](https://ollama.com/download)
 
 ### Installation
 ```bash
-# Clone repository
-git clone git@github.com:ashione/vertex.git
+# Install via pip (recommended)
+pip install vertex
+
+# Or install from source
+git clone https://github.com/ashione/vertex.git
 cd vertex
+pip install -e .
+```
 
-# Install dependencies
-uv pip install -r requirements.txt
-uv pip install -e .
+### Configuration
+```bash
+# Quick setup - Initialize configuration
+vertex config init
 
-# Setup local model (optional)
-python scripts/setup_ollama.py
+# Interactive configuration wizard
+vertex config
 
-# Install RAG dependencies
-./scripts/install_rag_deps.sh
+# Check configuration status
+vertex config check
 ```
 
 ### Launch
 ```bash
-# Standard mode
+# Standard chat mode (default)
 vertex
 
+# Or explicitly specify mode
+vertex run
+
 # VertexFlow workflow mode
-python -m vertex_flow.src.app
+vertex workflow
+
+# RAG document Q&A mode
+vertex rag --interactive
 ```
 
 Access the Web interface at [http://localhost:7860](http://localhost:7860)
 
-## Usage
+## Usage Guide
 
-### Web Interface
-- **Chat**: Multi-turn conversations with streaming output
-- **Workflow Editor**: Visual workflow design at [http://localhost:7860/workflow](http://localhost:7860/workflow)
-- **Configuration**: API keys and model parameters
+### CLI Commands
+```bash
+# Standard mode
+vertex                    # Launch chat interface
+vertex run --port 8080   # Custom port
+
+# Workflow mode
+vertex workflow           # Visual workflow editor
+vertex workflow --port 8080
+
+# Configuration management
+vertex config             # Interactive setup
+vertex config init        # Quick initialization
+vertex config check       # Check status
+vertex config reset       # Reset to template
+
+# RAG system
+vertex rag --interactive  # Interactive Q&A
+vertex rag --query "question"  # Direct query
+vertex rag --directory /path/to/docs  # Index documents
+```
 
 ### RAG System
 ```python
@@ -85,18 +114,53 @@ workflow.execute_workflow()
 
 ## Configuration
 
+### Quick Setup
+After installing the vertex package, use these commands for quick setup:
+
+```bash
+# Initialize configuration file
+vertex config init
+
+# Interactive configuration wizard
+vertex config
+
+# Check configuration status
+vertex config check
+
+# Reset configuration
+vertex config reset
+```
+
+### Manual Configuration
+Configuration file is located at `~/.vertex/config/llm.yml`. You can edit this file directly.
+
+### Environment Variables
 Set API keys for external models:
 ```bash
-export llm_deepseek_sk="your-key"
-export llm_openrouter_sk="your-key"
+export llm_deepseek_sk="your-deepseek-key"
+export llm_openrouter_sk="your-openrouter-key"
+export llm_tongyi_sk="your-tongyi-key"
+export web_search_bocha_sk="your-bocha-key"
 ```
+
+### Configuration Priority
+1. User configuration file: `~/.vertex/config/llm.yml`
+2. Environment variables
+3. Package default configuration
 
 ## Documentation
 
-- [RAG System](vertex_flow/docs/RAG_README.md)
-- [Document Update](vertex_flow/docs/DOCUMENT_UPDATE.md)
-- [Deduplication](vertex_flow/docs/DEDUPLICATION.md)
-- [Workflow Components](vertex_flow/docs/)
+### 📖 User Guides
+- [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
+- [RAG CLI Detailed Guide](docs/RAG_CLI_USAGE.md) - RAG Q&A system guide
+- [RAG Performance Optimization](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - Performance analysis and tips
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+
+### 🔧 Technical Documentation
+- [RAG System Overview](vertex_flow/docs/RAG_README.md) - Retrieval-Augmented Generation
+- [Document Update Mechanism](vertex_flow/docs/DOCUMENT_UPDATE.md) - Incremental updates and deduplication
+- [Deduplication Features](vertex_flow/docs/DEDUPLICATION.md) - Smart document deduplication
+- [Workflow Components](vertex_flow/docs/) - VertexFlow engine components
 
 ## Examples
 

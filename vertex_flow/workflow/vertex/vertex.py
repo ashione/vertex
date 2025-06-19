@@ -368,15 +368,15 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             # 首先尝试作为本地变量处理（pattern3）
             if var_name is None:
                 # 检查是否是本地变量
-                if hasattr(self, 'variables') and self.variables:
+                if hasattr(self, "variables") and self.variables:
                     for var_def in self.variables:
-                        if var_def.get('local_var') == vertex_id:
+                        if var_def.get("local_var") == vertex_id:
                             # 这是一个本地变量，构造variable_selector来解析
                             try:
                                 variable_selector = {
-                                    SOURCE_SCOPE: var_def.get('source_scope'),
-                                    SOURCE_VAR: var_def.get('source_var'),
-                                    LOCAL_VAR: var_def.get('local_var'),
+                                    SOURCE_SCOPE: var_def.get("source_scope"),
+                                    SOURCE_VAR: var_def.get("source_var"),
+                                    LOCAL_VAR: var_def.get("local_var"),
                                 }
                                 resolved_values = self.resolve_dependencies(variable_selector=variable_selector)
                                 if vertex_id in resolved_values:
@@ -386,7 +386,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                                     continue
                             except Exception as e:
                                 logging.warning(f"Failed to resolve local variable {vertex_id}: {e}")
-                
+
                 # 如果不是本地变量，跳过处理（避免错误调用_get_replacement_value_via_dependencies）
                 continue
 

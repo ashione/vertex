@@ -110,15 +110,41 @@ class LLMVertex(Vertex[T]):
 
         logging.info(f"{self.id} chat context inputs {inputs}")
 
-        self.messages.append(
-            {"role": "system", "content": self.system_message},
-        )
+        # Add system message if provided
+        if self.system_message:
+            self.messages.append(
+                {"role": "system", "content": self.system_message},
+            )
 
         if self.preprocess is not None:
             self.user_messages = self.preprocess(self.user_messages, inputs, context)
 
-        for user_message in self.user_messages:
-            self.messages.append({"role": "user", "content": user_message})
+        # Handle conversation history if provided in inputs
+        if inputs and "conversation_history" in inputs:
+            conversation_history = inputs["conversation_history"]
+            if isinstance(conversation_history, list):
+                # Add each message in the conversation history
+                for msg in conversation_history:
+                    if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                        self.messages.append(msg)
+                    elif isinstance(msg, tuple) and len(msg) == 2:
+                        # Handle (user_msg, assistant_msg) tuple format
+                        user_msg, assistant_msg = msg
+                        self.messages.append({"role": "user", "content": str(user_msg)})
+                        self.messages.append({"role": "assistant", "content": str(assistant_msg)})
+            elif isinstance(conversation_history, str):
+                # Handle string format conversation history (fallback)
+                self.messages.append({"role": "user", "content": conversation_history})
+        else:
+            # Handle traditional user_messages format
+            for user_message in self.user_messages:
+                self.messages.append({"role": "user", "content": user_message})
+
+        # Handle current user message if provided separately
+        if inputs and "current_message" in inputs:
+            current_message = inputs["current_message"]
+            if current_message:
+                self.messages.append({"role": "user", "content": str(current_message)})
 
         # replace by env parameters, user parameters and inputs.
         for message in self.messages:
@@ -138,6 +164,8 @@ class LLMVertex(Vertex[T]):
             # replace by inputs parameters
             if inputs:
                 for key, value in inputs.items():
+                    if key in ["conversation_history", "current_message"]:
+                        continue  # Skip special keys that we've already handled
                     value = value if isinstance(value, str) else str(value)
                     # Support {{inputs.key}} format
                     input_placeholder = "{{" + key + "}}"
@@ -166,13 +194,40 @@ class LLMVertex(Vertex[T]):
         logging.debug(f"chat bot response : {result}")
         return result
 
+    def chat_stream_generator(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
+        """返回流式输出的生成器"""
+        if not (self.enable_stream and hasattr(self.model, "chat_stream")):
+            # 如果不支持流式输出，回退到普通模式
+            result = self.chat(inputs, context)
+            yield result
+            return
+        
+        # 使用统一的流式聊天核心逻辑
+        for chunk in self._stream_chat_core(inputs, context, emit_events=False):
+            yield chunk
+
     def _chat_stream(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
+        """基于事件的流式聊天（用于workflow）"""
+        full_content = ""
+        for chunk in self._stream_chat_core(inputs, context, emit_events=True):
+            full_content += chunk
+        
+        # 应用postprocess处理
+        result = full_content if self.postprocess is None else self.postprocess(full_content, inputs, context)
+        
+        self.output = result
+        if self.workflow:
+            self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
+        logging.debug(f"chat bot response : {result}")
+        return result
+    
+    def _stream_chat_core(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None, emit_events: bool = False):
+        """流式聊天的核心逻辑，统一处理tools和streaming"""
         llm_tools = self._build_llm_tools()
         option = self._build_llm_option()
         finish_reason = None
 
         while finish_reason is None or finish_reason == "tool_calls":
-            full_content = ""
             choice = None
 
             # 如果有tools，先尝试非流式调用检查是否需要tool_calls
@@ -185,35 +240,27 @@ class LLMVertex(Vertex[T]):
                     self._handle_tool_calls(choice, context)
                     continue
                 else:
-                    # 没有tool调用，使用流式输出已获得的内容
+                    # 没有tool调用，直接返回结果
                     if choice.message.content:
-                        if self.workflow:
+                        if emit_events and self.workflow:
                             self.workflow.emit_event(
                                 "messages",
                                 {"vertex_id": self.id, "message": choice.message.content, "status": "running"},
                             )
-                        full_content = choice.message.content
+                        yield choice.message.content
             else:
                 # 没有tools，直接使用流式输出
                 for msg in self.model.chat_stream(self.messages, option=option):
-                    if self.workflow:
-                        self.workflow.emit_event(
-                            "messages",
-                            {"vertex_id": self.id, "message": msg, "status": "running"},
-                        )
-                    full_content += msg
+                    if msg:
+                        if emit_events and self.workflow:
+                            self.workflow.emit_event(
+                                "messages",
+                                {"vertex_id": self.id, "message": msg, "status": "running"},
+                            )
+                        yield msg
                 finish_reason = "stop"  # 流式输出完成
 
             break  # 退出while循环
-
-        # 应用postprocess处理
-        result = full_content if self.postprocess is None else self.postprocess(full_content, inputs, context)
-
-        self.output = result
-        if self.workflow:
-            self.workflow.emit_event("messages", {"vertex_id": self.id, "message": None, "status": "end"})
-        logging.debug(f"chat bot response : {result}")
-        return result
 
     def _build_llm_tools(self):
         return [
@@ -248,10 +295,12 @@ class LLMVertex(Vertex[T]):
 
     async def _handle_tool_calls_async(self, choice, context):
         self.messages.append(choice.message)
+
         async def call_tool(tool, tool_call, context):
             tool_call_name = tool_call.function.name
             tool_call_arguments = json.loads(tool_call.function.arguments)
             return tool_call, await asyncio.to_thread(tool.execute, tool_call_arguments, context)
+
         tasks = []
         for tool_call in choice.message.tool_calls:
             for tool in self.tools:
@@ -260,20 +309,24 @@ class LLMVertex(Vertex[T]):
                     break
             else:
                 # 未找到tool
-                self.messages.append({
+                self.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
+                    }
+                )
+        results = await asyncio.gather(*tasks) if tasks else []
+        for tool_call, tool_result in results:
+            self.messages.append(
+                {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
                     "name": tool_call.function.name,
-                    "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
-                })
-        results = await asyncio.gather(*tasks) if tasks else []
-        for tool_call, tool_result in results:
-            self.messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": tool_call.function.name,
-                "content": json.dumps(tool_result),
-            })
+                    "content": json.dumps(tool_result),
+                }
+            )
 
     def _handle_tool_calls(self, choice, context):
         # 兼容同步/异步环境
@@ -283,6 +336,7 @@ class LLMVertex(Vertex[T]):
             coro = self._handle_tool_calls_async(choice, context)
             if loop.is_running():
                 import nest_asyncio
+
                 nest_asyncio.apply()
                 loop.run_until_complete(coro)
             else:
