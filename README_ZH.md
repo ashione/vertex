@@ -36,11 +36,14 @@ python scripts/setup_ollama.py
 
 ### 启动
 ```bash
-# 标准模式
+# 标准模式（默认）
 vertex
 
+# 或明确指定运行模式
+vertex run
+
 # VertexFlow工作流模式
-python -m vertex_flow.src.app
+vertex workflow
 ```
 
 访问Web界面：[http://localhost:7860](http://localhost:7860)
@@ -85,18 +88,52 @@ workflow.execute_workflow()
 
 ## 配置
 
+### 快速配置
+安装vertex包后，使用以下命令快速设置配置：
+
+```bash
+# 快速初始化配置文件
+vertex config init
+
+# 交互式配置向导
+vertex config
+
+# 检查配置状态
+vertex config check
+
+# 重置配置
+vertex config reset
+```
+
+### 手动配置
+配置文件位于 `~/.vertex/config/llm.yml`，您可以直接编辑此文件。
+
+### 环境变量配置
 为外部模型设置API密钥：
 ```bash
-export llm_deepseek_sk="your-key"
-export llm_openrouter_sk="your-key"
+export llm_deepseek_sk="your-deepseek-key"
+export llm_openrouter_sk="your-openrouter-key"
+export llm_tongyi_sk="your-tongyi-key"
+export web_search_bocha_sk="your-bocha-key"
 ```
+
+### 配置优先级
+1. 用户配置文件：`~/.vertex/config/llm.yml`
+2. 环境变量
+3. 包内默认配置
 
 ## 文档
 
-- [RAG系统](vertex_flow/docs/RAG_README.md)
-- [文档更新](vertex_flow/docs/DOCUMENT_UPDATE.md)
-- [去重功能](vertex_flow/docs/DEDUPLICATION.md)
-- [工作流组件](vertex_flow/docs/)
+### 📖 使用指南
+- [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
+- [RAG CLI详细说明](docs/RAG_CLI_USAGE.md) - RAG问答系统专项指南
+- [RAG性能优化](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - 性能分析与优化建议
+
+### 🔧 技术文档
+- [RAG系统详解](vertex_flow/docs/RAG_README.md) - 检索增强生成系统
+- [文档更新机制](vertex_flow/docs/DOCUMENT_UPDATE.md) - 增量更新和去重
+- [去重功能说明](vertex_flow/docs/DEDUPLICATION.md) - 智能文档去重
+- [工作流组件](vertex_flow/docs/) - VertexFlow引擎组件
 
 ## 示例
 

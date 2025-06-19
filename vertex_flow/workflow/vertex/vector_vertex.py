@@ -65,7 +65,7 @@ class VectorStoreVertex(VectorVertex):
             raise ValueError(f"Input '{self.input_key}' is required for VectorStoreVertex.")
 
         docs = local_inputs[self.input_key]
-        
+
         # 处理EmbeddingVertex的输出格式
         if isinstance(docs, dict) and "embeddings" in docs:
             # EmbeddingVertex的输出格式
@@ -75,17 +75,19 @@ class VectorStoreVertex(VectorVertex):
                 vectors = []
                 for item in embeddings_data:
                     if isinstance(item, dict) and "embedding" in item:
-                        vectors.append({
-                            "id": item.get("id", ""),
-                            "vector": item["embedding"],
-                            "metadata": item.get("metadata", {}),
-                            "content": item.get("content", "")
-                        })
+                        vectors.append(
+                            {
+                                "id": item.get("id", ""),
+                                "vector": item["embedding"],
+                                "metadata": item.get("metadata", {}),
+                                "content": item.get("content", ""),
+                            }
+                        )
                 docs = vectors
             else:
                 # 单个嵌入向量
                 docs = [{"vector": embeddings_data}]
-        
+
         try:
             self.vector_engine.insert(docs)
             self.output = {
@@ -146,16 +148,18 @@ class VectorQueryVertex(VectorVertex):
 
         try:
             results = self.vector_engine.search(query, top_k=top_k, filter=filter)
-            
+
             # 根据相似度阈值过滤结果
             filtered_results = []
             for result in results:
-                score = result.get('score', 0)
+                score = result.get("score", 0)
                 if score >= similarity_threshold:
                     filtered_results.append(result)
-            
-            logging.info(f"向量查询返回 {len(results)} 个结果，经过阈值 {similarity_threshold} 过滤后剩余 {len(filtered_results)} 个")
-            
+
+            logging.info(
+                f"向量查询返回 {len(results)} 个结果，经过阈值 {similarity_threshold} 过滤后剩余 {len(filtered_results)} 个"
+            )
+
             self.output = {"results": filtered_results, STATUS: SUCCESS}
         except Exception as e:
             logging.error(f"Error querying vectors in VectorQueryVertex {self.id}: {e}")

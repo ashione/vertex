@@ -140,31 +140,6 @@ def main():
         rag_system.index_documents(doc_files)
         print("   文档索引完成！")
 
-        # 演示去重功能
-        print("\n6. 演示去重功能...")
-        print("   重新索引相同文档，验证去重效果:")
-        rag_system.index_documents(doc_files)
-
-        # 演示文档更新功能
-        print("\n7. 演示文档更新功能...")
-        print("   更新一个文档内容，然后重新索引:")
-
-        # 更新第一个文档
-        if doc_files and os.path.exists(doc_files[0]):
-            original_content = ""
-            with open(doc_files[0], "r", encoding="utf-8") as f:
-                original_content = f.read()
-
-            # 添加新内容
-            updated_content = original_content + "\n\n【更新内容】这是文档更新后的新内容，用于演示更新功能。"
-            with open(doc_files[0], "w", encoding="utf-8") as f:
-                f.write(updated_content)
-
-            print(f"   已更新文档: {doc_files[0]}")
-
-            # 重新索引（检测更新）
-            rag_system.index_documents(doc_files, update_existing=True)
-
         # 显示向量数据库统计信息
         stats = rag_system.get_vector_db_stats()
         print(f"   向量数据库统计: {stats}")

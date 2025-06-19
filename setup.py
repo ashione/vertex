@@ -25,8 +25,7 @@ setup(
     python_requires=">=3.8",
     entry_points={
         "console_scripts": [
-            "vertex=vertex_flow.src.app:main",
-            "vertex-workflow=vertex_flow.workflow.app.app:main",  # 新增 entrypoint
+            "vertex=vertex_flow.cli:main",
         ],
     },
 )

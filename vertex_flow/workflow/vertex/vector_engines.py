@@ -1,7 +1,7 @@
 import abc
 import hashlib
-from typing import Any, Dict, List, Optional
 import os
+from typing import Any, Dict, List, Optional
 
 import dashvector
 
@@ -11,7 +11,7 @@ logger = LoggerUtil.get_logger()
 
 
 class Doc:
-    def __init__(self, vector, id: str = None, fields: Dict[str, Any] = None):
+    def __init__(self, vector, id: Optional[str] = None, fields: Optional[Dict[str, Any]] = None):
         self._vector = vector
         self._id = id
         self._fields = fields
@@ -194,8 +194,8 @@ class DashVector(VectorEngine):
     def search(
         self,
         query,
-        index_name: str = None,
-        output_fields: List[str] = None,
+        index_name: Optional[str] = None,
+        output_fields: Optional[List[str]] = None,
         include_vector=False,
         top_k=3,
         filter=None,
@@ -294,31 +294,32 @@ class DashVector(VectorEngine):
 class LocalVectorEngine(VectorEngine):
     """本地向量引擎，使用FAISS进行向量存储和检索"""
 
-    def __init__(self, index_name: str = "default", dimension: int = 384, persist_dir: str = None):
+    def __init__(self, index_name: str = "default", dimension: int = 384, persist_dir: Optional[str] = None):
         """
         初始化本地向量引擎
-        
+
         Args:
             index_name: 索引名称
             dimension: 向量维度
             persist_dir: 持久化目录
         """
         super().__init__(api_key=None, endpoint=None, index_name=index_name)
-        
+
         self.dimension = dimension
         self.persist_dir = persist_dir or os.path.join(os.getcwd(), "vector_db")
-        
+
         try:
-            import faiss
             import hashlib
-            
+
+            import faiss
+
             # 确保持久化目录存在
             os.makedirs(self.persist_dir, exist_ok=True)
-            
+
             # 构建文件路径
             self.index_file = os.path.join(self.persist_dir, f"{index_name}.faiss")
             self.meta_file = os.path.join(self.persist_dir, f"{index_name}_meta.pkl")
-            
+
             # 尝试加载现有索引
             if self._load_index():
                 logger.info(f"加载现有索引: {index_name}, 包含 {len(self.documents)} 个文档")
@@ -326,50 +327,50 @@ class LocalVectorEngine(VectorEngine):
                 # 创建新索引
                 self.index = faiss.IndexFlatIP(dimension)  # 使用内积相似度
                 self.documents = []  # 存储文档内容
-                self.doc_ids = []    # 存储文档ID
+                self.doc_ids = []  # 存储文档ID
                 self.content_hashes = {}  # 存储文档内容哈希值，用于去重
                 logger.info(f"创建新索引: {index_name}, 维度: {dimension}")
-                
+
         except ImportError:
             raise ImportError("请安装faiss-cpu: pip install faiss-cpu")
-    
+
     def _generate_doc_id_from_path(self, file_path: str) -> str:
         """
         根据文件路径生成文档ID
-        
+
         Args:
             file_path: 文件路径
-            
+
         Returns:
             生成的文档ID
         """
-        import os
         import hashlib
-        
+        import os
+
         # 获取文件名（不含扩展名）
         file_name = os.path.splitext(os.path.basename(file_path))[0]
-        
+
         # 生成路径的哈希值（用于确保唯一性）
         path_hash = hashlib.md5(file_path.encode()).hexdigest()[:8]
-        
+
         # 组合文件名和哈希值
         doc_id = f"{file_name}_{path_hash}"
-        
+
         return doc_id
 
     def _get_document_by_hash(self, content_hash: str) -> Optional[Dict]:
         """根据内容哈希获取文档信息"""
         if content_hash in self.content_hashes:
             doc_info = self.content_hashes[content_hash]
-            doc_id = doc_info['id']
+            doc_id = doc_info["id"]
             # 查找文档在列表中的索引
             try:
                 idx = self.doc_ids.index(doc_id)
                 return {
-                    'id': doc_id,
-                    'content': self.documents[idx],
-                    'index': idx,
-                    'metadata': doc_info.get('metadata', {})
+                    "id": doc_id,
+                    "content": self.documents[idx],
+                    "index": idx,
+                    "metadata": doc_info.get("metadata", {}),
                 }
             except ValueError:
                 return None
@@ -378,195 +379,199 @@ class LocalVectorEngine(VectorEngine):
     def _load_index(self):
         """加载现有索引"""
         try:
-            import faiss
-            import pickle
             import os
-            
+            import pickle
+
+            import faiss
+
             if os.path.exists(self.index_file) and os.path.exists(self.meta_file):
                 # 加载FAISS索引
                 self.index = faiss.read_index(self.index_file)
-                
+
                 # 加载元数据
-                with open(self.meta_file, 'rb') as f:
+                with open(self.meta_file, "rb") as f:
                     meta_data = pickle.load(f)
-                    self.documents = meta_data.get('documents', [])
-                    self.doc_ids = meta_data.get('doc_ids', [])
-                    self.content_hashes = meta_data.get('content_hashes', {})
-                
+                    self.documents = meta_data.get("documents", [])
+                    self.doc_ids = meta_data.get("doc_ids", [])
+                    self.content_hashes = meta_data.get("content_hashes", {})
+
                 return True
             return False
         except Exception as e:
             logger.warning(f"加载索引失败: {e}")
             return False
-    
+
     def _save_index(self):
         """保存索引到本地文件"""
         try:
-            import faiss
             import pickle
-            
+
+            import faiss
+
             # 保存FAISS索引
             faiss.write_index(self.index, self.index_file)
-            
+
             # 保存元数据
-            meta_data = {
-                'documents': self.documents,
-                'doc_ids': self.doc_ids,
-                'content_hashes': self.content_hashes
-            }
-            with open(self.meta_file, 'wb') as f:
+            meta_data = {"documents": self.documents, "doc_ids": self.doc_ids, "content_hashes": self.content_hashes}
+            with open(self.meta_file, "wb") as f:
                 pickle.dump(meta_data, f)
-            
+
             logger.info(f"索引已保存到: {self.persist_dir}")
-            
+
         except Exception as e:
             logger.error(f"保存索引失败: {e}")
-    
+
     def _generate_content_hash(self, content: str) -> str:
-        """生成文档内容的哈希值"""
-        return hashlib.md5(content.encode('utf-8')).hexdigest()
-    
+        """生成文档内容的哈希值，支持编码异常兜底"""
+        try:
+            return hashlib.md5(content.encode("utf-8")).hexdigest()
+        except UnicodeEncodeError:
+            # 如果编码失败，使用忽略错误的方式处理
+            safe_bytes = content.encode("utf-8", errors="ignore")
+            logger.warning("文档内容包含无法编码的字符，生成哈希时已忽略")
+            return hashlib.md5(safe_bytes).hexdigest()
+        except Exception as e:
+            logger.error(f"生成内容哈希失败: {e}")
+            # 使用内容长度和类型作为备用哈希
+            fallback_content = f"fallback_{len(str(content))}_{type(content).__name__}"
+            return hashlib.md5(fallback_content.encode("utf-8")).hexdigest()
+
     def _is_duplicate(self, content: str) -> bool:
         """检查文档内容是否已存在"""
         content_hash = self._generate_content_hash(content)
         return content_hash in self.content_hashes
-    
+
     def _check_file_updates(self, documents: List[str]) -> Dict[str, Any]:
         """
         检查文件更新情况
-        
+
         Args:
             documents: 文档路径列表
-            
+
         Returns:
             更新信息字典
         """
         import os
         from pathlib import Path
-        
-        update_info = {
-            'new_files': [],
-            'updated_files': [],
-            'unchanged_files': [],
-            'file_hashes': {}
-        }
-        
+
+        update_info = {"new_files": [], "updated_files": [], "unchanged_files": [], "file_hashes": {}}
+
         for doc_path in documents:
             if not os.path.exists(doc_path):
                 continue
-                
+
             # 读取文件内容
             try:
-                with open(doc_path, 'r', encoding='utf-8') as f:
+                with open(doc_path, "r", encoding="utf-8") as f:
                     content = f.read()
             except Exception as e:
                 logger.warning(f"无法读取文件 {doc_path}: {e}")
                 continue
-            
+
             # 生成内容哈希
             content_hash = self._generate_content_hash(content)
-            update_info['file_hashes'][doc_path] = content_hash
-            
+            update_info["file_hashes"][doc_path] = content_hash
+
             # 检查文件是否已存在
             existing_doc = self._get_document_by_hash(content_hash)
-            
+
             if existing_doc:
                 # 检查文件路径是否匹配（如果元数据中包含路径信息）
-                existing_metadata = existing_doc.get('metadata', {})
-                existing_path = existing_metadata.get('source', '')
-                
+                existing_metadata = existing_doc.get("metadata", {})
+                existing_path = existing_metadata.get("source", "")
+
                 if existing_path == doc_path:
                     # 相同路径，检查文件修改时间
                     file_mtime = os.path.getmtime(doc_path)
-                    existing_mtime = existing_metadata.get('mtime', 0)
-                    
+                    existing_mtime = existing_metadata.get("mtime", 0)
+
                     if abs(file_mtime - existing_mtime) < 1:  # 1秒内的差异认为是相同
-                        update_info['unchanged_files'].append(doc_path)
+                        update_info["unchanged_files"].append(doc_path)
                     else:
-                        update_info['updated_files'].append(doc_path)
+                        update_info["updated_files"].append(doc_path)
                 else:
                     # 不同路径但内容相同，标记为未变化
-                    update_info['unchanged_files'].append(doc_path)
+                    update_info["unchanged_files"].append(doc_path)
             else:
                 # 新文件
-                update_info['new_files'].append(doc_path)
-        
+                update_info["new_files"].append(doc_path)
+
         return update_info
-    
+
     def _index(self, index_name=None):
         """获取索引（本地实现中直接返回self）"""
         return self
-    
+
     def create_index(self, index_name, index_options=None):
         """创建索引（本地实现中已创建）"""
         logger.info(f"索引 {index_name} 已创建")
-    
+
     def delete_index(self, index_name):
         """删除索引"""
         try:
             import os
-            
+
             # 删除文件
             if os.path.exists(self.index_file):
                 os.remove(self.index_file)
             if os.path.exists(self.meta_file):
                 os.remove(self.meta_file)
-            
+
             # 清空内存
             self.index = None
             self.documents = []
             self.doc_ids = []
-            
+
             logger.info(f"索引 {index_name} 已删除")
-            
+
         except Exception as e:
             logger.error(f"删除索引失败: {e}")
-    
+
     def insert(self, docs, index_name=None):
         """
         插入文档到向量索引，支持去重和更新检测
-        
+
         Args:
             docs: 文档列表或单个文档
             index_name: 索引名称（本地实现中忽略）
         """
         if not isinstance(docs, list):
             docs = [docs]
-        
+
         vectors = []
         inserted_count = 0
         skipped_count = 0
         updated_count = 0
-        
+
         # 记录开始处理
         logger.info(f"开始处理 {len(docs)} 个文档的向量存储")
-        
+
         for doc in docs:
             if isinstance(doc, dict):
                 # 处理包含向量和元数据的字典
                 content = doc.get("content", "")
                 doc_id = doc.get("id", f"doc_{len(self.doc_ids)}")
                 metadata = doc.get("metadata", {})
-                
+
                 # 检查是否重复
                 if self._is_duplicate(content):
                     # 检查是否需要更新（基于内容哈希）
                     existing_doc = self._get_document_by_hash(self._generate_content_hash(content))
                     if existing_doc:
-                        existing_id = existing_doc['id']
-                        existing_metadata = existing_doc.get('metadata', {})
-                        existing_path = existing_metadata.get('source', '')
-                        current_path = metadata.get('source', '')
-                        
+                        existing_id = existing_doc["id"]
+                        existing_metadata = existing_doc.get("metadata", {})
+                        existing_path = existing_metadata.get("source", "")
+                        current_path = metadata.get("source", "")
+
                         # 检查文件路径是否发生变化
                         if existing_path != current_path and current_path:
                             # 文件名发生变化，需要更新
                             logger.info(f"文件名发生变化: {existing_path} -> {current_path}")
-                            
+
                             # 更新文档ID和元数据
                             doc_id = self._generate_doc_id_from_path(current_path)
-                            doc['id'] = doc_id
-                            
+                            doc["id"] = doc_id
+
                             # 标记为更新
                             updated_count += 1
                         else:
@@ -580,20 +585,17 @@ class LocalVectorEngine(VectorEngine):
                                 continue
                 else:
                     # 新文档，生成基于路径的ID
-                    if metadata.get('source'):
-                        doc_id = self._generate_doc_id_from_path(metadata['source'])
-                        doc['id'] = doc_id
-                
+                    if metadata.get("source"):
+                        doc_id = self._generate_doc_id_from_path(metadata["source"])
+                        doc["id"] = doc_id
+
                 if "vector" in doc:
                     vectors.append(doc["vector"])
                     self.documents.append(content)
                     self.doc_ids.append(doc_id)
                     # 记录内容哈希
                     content_hash = self._generate_content_hash(content)
-                    self.content_hashes[content_hash] = {
-                        'id': doc_id,
-                        'metadata': metadata
-                    }
+                    self.content_hashes[content_hash] = {"id": doc_id, "metadata": metadata}
                     inserted_count += 1
                 elif "embedding" in doc:
                     # EmbeddingVertex的输出格式
@@ -602,30 +604,24 @@ class LocalVectorEngine(VectorEngine):
                     self.doc_ids.append(doc_id)
                     # 记录内容哈希
                     content_hash = self._generate_content_hash(content)
-                    self.content_hashes[content_hash] = {
-                        'id': doc_id,
-                        'metadata': metadata
-                    }
+                    self.content_hashes[content_hash] = {"id": doc_id, "metadata": metadata}
                     inserted_count += 1
                 else:
                     raise ValueError(f"文档字典缺少vector或embedding字段: {doc}")
             elif isinstance(doc, Doc):
-                content = doc.fields.get('content', '')
-                
+                content = doc.fields.get("content", "")
+
                 # 检查是否重复
                 if self._is_duplicate(content):
                     skipped_count += 1
                     continue
-                
+
                 vectors.append(doc.vector)
                 self.documents.append(content)
                 self.doc_ids.append(doc.id)
                 # 记录内容哈希
                 content_hash = self._generate_content_hash(content)
-                self.content_hashes[content_hash] = {
-                    'id': doc.id,
-                    'metadata': doc.fields.get('metadata', {})
-                }
+                self.content_hashes[content_hash] = {"id": doc.id, "metadata": doc.fields.get("metadata", {})}
                 inserted_count += 1
             elif isinstance(doc, (list, tuple)) and all(isinstance(x, (int, float)) for x in doc):
                 # 对于纯向量，无法进行内容去重，直接插入
@@ -635,68 +631,71 @@ class LocalVectorEngine(VectorEngine):
                 inserted_count += 1
             else:
                 raise ValueError(f"不支持的文档类型: {type(doc)}")
-        
+
         # 如果有新文档插入，或者有文档被更新，都要保存索引和meta
         if vectors or updated_count > 0:
             import numpy as np
+
             if vectors:
                 vectors_array = np.array(vectors, dtype=np.float32)
                 self.index.add(vectors_array)
             self._save_index()
-            
+
             # 简化日志输出，只显示关键统计信息
             if inserted_count > 0 or updated_count > 0:
-                logger.info(f"向量存储完成: 新增 {inserted_count} 个，更新 {updated_count} 个，跳过 {skipped_count} 个重复")
+                logger.info(
+                    f"向量存储完成: 新增 {inserted_count} 个，更新 {updated_count} 个，跳过 {skipped_count} 个重复"
+                )
             else:
                 logger.info(f"向量存储完成: 跳过 {skipped_count} 个重复文档")
         else:
             logger.info(f"向量存储完成: 跳过 {skipped_count} 个重复文档")
-    
+
     def search(self, query, index_name=None, include_vector=False, top_k=3, filter=None):
         """
         搜索相似文档
-        
+
         Args:
             query: 查询向量
             index_name: 索引名称（本地实现中忽略）
             include_vector: 是否包含向量
             top_k: 返回结果数量
             filter: 过滤条件（本地实现中忽略）
-            
+
         Returns:
             搜索结果列表
         """
         import numpy as np
-        
+
         if isinstance(query, str):
             # 如果是字符串，需要先转换为向量
             raise ValueError("查询必须是向量，请先使用EmbeddingVertex处理")
-        
+
         query_vector = np.array([query], dtype=np.float32)
         scores, indices = self.index.search(query_vector, top_k)
-        
+
         results = []
         for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
             if idx < len(self.documents):
                 result = {
-                    'id': self.doc_ids[idx] if idx < len(self.doc_ids) else f"doc_{idx}",
-                    'content': self.documents[idx],
-                    'score': float(score)
+                    "id": self.doc_ids[idx] if idx < len(self.doc_ids) else f"doc_{idx}",
+                    "content": self.documents[idx],
+                    "score": float(score),
                 }
                 if include_vector:
-                    result['vector'] = query_vector[0].tolist()
+                    result["vector"] = query_vector[0].tolist()
                 results.append(result)
-        
+
         return results
-    
+
     def get_stats(self):
         """获取索引统计信息"""
         return {
-            'index_name': self.index_name,
-            'dimension': self.dimension,
-            'total_documents': len(self.documents),
-            'unique_documents': len(self.content_hashes),
-            'persist_dir': self.persist_dir,
-            'index_file': self.index_file,
-            'meta_file': self.meta_file
-        } 
+            "index_name": self.index_name,
+            "dimension": self.dimension,
+            "total_documents": len(self.documents),
+            "unique_documents": len(self.content_hashes),
+            "persist_dir": self.persist_dir,
+            "index_file": self.index_file,
+            "meta_file": self.meta_file,
+        }

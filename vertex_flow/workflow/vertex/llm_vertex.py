@@ -248,10 +248,12 @@ class LLMVertex(Vertex[T]):
 
     async def _handle_tool_calls_async(self, choice, context):
         self.messages.append(choice.message)
+
         async def call_tool(tool, tool_call, context):
             tool_call_name = tool_call.function.name
             tool_call_arguments = json.loads(tool_call.function.arguments)
             return tool_call, await asyncio.to_thread(tool.execute, tool_call_arguments, context)
+
         tasks = []
         for tool_call in choice.message.tool_calls:
             for tool in self.tools:
@@ -260,20 +262,24 @@ class LLMVertex(Vertex[T]):
                     break
             else:
                 # 未找到tool
-                self.messages.append({
+                self.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
+                    }
+                )
+        results = await asyncio.gather(*tasks) if tasks else []
+        for tool_call, tool_result in results:
+            self.messages.append(
+                {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
                     "name": tool_call.function.name,
-                    "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
-                })
-        results = await asyncio.gather(*tasks) if tasks else []
-        for tool_call, tool_result in results:
-            self.messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": tool_call.function.name,
-                "content": json.dumps(tool_result),
-            })
+                    "content": json.dumps(tool_result),
+                }
+            )
 
     def _handle_tool_calls(self, choice, context):
         # 兼容同步/异步环境
@@ -283,6 +289,7 @@ class LLMVertex(Vertex[T]):
             coro = self._handle_tool_calls_async(choice, context)
             if loop.is_running():
                 import nest_asyncio
+
                 nest_asyncio.apply()
                 loop.run_until_complete(coro)
             else:

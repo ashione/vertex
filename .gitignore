@@ -64,3 +64,5 @@ uv.lock
 ehthumbs.db
 Thumbs.db
 .cursorignore
+test-docs/
+.cursor/
