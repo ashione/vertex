@@ -154,8 +154,8 @@ DEFAULT_CONFIG_FILE_KEY = "CONFIG_FILE"
 
 
 def default_config_path(file_path):
-    # 默认配置路径
-    base_path = os.path.join(os.path.dirname(__file__), "..", "config")
+    # 默认配置路径 - 指向项目根目录的config文件夹
+    base_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
 
     try:
         # 检查环境变量是否存在

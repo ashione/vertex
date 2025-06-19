@@ -190,7 +190,7 @@ if [ -f "scripts/sanitize_config.py" ]; then
     fi
     
     # 如果配置文件被修改，添加到暂存区
-    SANITIZED_FILES=$(git diff --name-only config/)
+    SANITIZED_FILES=$(git diff --name-only config/ vertex_flow/config/ 2>/dev/null || true)
     if [ -n "$SANITIZED_FILES" ]; then
         echo "📝 Adding sanitized files to staging area..."
         git add $SANITIZED_FILES

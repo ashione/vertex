@@ -17,21 +17,43 @@
 脱敏脚本 `scripts/sanitize_config.py` 会处理以下类型的敏感信息：
 
 #### SK (Secret Key) 脱敏
+
+**旧格式（冒号后直接是密钥）：**
 - **原始格式**: `sk: ${llm.deepseek.sk:sk-[ACTUAL_KEY]}`
 - **脱敏后**: `sk: ${llm.deepseek.sk:sk-***SANITIZED***}`
 
 - **原始格式**: `sk: ${llm.openrouter.sk:sk-or-v1-[ACTUAL_KEY]}`
 - **脱敏后**: `sk: ${llm.openrouter.sk:sk-or-***SANITIZED***}`
 
+**新格式（冒号后使用 `:-` 分隔符）：**
+- **原始格式**: `sk: ${llm.deepseek.sk:-sk-1c72572257634abb90a9b17520a94847}`
+- **脱敏后**: `sk: ${llm.deepseek.sk:-sk-***SANITIZED***}`
+
+- **原始格式**: `sk: ${llm.openrouter.sk:-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}`
+- **脱敏后**: `sk: ${llm.openrouter.sk:-sk-or-***SANITIZED***}`
+
 #### API Key 脱敏
+
+**旧格式：**
 - **原始格式**: `api-key: ${vector.dashvector.api_key:sk-abcd1234}`
 - **脱敏后**: `api-key: ${vector.dashvector.api_key:sk-***SANITIZED***}`
 
+**新格式：**
+- **原始格式**: `api-key: ${vector.dashvector.api_key:-sk-abcd1234567890}`
+- **脱敏后**: `api-key: ${vector.dashvector.api_key:-sk-***SANITIZED***}`
+
+#### 占位符保护
+
+以下占位符**不会**被脱敏（保持原样）：
+- `sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}`
+- `api-key: ${vector.dashvector.api_key:-YOUR_DASHVECTOR_API_KEY}`
+
 ### 支持的密钥格式
 
-- `sk-` 开头的标准密钥
+- `sk-` 开头的标准密钥（长度 > 10 字符）
 - `sk-or-` 开头的 OpenRouter 密钥
-- 其他以 `sk-` 开头的变体密钥
+- 其他长度 > 20 字符的通用API密钥
+- 自动识别并保护 `YOUR_XXX_API_KEY` 形式的占位符
 
 ## 使用方法
 
@@ -61,7 +83,15 @@ python3 scripts/sanitize_config.py
 ## 配置文件
 
 当前脱敏的配置文件包括：
+
+**新配置文件位置（优先级高）：**
+- `vertex_flow/config/llm.yml`
+- `vertex_flow/config/llm.yml.template`
+
+**旧配置文件位置（向后兼容）：**
 - `config/llm.yml`
+- `config/llm.yml.backup`
+- `config/llm.yml.backup2`
 
 如需添加其他配置文件，请修改 `scripts/sanitize_config.py` 中的 `config_files` 列表。
 

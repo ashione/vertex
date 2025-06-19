@@ -13,7 +13,7 @@ from pathlib import Path
 
 def sanitize_sk_values(content):
     """
-    对配置文件中的sk值进行脱敏处理
+    对配置文件中的sk值和api-key值进行脱敏处理
 
     Args:
         content (str): 配置文件内容
@@ -21,7 +21,7 @@ def sanitize_sk_values(content):
     Returns:
         str: 脱敏后的内容
     """
-    # 匹配sk配置行的正则表达式
+    # 1. 匹配sk配置行的正则表达式
     # 匹配格式: sk: ${llm.deepseek.sk:sk-[ACTUAL_KEY]}
     # 也匹配: sk: ${llm.openrouter.sk:sk-or-v1-[ACTUAL_KEY]}
     sk_pattern = r"(\s*sk:\s*\$\{[^:]+:)(sk-[a-zA-Z0-9\-]+)(\})"
@@ -41,10 +41,35 @@ def sanitize_sk_values(content):
 
         return f"{prefix}{sanitized}{suffix}"
 
-    # 执行替换
+    # 执行SK替换
     sanitized_content = re.sub(sk_pattern, replace_sk, content)
 
-    # 匹配api-key配置行的正则表达式
+    # 2. 匹配包含真实API密钥的sk配置（新格式）
+    # 匹配格式: sk: ${llm.deepseek.sk:-sk-1c72572257634abb90a9b17520a94847}
+    # 或: sk: ${llm.openrouter.sk:-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}
+    new_sk_pattern = r"(\s*sk:\s*\$\{[^:]+:-)(sk-[a-zA-Z0-9\-]{10,})(\})"
+
+    def replace_new_sk(match):
+        prefix = match.group(1)
+        sk_value = match.group(2)
+        suffix = match.group(3)
+
+        # 如果包含真实的API密钥（长度 > 10），则脱敏
+        if len(sk_value) > 10:
+            if sk_value.startswith("sk-or-"):
+                sanitized = "sk-or-***SANITIZED***"
+            elif sk_value.startswith("sk-"):
+                sanitized = "sk-***SANITIZED***"
+            else:
+                sanitized = "***SANITIZED***"
+            return f"{prefix}{sanitized}{suffix}"
+        else:
+            return match.group(0)  # 保持原样
+
+    # 执行新格式SK替换
+    sanitized_content = re.sub(new_sk_pattern, replace_new_sk, sanitized_content)
+
+    # 3. 匹配api-key配置行的正则表达式
     # 匹配格式: api-key: ${vector.dashvector.api_key:sk-}
     api_key_pattern = r"(\s*api-key:\s*\$\{[^:]+:)(sk-[a-zA-Z0-9]*)(\})"
 
@@ -63,6 +88,39 @@ def sanitize_sk_values(content):
 
     # 执行api-key替换
     sanitized_content = re.sub(api_key_pattern, replace_api_key, sanitized_content)
+
+    # 4. 匹配包含真实API密钥的api-key配置（新格式）
+    # 匹配格式: api-key: ${vector.dashvector.api_key:-sk-abc123...}
+    new_api_key_pattern = r"(\s*api-key:\s*\$\{[^:]+:-)(sk-[a-zA-Z0-9\-]{10,}|[a-zA-Z0-9]{20,})(\})"
+
+    def replace_new_api_key(match):
+        prefix = match.group(1)
+        api_value = match.group(2)
+        suffix = match.group(3)
+
+        # 如果包含真实的API密钥（长度 > 10），则脱敏
+        if len(api_value) > 10:
+            if api_value.startswith("sk-"):
+                sanitized = "sk-***SANITIZED***"
+            else:
+                sanitized = "***SANITIZED***"
+            return f"{prefix}{sanitized}{suffix}"
+        else:
+            return match.group(0)  # 保持原样
+
+    # 执行新格式API密钥替换
+    sanitized_content = re.sub(new_api_key_pattern, replace_new_api_key, sanitized_content)
+
+    # 5. 匹配通用敏感信息占位符（避免占位符被误脱敏）
+    # 保护格式如: YOUR_XXX_API_KEY 不被脱敏
+    placeholder_pattern = r"(\s*(?:sk|api-key):\s*\$\{[^:]+:-)(YOUR_[A-Z_]+_(?:API_)?KEY)(\})"
+
+    def protect_placeholder(match):
+        # 占位符不需要脱敏，保持原样
+        return match.group(0)
+
+    # 这一步实际上不需要替换，只是为了明确逻辑
+    # sanitized_content = re.sub(placeholder_pattern, protect_placeholder, sanitized_content)
 
     return sanitized_content
 
@@ -106,8 +164,12 @@ def main():
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
 
-    # 需要脱敏的配置文件列表
+    # 需要脱敏的配置文件列表（按重要性排序）
     config_files = [
+        # 新的配置文件位置（优先级高）
+        project_root / "vertex_flow" / "config" / "llm.yml",
+        project_root / "vertex_flow" / "config" / "llm.yml.template",
+        # 旧的配置文件位置（向后兼容）
         project_root / "config" / "llm.yml",
         # 可以添加其他需要脱敏的配置文件
     ]
@@ -115,18 +177,25 @@ def main():
     print("🔒 开始配置文件脱敏处理...")
 
     sanitized_count = 0
+    total_files = 0
+
     for config_file in config_files:
         if config_file.exists():
+            total_files += 1
             if sanitize_file(str(config_file)):
                 sanitized_count += 1
         else:
             print(f"⚠ 配置文件不存在: {config_file}")
 
+    print(f"\n📊 处理统计:")
+    print(f"   检查的文件: {total_files}")
+    print(f"   脱敏的文件: {sanitized_count}")
+
     if sanitized_count > 0:
-        print(f"\n✓ 共处理了 {sanitized_count} 个配置文件")
+        print(f"\n✓ 共对 {sanitized_count} 个配置文件进行了脱敏处理")
         print("请检查脱敏结果，确认无误后再提交")
     else:
-        print("\n- 所有配置文件均无需脱敏")
+        print("\n- 所有配置文件均无需脱敏或已经脱敏")
 
 
 if __name__ == "__main__":

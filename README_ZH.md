@@ -1,54 +1,77 @@
 # Vertex
 
-一个强大的本地和云端LLM推理与工作流编排工具，具有直观的Web界面和先进的VertexFlow引擎。
+一个强大的本地AI工作流系统，支持多模型和可视化工作流编排。
 
 ## 功能特性
 
-- **多模型支持**：Ollama本地模型和外部API（DeepSeek、OpenRouter）
-- **Web聊天界面**：实时流式对话，支持多轮上下文
+- **多模型支持**：Ollama本地模型和外部API（DeepSeek、OpenRouter、通义）
+- **Function Tools**：内置命令行执行和系统集成工具
+- **统一CLI**：简洁的命令行界面，支持多种运行模式
 - **VertexFlow引擎**：可视化工作流编排，支持拖拽节点
 - **RAG系统**：本地检索增强生成，支持文档处理
-- **函数工具**：自定义函数注册，支持动态工作流
+- **智能配置**：基于模板的配置系统，自动化设置
 - **文档处理**：支持TXT、MD、PDF、DOCX格式
 
 ## 快速开始
 
 ### 环境要求
-- Python 3.8+
+- Python 3.9+
 - Ollama（本地模型）- [下载地址](https://ollama.com/download)
 
 ### 安装
 ```bash
-# 克隆仓库
-git clone git@github.com:ashione/vertex.git
+# 通过pip安装（推荐）
+pip install vertex
+
+# 或从源码安装
+git clone https://github.com/ashione/vertex.git
 cd vertex
-
-# 安装依赖
-uv pip install -r requirements.txt
-uv pip install -e .
-
-# 设置本地模型（可选）
-python scripts/setup_ollama.py
-
-# 安装RAG依赖
-./scripts/install_rag_deps.sh
+pip install -e .
 ```
 
 ### 启动
 ```bash
-# 标准模式（默认）
+# 标准聊天模式（默认）
 vertex
 
 # 或明确指定运行模式
 vertex run
 
+# 高级工作流聊天模式（支持Function Tools）
+python vertex_flow/src/workflow_app.py --port 7864
+
 # VertexFlow工作流模式
 vertex workflow
+
+# RAG文档问答模式
+vertex rag --interactive
 ```
 
-访问Web界面：[http://localhost:7860](http://localhost:7860)
+访问Web界面：[http://localhost:7860](http://localhost:7860)（或[http://localhost:7864](http://localhost:7864)访问工作流应用）
 
 ## 使用指南
+
+### CLI命令
+```bash
+# 标准模式
+vertex                    # 启动聊天界面
+vertex run --port 8080   # 自定义端口
+
+# 工作流模式
+vertex workflow           # 可视化工作流编辑器
+vertex workflow --port 8080
+
+# 配置管理
+vertex config             # 交互式配置
+vertex config init        # 快速初始化
+vertex config check       # 检查配置状态
+vertex config reset       # 重置配置
+
+# RAG系统
+vertex rag --interactive  # 交互式问答
+vertex rag --query "问题"  # 直接查询
+vertex rag --directory /path/to/docs  # 索引文档
+```
 
 ### Web界面
 - **聊天**：多轮对话，支持流式输出
@@ -128,8 +151,10 @@ export web_search_bocha_sk="your-bocha-key"
 - [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
 - [RAG CLI详细说明](docs/RAG_CLI_USAGE.md) - RAG问答系统专项指南
 - [RAG性能优化](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - 性能分析与优化建议
+- [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
 
 ### 🔧 技术文档
+- [Function Tools指南](docs/FUNCTION_TOOLS.md) - 完整的功能工具参考
 - [RAG系统详解](vertex_flow/docs/RAG_README.md) - 检索增强生成系统
 - [文档更新机制](vertex_flow/docs/DOCUMENT_UPDATE.md) - 增量更新和去重
 - [去重功能说明](vertex_flow/docs/DEDUPLICATION.md) - 智能文档去重
@@ -138,12 +163,15 @@ export web_search_bocha_sk="your-bocha-key"
 ## 示例
 
 ```bash
-# 运行RAG示例
+# Function Tools示例
 cd vertex_flow/examples
-python rag_example.py
+python command_line_example.py   # 命令行工具
+python web_search_example.py     # 网络搜索工具  
+python finance_example.py        # 金融数据工具
 
-# 运行去重演示
-python deduplication_demo.py
+# 其他示例
+python rag_example.py            # RAG系统
+python deduplication_demo.py     # 去重功能
 ```
 
 ## 开发

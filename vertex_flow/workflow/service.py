@@ -146,12 +146,20 @@ class VertexFlowService:
             model_name = selected_model[1].get("model-name")
             # 优先使用参数name，否则用配置中的model-name
             final_name = name if name is not None else model_name
+
+            # 构建创建模型实例的参数
+            create_params = {
+                "sk": selected_model[1]["sk"],
+                "name": final_name,
+            }
+
+            # 对于Ollama，需要额外传递base_url参数
+            if selected_model[0].lower() == "ollama":
+                base_url = selected_model[1].get("base-url", "http://localhost:11434")
+                create_params["base_url"] = base_url
+
             # 使用匹配的模型配置创建聊天模型实例
-            model = create_instance(
-                class_name=selected_model[0],
-                sk=selected_model[1]["sk"],
-                name=final_name,
-            )
+            model = create_instance(class_name=selected_model[0], **create_params)
         # 记录选定的模型信息
         logging.info("model selected : %s-%s in provider %s", model, model.model_name(), provider)
         return model
@@ -170,6 +178,12 @@ class VertexFlowService:
         return self._config["web"]["host"]
 
     def get_service_port(self):
+        # 支持环境变量覆盖端口配置
+        import os
+
+        port = os.environ.get("VERTEX_WORKFLOW_PORT")
+        if port:
+            return int(port)
         return int(self._config["web"]["port"])
 
     def get_service_workers(self):
@@ -486,6 +500,17 @@ class VertexFlowService:
         # 创建并返回金融工具实例
         # 注意：create_finance_tool() 从配置文件自动加载API密钥，无需手动传递
         return create_finance_tool()
+
+    def get_command_line_tool(self):
+        """获取命令行工具实例
+
+        Returns:
+            配置好的命令行工具实例，可执行本地命令
+        """
+        from vertex_flow.workflow.tools.command_line import create_command_line_tool
+
+        # 命令行工具不需要额外配置，直接创建并返回
+        return create_command_line_tool()
 
     def get_rerank_config(self, rerank_type="bce"):
         """

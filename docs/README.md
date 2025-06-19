@@ -10,6 +10,12 @@
   - 所有命令的详细说明和示例
   - 故障排除和性能优化
 
+### 聊天应用
+- **[Workflow Chat 应用](WORKFLOW_CHAT_APP.md)** - 基于 Workflow LLM Vertex 的新一代聊天应用
+  - 统一配置系统，支持多种 LLM 提供商
+  - 动态模型切换，现代化界面
+  - 工具调用支持，完善的错误处理
+
 ### RAG问答系统
 - **[RAG CLI详细说明](RAG_CLI_USAGE.md)** - RAG问答系统专项指南
   - 文档索引和查询功能

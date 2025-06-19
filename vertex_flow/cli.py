@@ -77,21 +77,40 @@ def create_parser():
 def run_standard_mode(args=None):
     """运行标准模式"""
     try:
-        from vertex_flow.src.app import main as app_main
+        import os
+        import sys
 
-        print("启动Vertex标准模式...")
+        # 保存原始的sys.argv
+        original_argv = sys.argv.copy()
 
-        # 如果有端口或主机参数，可以在这里处理
-        if args and (args.port or args.host):
-            # 这里可以设置配置覆盖
-            import os
+        try:
+            # 重建sys.argv来匹配app的期望格式
+            sys.argv = [sys.argv[0]]  # 只保留程序名
 
-            if args.port:
-                os.environ["VERTEX_PORT"] = str(args.port)
-            if args.host:
-                os.environ["VERTEX_HOST"] = args.host
+            # 如果有端口或主机参数，添加到app的参数中
+            if args and args.port:
+                sys.argv.extend(["--port", str(args.port)])
+            if args and args.host:
+                sys.argv.extend(["--host", args.host])
 
-        app_main()
+            # 优先尝试使用基于workflow的新应用
+            try:
+                from vertex_flow.src.workflow_app import main as workflow_app_main
+
+                print("启动Vertex标准模式 (基于 Workflow LLM)...")
+                workflow_app_main()
+            except Exception as workflow_error:
+                print(f"Workflow应用启动失败，回退到传统模式: {workflow_error}")
+                # 回退到原始应用
+                from vertex_flow.src.app import main as app_main
+
+                print("启动Vertex标准模式 (传统模式)...")
+                app_main()
+
+        finally:
+            # 恢复原始的sys.argv
+            sys.argv = original_argv
+
     except ImportError as e:
         print(f"启动失败: {e}")
         print("请确保正确安装了vertex包")
