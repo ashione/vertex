@@ -169,8 +169,6 @@ def main():
         # 新的配置文件位置（优先级高）
         project_root / "vertex_flow" / "config" / "llm.yml",
         project_root / "vertex_flow" / "config" / "llm.yml.template",
-        # 旧的配置文件位置（向后兼容）
-        project_root / "config" / "llm.yml",
         # 可以添加其他需要脱敏的配置文件
     ]
 
