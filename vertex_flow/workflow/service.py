@@ -70,7 +70,7 @@ class VertexFlowService:
         if config_file is None:
             import os
             from pathlib import Path
-            
+
             # 检查用户配置文件是否存在
             user_config = Path.home() / ".vertex" / "config" / "llm.yml"
             if user_config.exists():
@@ -82,7 +82,7 @@ class VertexFlowService:
 
         # 读取并解析配置文件，初始化_config实例变量
         self._config = read_yaml_config_env_placeholder(config_file)
-        
+
         # 确保_config是字典类型
         if not isinstance(self._config, dict):
             raise ValueError(f"配置文件格式错误，期望字典类型，实际类型: {type(self._config)}")

@@ -16,12 +16,18 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 import gradio as gr
+import nest_asyncio
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 from vertex_flow.utils.logger import setup_logger
 from vertex_flow.workflow.app.deep_research_workflow import DeepResearchWorkflow
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.constants import WORKFLOW_COMPLETE, WORKFLOW_FAILED
+
+# 应用nest_asyncio以支持嵌套事件循环
+nest_asyncio.apply()
 
 # 配置日志
 logger = setup_logger(__name__)
@@ -67,21 +73,15 @@ class DeepResearchApp:
     def __init__(self, config_path: str = None):
         """初始化应用"""
         try:
-            # 使用提供的配置路径或默认配置
+            # 使用修改后的VertexFlowService，它会自动选择用户配置文件
             if config_path is None:
-                # 使用环境变量或默认配置路径
-                from vertex_flow.workflow.utils import default_config_path
-                config_path = default_config_path("llm.yml")
-                logger.info(f"使用默认配置路径: {config_path}")
+                logger.info("使用自动配置选择（优先用户配置文件）")
+                self.service = VertexFlowService()  # 不传递config_path，让它自动选择
             else:
                 config_path = os.path.abspath(config_path)
                 logger.info(f"使用指定配置路径: {config_path}")
+                self.service = VertexFlowService(config_path)
             
-            # 检查配置文件是否存在
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"配置文件不存在: {config_path}")
-            
-            self.service = VertexFlowService(config_path)
             self.workflow_builder = DeepResearchWorkflow(self.service)
             self.current_workflow = None
             
@@ -156,229 +156,186 @@ class DeepResearchApp:
     def _execute_workflow_stream(self, input_data: Dict[str, Any], research_topic: str):
         """流式执行工作流"""
         try:
-            # 先执行工作流（在后台线程中）
+            # 初始化状态
+            self.workflow_running = True
+            self.stage_history = {}
+            
+            # 发送开始状态
+            yield "🚀 开始深度研究分析...", "准备中...", "正在初始化工作流", [], gr.update()
+            
+            # 订阅工作流事件
+            def on_vertex_complete(event_data):
+                """处理顶点完成事件（values类型）"""
+                try:
+                    vertex_id = event_data.get('vertex_id')
+                    output = event_data.get('output', '')
+                    
+                    if vertex_id and vertex_id not in self.stage_history:
+                        # 新完成的阶段
+                        stage_name = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[0]
+                        stage_icon = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[1]
+                        
+                        self.stage_history[vertex_id] = {
+                            'name': stage_name,
+                            'icon': stage_icon,
+                            'content': str(output),
+                            'status': 'completed',
+                            'cost_time': 0,
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        
+                        logger.info(f"阶段完成事件: {vertex_id} - {stage_name}")
+                except Exception as e:
+                    logger.error(f"处理顶点完成事件失败: {e}")
+            
+            def on_stream_message(event_data):
+                """处理流式消息事件（messages类型）"""
+                try:
+                    vertex_id = event_data.get('vertex_id')
+                    message = event_data.get('message')
+                    status = event_data.get('status')
+                    
+                    if status == 'end':
+                        logger.info(f"顶点 {vertex_id} 流式输出结束")
+                    elif message and vertex_id in self.STAGE_MAPPING:
+                        # 实时显示流式内容
+                        stage_name = self.STAGE_MAPPING[vertex_id][0]
+                        logger.info(f"流式消息: {stage_name} - {message[:100]}...")
+                        
+                        # 更新当前阶段的流式内容
+                        if vertex_id not in self.stage_history:
+                            self.stage_history[vertex_id] = {
+                                'name': stage_name,
+                                'icon': self.STAGE_MAPPING[vertex_id][1],
+                                'content': message,
+                                'status': 'streaming',
+                                'cost_time': 0,
+                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                        else:
+                            # 追加流式内容
+                            self.stage_history[vertex_id]['content'] += message
+                except Exception as e:
+                    logger.error(f"处理流式消息事件失败: {e}")
+            
+            def on_workflow_update(event_data):
+                """处理工作流更新事件（updates类型）"""
+                try:
+                    vertex_id = event_data.get('vertex_id')
+                    status = event_data.get('status')
+                    
+                    if status == 'failed':
+                        logger.error(f"顶点执行失败: {vertex_id}")
+                    elif status == 'workflow_complete':
+                        logger.info("工作流执行完成")
+                        self.workflow_running = False
+                    elif status == 'workflow_failed':
+                        logger.error("工作流执行失败")
+                        self.workflow_running = False
+                except Exception as e:
+                    logger.error(f"处理工作流更新事件失败: {e}")
+            
+            # 注册事件回调
+            self.current_workflow.subscribe("values", on_vertex_complete)      # 顶点完成事件
+            self.current_workflow.subscribe("messages", on_stream_message)    # 流式消息事件
+            self.current_workflow.subscribe("updates", on_workflow_update)    # 工作流状态更新事件
+            
+            # 使用同步方式执行工作流，但启用流式模式
             def run_workflow():
                 try:
+                    # 执行工作流，启用流式模式
                     self.current_workflow.execute_workflow(input_data, stream=True)
+                    self.workflow_running = False
                 except Exception as e:
                     logger.error(f"工作流执行错误: {e}")
+                    self.workflow_running = False
             
             # 在后台线程中启动工作流
             workflow_thread = threading.Thread(target=run_workflow)
             workflow_thread.daemon = True
             workflow_thread.start()
             
-            # 流式获取事件
-            yield from self._stream_workflow_events()
+            # 流式监控工作流进度
+            last_status = None
+            last_stage_buttons = []
+            last_progress = ""
+            last_content = ""
+            
+            while self.workflow_running:
+                try:
+                    # 创建阶段按钮
+                    current_stage_buttons = self._create_stage_buttons()
+                    
+                    # 生成进度信息
+                    completed_stages = len([s for s in self.stage_history.values() if s['status'] == 'completed'])
+                    streaming_stages = len([s for s in self.stage_history.values() if s['status'] == 'streaming'])
+                    total_stages = len(self.STAGE_ORDER)
+                    progress_text = f"已完成 {completed_stages}/{total_stages} 个阶段"
+                    
+                    if streaming_stages > 0:
+                        progress_text += f" (正在执行: {streaming_stages})"
+                    
+                    if self.stage_history:
+                        # 显示最新活动的阶段内容
+                        latest_stage_id = list(self.stage_history.keys())[-1]
+                        latest_stage = self.stage_history[latest_stage_id]
+                        current_content = self._format_content_for_display(
+                            latest_stage['content'], 'markdown', False
+                        )
+                        
+                        if latest_stage['status'] == 'completed':
+                            status_msg = f"✅ {latest_stage['name']} 完成"
+                        else:
+                            status_msg = f"🔄 {latest_stage['name']} 执行中..."
+                    else:
+                        current_content = "正在执行工作流..."
+                        status_msg = "🚀 工作流执行中..."
+                    
+                    # 检查是否需要更新界面
+                    if (status_msg != last_status or 
+                        current_stage_buttons != last_stage_buttons or
+                        progress_text != last_progress or
+                        current_content != last_content):
+                        
+                        yield status_msg, current_content, progress_text, current_stage_buttons, gr.update()
+                        last_status = status_msg
+                        last_stage_buttons = current_stage_buttons.copy()
+                        last_progress = progress_text
+                        last_content = current_content
+                    
+                    time.sleep(0.3)  # 每300ms检查一次状态，提高响应速度
+                    
+                except Exception as e:
+                    logger.error(f"监控工作流状态时出错: {e}")
+                    time.sleep(1)
+            
+            # 工作流完成，获取最终结果
+            try:
+                results = self.current_workflow.result()
+                if results and 'sink' in results:
+                    final_report = results['sink'].get('final_report', '没有生成报告')
+                    file_path = results['sink'].get('file_path', '')
+                    
+                    # 格式化最终报告
+                    formatted_report = self._format_content_for_display(
+                        final_report, 'markdown', True
+                    )
+                    
+                    completion_msg = "✅ 深度研究完成!"
+                    if file_path:
+                        completion_msg += f"\n📁 报告已保存到: {file_path}"
+                    
+                    yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", current_stage_buttons, gr.update()
+                else:
+                    yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但无结果", current_stage_buttons, gr.update()
+            except Exception as e:
+                logger.error(f"获取结果失败: {e}")
+                yield "❌ 获取结果失败", f"错误: {str(e)}", f"获取结果时发生错误: {str(e)}", current_stage_buttons, gr.update()
                 
         except Exception as e:
             error_msg = f"❌ 流式执行失败: {str(e)}"
             logger.error(error_msg)
-            yield error_msg, "执行失败", f"执行失败: {str(e)}"
-    
-    def _stream_workflow_events(self):
-        """流式获取工作流事件"""
-        # 初始化状态
-        progress_log = []
-        current_stage = ""
-        current_content = ""
-        previous_stage_buttons = []
-        
-        def add_log(message):
-            timestamp = datetime.now().strftime('%H:%M:%S')
-            progress_log.append(f"[{timestamp}] {message}")
-        
-        # 使用类的辅助方法
-        create_stage_buttons = self._create_stage_buttons
-        should_update_stage_selector = self._should_update_stage_selector
-        
-        add_log("🚀 开始深度研究分析...")
-        initial_buttons = create_stage_buttons()
-        previous_stage_buttons = initial_buttons.copy()
-        yield "🚀 开始深度研究分析...", "准备中", "\n".join(progress_log[-10:]), initial_buttons, gr.update()
-        
-        async def stream_events():
-            nonlocal current_stage, current_content, previous_stage_buttons
-            
-            try:
-                # 监听工作流事件
-                async for event in self.current_workflow.astream([EventType.MESSAGES, EventType.VALUES, EventType.UPDATES]):
-                    event_type = type(event).__name__
-                    logger.info(f"收到事件类型: {event_type}, 内容: {event}")
-                    
-                    # 处理消息事件（流式输出内容）
-                    if 'vertex_id' in event and 'message' in event:
-                        vertex_id = event['vertex_id']
-                        message = event.get('message', '')
-                        status = event.get('status', '')
-                        
-                        # 检查是否是我们关心的阶段
-                        for stage_id, (stage_name, stage_icon) in self.STAGE_MAPPING.items():
-                            if stage_id in vertex_id:
-                                current_stage = f"{stage_icon} {stage_name}"
-                                
-                                if status == "start":
-                                    add_log(f"开始 {stage_name}...")
-                                    current_buttons = create_stage_buttons()
-                                    stage_selector_update = gr.update(choices=current_buttons) if should_update_stage_selector(previous_stage_buttons, current_buttons) else gr.update()
-                                    if should_update_stage_selector(previous_stage_buttons, current_buttons):
-                                        previous_stage_buttons = current_buttons.copy()
-                                    yield f"⏳ 正在执行: {stage_name}", current_stage, "\n".join(progress_log[-10:]), current_buttons, stage_selector_update
-                                    break
-                                elif status == "end":
-                                    self.completed_stages.add(stage_id)
-                                    add_log(f"完成 {stage_name}")
-                                    # 获取完整内容
-                                    if stage_id in self.stage_history:
-                                        current_content = self.stage_history[stage_id]['content']
-                                        logger.info(f"阶段 {stage_name} 完成，内容长度: {len(current_content)}")
-                                    current_buttons = create_stage_buttons()
-                                    stage_selector_update = gr.update(choices=current_buttons) if should_update_stage_selector(previous_stage_buttons, current_buttons) else gr.update()
-                                    if should_update_stage_selector(previous_stage_buttons, current_buttons):
-                                        previous_stage_buttons = current_buttons.copy()
-                                    yield f"✅ 完成: {stage_name}", current_content[:2000] + "..." if len(current_content) > 2000 else current_content, "\n".join(progress_log[-10:]), current_buttons, stage_selector_update
-                                    break
-                                elif message:
-                                    # 累积当前阶段的内容
-                                    if stage_id not in self.stage_history:
-                                        self.stage_history[stage_id] = {
-                                            'name': stage_name,
-                                            'icon': stage_icon,
-                                            'content': "",
-                                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                        }
-                                    self.stage_history[stage_id]['content'] += message
-                                    current_content = self.stage_history[stage_id]['content']
-                                    
-                                    # 显示实时内容（限制长度避免界面卡顿）
-                                    display_content = current_content[-1500:] if len(current_content) > 1500 else current_content
-                                    
-                                    # 为流式内容添加markdown格式提示
-                                    if display_content.strip():
-                                        # 检测是否为markdown内容
-                                        if len(display_content) > 50 and any(re.search(pattern, display_content, re.MULTILINE) for pattern in self.MARKDOWN_PATTERNS):
-                                            # 可能是markdown，添加适当的格式
-                                            formatted_display = f"### 📝 {stage_name} 进行中...\n\n{display_content}"
-                                        else:
-                                            # 普通文本，用代码块格式显示
-                                            formatted_display = f"### 📝 {stage_name} 进行中...\n\n```\n{display_content}\n```"
-                                    else:
-                                        formatted_display = f"### 📝 {stage_name} 进行中...\n\n正在生成内容..."
-                                    
-                                    current_buttons = create_stage_buttons()
-                                    stage_selector_update = gr.update(choices=current_buttons) if should_update_stage_selector(previous_stage_buttons, current_buttons) else gr.update()
-                                    if should_update_stage_selector(previous_stage_buttons, current_buttons):
-                                        previous_stage_buttons = current_buttons.copy()
-                                    yield f"⏳ 正在执行: {stage_name}", formatted_display, "\n".join(progress_log[-10:]), current_buttons, stage_selector_update
-                                    break
-                    
-                    # 处理状态事件
-                    elif 'status' in event:
-                        status = event['status']
-                        if status == WORKFLOW_COMPLETE:
-                            self.workflow_running = False
-                            add_log("✅ 深度研究完成!")
-                            # 获取最终结果
-                            results = self.current_workflow.result()
-                            logger.debug(f"工作流结果: {results}")
-                            
-                            if results and 'sink' in results:
-                                final_report = results['sink'].get('final_report', '没有生成报告')
-                                file_path = results['sink'].get('file_path', '')
-                                
-                                if file_path:
-                                    add_log(f"📁 报告已保存到: {file_path}")
-                                
-                                logger.debug(f"最终报告长度: {len(final_report)}")
-                                current_buttons = create_stage_buttons()
-                                yield "✅ 深度研究完成!", final_report, "\n".join(progress_log[-10:]), current_buttons, gr.update(choices=current_buttons)
-                            else:
-                                # 尝试从阶段历史中获取最终报告
-                                if 'summary_report' in self.stage_history:
-                                    final_report = self.stage_history['summary_report']['content']
-                                    add_log(f"从阶段历史获取最终报告，长度: {len(final_report)}")
-                                    current_buttons = create_stage_buttons()
-                                    yield "✅ 深度研究完成!", final_report, "\n".join(progress_log[-10:]), current_buttons, gr.update(choices=current_buttons)
-                                else:
-                                    current_buttons = create_stage_buttons()
-                                    yield "❌ 工作流执行完成但没有获取到结果", "", "\n".join(progress_log), current_buttons, gr.update(choices=current_buttons)
-                            break
-                        elif status == WORKFLOW_FAILED:
-                            self.workflow_running = False
-                            add_log("❌ 工作流执行失败")
-                            current_buttons = create_stage_buttons()
-                            yield "❌ 工作流执行失败", "", "\n".join(progress_log[-10:]), current_buttons, gr.update(choices=current_buttons)
-                            break
-                    
-                    # 处理值事件（顶点输出）
-                    elif 'vertex_id' in event and 'output' in event:
-                        vertex_id = event['vertex_id']
-                        output = event.get('output', '')
-                        
-                        # 检查是否是我们关心的阶段
-                        for stage_id, (stage_name, stage_icon) in self.STAGE_MAPPING.items():
-                            if stage_id in vertex_id and output:
-                                # 保存到阶段历史记录
-                                self.stage_history[stage_id] = {
-                                    'name': stage_name,
-                                    'icon': stage_icon,
-                                    'content': output,
-                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                }
-                                self.completed_stages.add(stage_id)
-                                
-                                # 显示阶段完成的内容
-                                display_content = output[:2000] + "..." if len(output) > 2000 else output
-                                add_log(f"✅ {stage_name} 生成了 {len(output)} 字符的内容")
-                                current_buttons = create_stage_buttons()
-                                stage_selector_update = gr.update(choices=current_buttons) if should_update_stage_selector(previous_stage_buttons, current_buttons) else gr.update()
-                                if should_update_stage_selector(previous_stage_buttons, current_buttons):
-                                    previous_stage_buttons = current_buttons.copy()
-                                yield f"✅ 完成: {stage_name}", display_content, "\n".join(progress_log[-10:]), current_buttons, stage_selector_update
-                                break
-                    
-            except Exception as e:
-                logger.error(f"事件流处理错误: {e}")
-                add_log(f"❌ 事件处理错误: {str(e)}")
-                current_buttons = create_stage_buttons()
-                yield f"❌ 事件处理错误: {str(e)}", "", "\n".join(progress_log[-10:]), current_buttons, gr.update(choices=current_buttons)
-        
-        # 运行异步事件流
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            async def run_stream():
-                async for result in stream_events():
-                    yield result
-            
-            # 由于Gradio需要同步生成器，我们需要同步运行异步代码
-            async_gen = run_stream()
-            
-            async def get_next():
-                try:
-                    return await async_gen.__anext__()
-                except StopAsyncIteration:
-                    return None
-            
-            while True:
-                try:
-                    result = loop.run_until_complete(get_next())
-                    if result is None:
-                        break
-                    yield result
-                except Exception as e:
-                    logger.error(f"事件循环错误: {e}")
-                    break
-                    
-        except Exception as e:
-            logger.error(f"异步事件流错误: {e}")
-            yield f"❌ 异步处理错误: {str(e)}", "", f"异步处理错误: {str(e)}", [], gr.update()
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+            yield error_msg, "执行失败", f"执行失败: {str(e)}", [], gr.update()
     
     def _execute_workflow_batch(self, input_data: Dict[str, Any], research_topic: str):
         """批量执行工作流"""
@@ -525,7 +482,22 @@ class DeepResearchApp:
         # 确保编号列表格式正确
         content = re.sub(r'(\n)(\d+\.\s)', r'\1\n\2', content)
         
-        # 确保代码块前后有空行
+        # 特殊处理Mermaid代码块
+        def process_mermaid_blocks(match):
+            lang = match.group(1) or ''
+            code = match.group(2)
+            
+            if lang.lower() in ['mermaid', 'graph', 'flowchart', 'sequence', 'gantt', 'class', 'state', 'pie', 'journey', 'gitgraph']:
+                # 为Mermaid代码块添加特殊类名
+                return f'\n\n<div class="mermaid">\n{code}\n</div>\n\n'
+            else:
+                # 普通代码块保持原样
+                return match.group(0)
+        
+        # 处理Mermaid代码块
+        content = re.sub(r'```(\w+)?\n(.*?)\n```', process_mermaid_blocks, content, flags=re.DOTALL)
+        
+        # 确保其他代码块前后有空行
         content = re.sub(r'(?<!^)(\n)(```)', r'\n\n\2', content)
         content = re.sub(r'(```.*?```\n)(?!\n)', r'\1\n', content, flags=re.DOTALL)
         
@@ -549,11 +521,14 @@ class DeepResearchApp:
     def _create_stage_buttons(self) -> List[str]:
         """创建已完成阶段的按钮列表"""
         buttons = []
-        logger.debug(f"创建阶段按钮，已完成阶段: {self.completed_stages}")
-        logger.debug(f"阶段历史记录: {list(self.stage_history.keys())}")
+        logger.debug(f"创建阶段按钮，阶段历史记录: {list(self.stage_history.keys())}")
+        
+        # 更新completed_stages集合
+        self.completed_stages = {stage_id for stage_id, stage_info in self.stage_history.items() 
+                               if stage_info.get('status') == 'completed'}
         
         for stage_id in self.STAGE_ORDER:
-            if stage_id in self.completed_stages and stage_id in self.stage_history:
+            if stage_id in self.stage_history:
                 stage_info = self.stage_history[stage_id]
                 button_text = f"{stage_info['icon']} {stage_info['name']}"
                 buttons.append(button_text)
@@ -626,6 +601,46 @@ def create_gradio_interface(app: DeepResearchApp):
     with gr.Blocks(
         title="Deep Research - 深度研究工作流",
         theme=gr.themes.Soft(),
+        head="""
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+        <script>
+            // 初始化Mermaid
+            mermaid.initialize({
+                startOnLoad: true,
+                theme: 'default',
+                flowchart: {
+                    useMaxWidth: true,
+                    htmlLabels: true
+                }
+            });
+            
+            // 自动渲染Mermaid图表
+            function renderMermaidCharts() {
+                const mermaidElements = document.querySelectorAll('.mermaid');
+                mermaidElements.forEach(element => {
+                    if (!element.hasAttribute('data-processed')) {
+                        element.setAttribute('data-processed', 'true');
+                        mermaid.render('mermaid-' + Math.random().toString(36).substr(2, 9), element.textContent).then(({svg}) => {
+                            element.innerHTML = svg;
+                        }).catch(error => {
+                            console.error('Mermaid渲染错误:', error);
+                            element.innerHTML = '<div style="color: red; padding: 10px;">图表渲染失败: ' + error.message + '</div>';
+                        });
+                    }
+                });
+            }
+            
+            // 监听DOM变化，自动渲染新的Mermaid图表
+            const observer = new MutationObserver(renderMermaidCharts);
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            
+            // 页面加载完成后初始化
+            document.addEventListener('DOMContentLoaded', renderMermaidCharts);
+        </script>
+        """,
         css="""
         .research-container { 
             max-height: 600px; 
@@ -706,6 +721,19 @@ def create_gradio_interface(app: DeepResearchApp):
         .report-container th {
             background-color: #f3f4f6;
             font-weight: bold;
+        }
+        /* Mermaid图表支持 */
+        .mermaid {
+            text-align: center;
+            margin: 1em 0;
+            padding: 1em;
+            background-color: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .mermaid svg {
+            max-width: 100%;
+            height: auto;
         }
         /* 阶段选择器样式 */
         .stage-selector {
@@ -940,66 +968,98 @@ def create_gradio_interface(app: DeepResearchApp):
         # 事件绑定
         def handle_start_research(topic, save_inter, save_final, stream_mode, format_mode):
             """处理开始研究事件"""
-            for result in app.start_research(topic, save_inter, save_final, stream_mode):
-                if len(result) == 5:
-                    status, stage_or_report, progress, stage_buttons, _ = result
-                    if "完成!" in status and len(stage_or_report) > 100:  # 这是最终报告
-                        # 根据格式模式决定显示方式
+            if stream_mode:
+                # 流式模式：实时更新界面
+                for result in app.start_research(topic, save_inter, save_final, stream_mode):
+                    if len(result) == 5:
+                        status, content, progress, stage_buttons, _ = result
+                        
+                        # 检查是否是最终报告
+                        if "完成!" in status and len(content) > 100:
+                            # 最终报告
+                            if format_mode == "Markdown渲染":
+                                if app.is_markdown_content(content):
+                                    enhanced_content = app.enhance_markdown_content(content)
+                                    yield (status, enhanced_content, progress, 
+                                          enhanced_content, 
+                                          gr.update(value=content, visible=False),
+                                          gr.update(visible=True),
+                                          gr.update(visible=False),
+                                          gr.update(choices=stage_buttons))
+                                else:
+                                    formatted_content = f"## 📄 研究报告\n\n```text\n{content}\n```"
+                                    yield (status, formatted_content, progress, 
+                                          formatted_content, 
+                                          gr.update(value=content, visible=False),
+                                          gr.update(visible=True),
+                                          gr.update(visible=False),
+                                          gr.update(choices=stage_buttons))
+                            else:
+                                yield (status, "请切换到原始文本模式查看完整内容", progress, 
+                                      "请切换到原始文本模式查看完整内容", 
+                                      gr.update(value=content, visible=True),
+                                      gr.update(visible=False),
+                                      gr.update(visible=True),
+                                      gr.update(choices=stage_buttons))
+                        else:
+                            # 中间进度更新
+                            if format_mode == "Markdown渲染" and content:
+                                if app.is_markdown_content(content):
+                                    display_content = app.enhance_markdown_content(content)
+                                elif len(content) > 100:
+                                    display_content = f"```\n{content}\n```"
+                                else:
+                                    display_content = content
+                            else:
+                                display_content = content
+                            
+                            yield (status, display_content, progress, 
+                                  gr.update(),  # research_report_md
+                                  gr.update(),  # research_report_text
+                                  gr.update(visible=True if format_mode == "Markdown渲染" else False),  # current_stage_md
+                                  gr.update(value=content, visible=True if format_mode == "原始文本" else False),  # current_stage_text
+                                  gr.update(choices=stage_buttons))
+                    else:
+                        # 错误情况
+                        yield (result[0], "", "", 
+                              gr.update(), gr.update(), 
+                              gr.update(), gr.update(), gr.update())
+            else:
+                # 批量模式：一次性返回结果
+                results = list(app.start_research(topic, save_inter, save_final, stream_mode))
+                if results:
+                    final_result = results[-1]  # 取最后一个结果
+                    if len(final_result) == 5:
+                        status, content, progress, stage_buttons, _ = final_result
+                        
                         if format_mode == "Markdown渲染":
-                            # 智能检测和增强markdown
-                            if app.is_markdown_content(stage_or_report):
-                                enhanced_content = app.enhance_markdown_content(stage_or_report)
-                                yield (status, "✅ 研究完成", progress, 
+                            if app.is_markdown_content(content):
+                                enhanced_content = app.enhance_markdown_content(content)
+                                yield (status, enhanced_content, progress, 
                                       enhanced_content, 
-                                      gr.update(value=stage_or_report, visible=False),
+                                      gr.update(value=content, visible=False),
                                       gr.update(visible=True),
                                       gr.update(visible=False),
                                       gr.update(choices=stage_buttons))
                             else:
-                                # 不是markdown，显示为普通文本但用markdown组件显示
-                                formatted_content = f"## 📄 研究报告\n\n```text\n{stage_or_report}\n```"
-                                yield (status, "✅ 研究完成", progress, 
+                                formatted_content = f"## 📄 研究报告\n\n```text\n{content}\n```"
+                                yield (status, formatted_content, progress, 
                                       formatted_content, 
-                                      gr.update(value=stage_or_report, visible=False),
+                                      gr.update(value=content, visible=False),
                                       gr.update(visible=True),
                                       gr.update(visible=False),
                                       gr.update(choices=stage_buttons))
                         else:
-                            # 原始文本模式
-                            yield (status, "✅ 研究完成", progress, 
+                            yield (status, "请切换到原始文本模式查看完整内容", progress, 
                                   "请切换到原始文本模式查看完整内容", 
-                                  gr.update(value=stage_or_report, visible=True),
+                                  gr.update(value=content, visible=True),
                                   gr.update(visible=False),
                                   gr.update(visible=True),
                                   gr.update(choices=stage_buttons))
-                    else:  # 这是进度更新或中间阶段内容
-                        # 智能处理当前阶段的内容显示
-                        stage_display = stage_or_report
-                        stage_md_display = stage_or_report
-                        
-                        if format_mode == "Markdown渲染" and stage_or_report:
-                            # 如果是markdown格式模式，检测内容格式
-                            if app.is_markdown_content(stage_or_report):
-                                stage_md_display = app.enhance_markdown_content(stage_or_report)
-                            elif len(stage_or_report) > 100:
-                                # 长文本用代码块包装
-                                stage_md_display = f"```\n{stage_or_report}\n```"
-                            else:
-                                # 短文本直接显示
-                                stage_md_display = stage_or_report
-                        
-                        # 返回8个值来匹配所有outputs
-                        yield (status, stage_md_display, progress, 
-                              gr.update(),  # research_report_md
-                              gr.update(),  # research_report_text
-                              gr.update(visible=True if format_mode == "Markdown渲染" else False),  # current_stage_md
-                              gr.update(value=stage_display, visible=True if format_mode == "原始文本" else False),  # current_stage_text
-                              gr.update(choices=stage_buttons))  # stage_selector - 不重置用户选择
-                else:
-                    # 错误情况，返回8个值
-                    yield (result[0], "", "", 
-                          gr.update(), gr.update(), 
-                          gr.update(), gr.update(), gr.update())
+                    else:
+                        yield (final_result[0], "", "", 
+                              gr.update(), gr.update(), 
+                              gr.update(), gr.update(), gr.update())
         
         def handle_status_check():
             """处理状态查询事件"""
