@@ -488,13 +488,14 @@ class DeepResearchApp:
             code = match.group(2)
             
             if lang.lower() in ['mermaid', 'graph', 'flowchart', 'sequence', 'gantt', 'class', 'state', 'pie', 'journey', 'gitgraph']:
-                # 为Mermaid代码块添加特殊类名
-                return f'\n\n<div class="mermaid">\n{code}\n</div>\n\n'
+                # 为Mermaid代码块添加特殊类名和ID
+                unique_id = f'mermaid-{hash(code) % 1000000}'
+                return f'\n\n<div class="mermaid" id="{unique_id}">\n{code}\n</div>\n\n'
             else:
                 # 普通代码块保持原样
                 return match.group(0)
         
-        # 处理Mermaid代码块
+        # 处理Mermaid代码块 - 使用更精确的正则表达式
         content = re.sub(r'```(\w+)?\n(.*?)\n```', process_mermaid_blocks, content, flags=re.DOTALL)
         
         # 确保其他代码块前后有空行
@@ -617,28 +618,56 @@ def create_gradio_interface(app: DeepResearchApp):
             // 自动渲染Mermaid图表
             function renderMermaidCharts() {
                 const mermaidElements = document.querySelectorAll('.mermaid');
-                mermaidElements.forEach(element => {
+                mermaidElements.forEach((element, index) => {
                     if (!element.hasAttribute('data-processed')) {
                         element.setAttribute('data-processed', 'true');
-                        mermaid.render('mermaid-' + Math.random().toString(36).substr(2, 9), element.textContent).then(({svg}) => {
-                            element.innerHTML = svg;
-                        }).catch(error => {
-                            console.error('Mermaid渲染错误:', error);
-                            element.innerHTML = '<div style="color: red; padding: 10px;">图表渲染失败: ' + error.message + '</div>';
-                        });
+                        const id = 'mermaid-' + Date.now() + '-' + index;
+                        element.id = id;
+                        
+                        try {
+                            mermaid.render(id, element.textContent.trim()).then(({svg}) => {
+                                element.innerHTML = svg;
+                            }).catch(error => {
+                                console.error('Mermaid渲染错误:', error);
+                                element.innerHTML = '<div style="color: red; padding: 10px; border: 1px solid red; background: #ffe6e6;">图表渲染失败: ' + error.message + '</div>';
+                            });
+                        } catch (error) {
+                            console.error('Mermaid初始化错误:', error);
+                            element.innerHTML = '<div style="color: red; padding: 10px; border: 1px solid red; background: #ffe6e6;">图表初始化失败: ' + error.message + '</div>';
+                        }
                     }
                 });
             }
             
             // 监听DOM变化，自动渲染新的Mermaid图表
-            const observer = new MutationObserver(renderMermaidCharts);
+            const observer = new MutationObserver(function(mutations) {
+                let shouldRender = false;
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'childList') {
+                        mutation.addedNodes.forEach(function(node) {
+                            if (node.nodeType === 1 && (node.classList.contains('mermaid') || node.querySelector('.mermaid'))) {
+                                shouldRender = true;
+                            }
+                        });
+                    }
+                });
+                if (shouldRender) {
+                    setTimeout(renderMermaidCharts, 100);
+                }
+            });
+            
             observer.observe(document.body, {
                 childList: true,
                 subtree: true
             });
             
             // 页面加载完成后初始化
-            document.addEventListener('DOMContentLoaded', renderMermaidCharts);
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(renderMermaidCharts, 500);
+            });
+            
+            // 定期检查是否有新的Mermaid图表
+            setInterval(renderMermaidCharts, 2000);
         </script>
         """,
         css="""

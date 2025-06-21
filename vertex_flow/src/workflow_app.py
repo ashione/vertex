@@ -25,7 +25,7 @@ class WorkflowChatApp:
     def __init__(self, config_path: str = None):
         """初始化应用"""
         logger.info(f" workflow chat app {config_path}")          
-        self.service = VertexFlowService(config_path) if config_path else VertexFlowService()
+        self.service = VertexFlowService(config_file=config_path) if config_path else VertexFlowService()
         self.llm_model = None
         self.context = WorkflowContext()
         self.tools_enabled = False
@@ -92,42 +92,59 @@ class WorkflowChatApp:
             tools=tools,  # 传递工具列表
         )
 
-    def chat_with_vertex(self, message: str, history: List[Tuple[str, str]], system_prompt: str):
-        """使用 LLM Vertex 进行聊天（流式输出）"""
-        if not message.strip():
-            yield "", history
-            return
-
+    def chat_with_vertex(self, message, history, system_prompt):
+        """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入"""
+        # 支持多模态输入：message可以是str或dict
+        if isinstance(message, dict):
+            # 多模态输入
+            text = message.get("text", "")
+            image_url = message.get("image_url")
+            if not text and not image_url:
+                yield "", history
+                return
+            inputs = {
+                "conversation_history": history,
+                "current_message": text,
+            }
+            if image_url:
+                inputs["image_url"] = image_url
+        else:
+            # 兼容原有字符串输入
+            if not message.strip():
+                yield "", history
+                return
+            inputs = {
+                "conversation_history": history,
+                "current_message": message,
+            }
         try:
             # 创建新的 LLM Vertex 实例（每次对话使用新实例避免状态污染）
             llm_vertex = self._create_llm_vertex(system_prompt)
-
-            # 直接传递对话历史和当前消息给 LLM Vertex
-            inputs = {
-                "conversation_history": history,  # 传递对话历史列表
-                "current_message": message,  # 传递当前用户消息
-            }
-
             # 先进行消息重定向处理
             llm_vertex.messages_redirect(inputs, self.context)
-
             # 使用流式聊天方法
             for chunk in self._stream_chat_with_gradio_format(llm_vertex, inputs, self.context, message, history):
                 yield chunk
-
         except Exception as e:
             error_msg = f"聊天错误: {str(e)}"
             logger.error(error_msg)
             import traceback
-
             logger.error(f"错误详情: {traceback.format_exc()}")
-            new_history = history + [(message, error_msg)]
+            new_history = history + [(str(message), error_msg)]
             yield "", new_history
 
     def _stream_chat_with_gradio_format(self, llm_vertex, inputs, context, message, history):
         """统一的流式聊天方法，返回Gradio格式的结果"""
         response_parts = []
-        new_history = history + [(message, "")]
+        # 确保传递给Gradio的消息格式正确
+        if isinstance(message, dict):
+            display_message = message.get("text", "")
+            if message.get("image_url"):
+                display_message += " [图片]"
+        else:
+            display_message = str(message)
+        
+        new_history = history + [(display_message, "")]
 
         try:
             # 直接使用流式输出模式
@@ -138,7 +155,7 @@ class WorkflowChatApp:
                     chunk_count += 1
                     response_parts.append(chunk)
                     current_response = "".join(response_parts)
-                    new_history[-1] = (message, current_response)
+                    new_history[-1] = (display_message, current_response)
                     yield "", new_history
             logger.info(f"流式输出完成，共收到 {chunk_count} 个chunk")
 
@@ -148,11 +165,11 @@ class WorkflowChatApp:
 
             logger.error(f"错误详情: {traceback.format_exc()}")
             error_msg = f"聊天处理错误: {str(e)}"
-            new_history[-1] = (message, error_msg)
+            new_history[-1] = (display_message, error_msg)
             yield "", new_history
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
-        logger.info(f"用户: {message[:50]}... | 助手: {final_response[:50]}...")
+        logger.info(f"用户: {display_message[:50]}... | 助手: {final_response[:50]}...")
 
     def get_available_models(self) -> List[str]:
         """获取可用的模型列表"""
@@ -243,7 +260,7 @@ def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="基于 Workflow LLM Vertex 的聊天应用")
     parser.add_argument("--port", type=int, default=7860, help="Gradio Web UI 端口")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Web UI 主机地址")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Web UI 主机地址")
     parser.add_argument("--share", action="store_true", help="启用 Gradio 分享链接")
     parser.add_argument("--config", "-c", help="指定配置文件路径")
     return parser.parse_args()
@@ -683,7 +700,9 @@ def create_gradio_interface(app: WorkflowChatApp):
                 )
 
                 with gr.Row():
-                    msg = gr.Textbox(placeholder="输入您的问题...", lines=2, scale=4, container=False)
+                    msg = gr.Textbox(placeholder="输入您的问题...", lines=1, scale=2, container=False)
+                    image_input = gr.Image(type="filepath", label="上传图片（可选）", scale=1)
+                    image_url_input = gr.Textbox(placeholder="粘贴图片URL（可选）", label="图片URL", lines=1, scale=1)
                     send_btn = gr.Button("发送", variant="primary", scale=1)
 
                 with gr.Row():
@@ -766,10 +785,40 @@ def create_gradio_interface(app: WorkflowChatApp):
                     cmd_result = gr.JSON(label="执行结果", visible=True)
 
         # 事件绑定
-        def respond(message, history, sys_prompt):
-            # For streaming chat, we need to iterate through the generator
-            for result in app.chat_with_vertex(message, history, sys_prompt):
-                yield result
+        def respond(message, history, sys_prompt, image, image_url):
+            multimodal_inputs = {}
+            # 文本
+            if message:
+                multimodal_inputs["text"] = message
+            # 图片优先本地上传
+            if image:
+                import base64
+                with open(image, "rb") as f:
+                    img_b64 = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+                multimodal_inputs["image_url"] = img_b64
+            elif image_url and image_url.strip():
+                # 验证图片URL
+                url = image_url.strip()
+                if "discordapp.com" in url or "discord.com" in url:
+                    # Discord图片可能不被支持，给出提示
+                    yield "⚠️ 检测到Discord图片链接，可能不被支持。建议：\n1. 下载图片后重新上传\n2. 使用其他图片托管服务\n3. 直接粘贴图片URL", history + [(message or "", "⚠️ Discord图片链接可能不被支持，请尝试其他方式。")]
+                    return
+                elif "cdn.discordapp.com" in url:
+                    # Discord CDN图片
+                    yield "⚠️ Discord CDN图片链接可能不被支持。建议下载图片后重新上传。", history + [(message or "", "⚠️ Discord CDN图片链接可能不被支持，请尝试其他方式。")]
+                    return
+                else:
+                    multimodal_inputs["image_url"] = url
+            
+            # 传递给chat_with_vertex
+            try:
+                for result in app.chat_with_vertex(multimodal_inputs, history, sys_prompt):
+                    yield result
+            except Exception as e:
+                error_msg = f"处理失败: {str(e)}"
+                if "500" in str(e) and multimodal_inputs.get("image_url"):
+                    error_msg = "图片处理失败，可能是图片格式不支持或链接无效。请尝试：\n1. 使用其他图片\n2. 检查图片链接是否有效\n3. 确保图片格式为常见格式（JPG、PNG等）"
+                yield error_msg, history + [(message or "", error_msg)]
 
         def clear_conversation():
             return []
@@ -821,9 +870,8 @@ def create_gradio_interface(app: WorkflowChatApp):
                 return {"error": f"执行失败: {str(e)}"}
 
         # 绑定发送消息事件（支持流式输出）
-        msg.submit(respond, inputs=[msg, chatbot, system_prompt], outputs=[msg, chatbot], show_progress="minimal")
-
-        send_btn.click(respond, inputs=[msg, chatbot, system_prompt], outputs=[msg, chatbot], show_progress="minimal")
+        msg.submit(respond, inputs=[msg, chatbot, system_prompt, image_input, image_url_input], outputs=[msg, chatbot], show_progress="minimal")
+        send_btn.click(respond, inputs=[msg, chatbot, system_prompt, image_input, image_url_input], outputs=[msg, chatbot], show_progress="minimal")
 
         # 绑定清除对话事件
         clear_btn.click(clear_conversation, outputs=[chatbot])

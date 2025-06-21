@@ -142,37 +142,111 @@ class LLMVertex(Vertex[T]):
                 self.messages.append({"role": "user", "content": user_message})
 
         # Handle current user message if provided separately
-        if inputs and "current_message" in inputs:
-            current_message = inputs["current_message"]
-            if current_message:
-                self.messages.append({"role": "user", "content": str(current_message)})
+        current_message = inputs.get("current_message") if inputs else None
+        image_url = inputs.get("image_url") if inputs else None
+        
+        if current_message or image_url:
+            if image_url:
+                # 有图片，创建多模态消息
+                multimodal_content = []
+                
+                # 添加文本内容（如果有的话）
+                if current_message:
+                    multimodal_content.append({
+                        "type": "text",
+                        "text": str(current_message)
+                    })
+                elif inputs.get("text"):
+                    multimodal_content.append({
+                        "type": "text", 
+                        "text": str(inputs["text"])
+                    })
+                
+                # 添加图片内容
+                multimodal_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_url
+                    }
+                })
+                
+                # 替换或添加多模态消息
+                if self.messages and self.messages[-1]["role"] == "user":
+                    # 替换最后一个用户消息
+                    self.messages[-1]["content"] = multimodal_content
+                else:
+                    # 添加新的多模态消息
+                    self.messages.append({
+                        "role": "user",
+                        "content": multimodal_content
+                    })
+            else:
+                # 只有文本消息
+                if isinstance(current_message, dict) and "content" in current_message:
+                    # 多模态消息格式
+                    self.messages.append(current_message)
+                else:
+                    # 纯文本消息
+                    self.messages.append({"role": "user", "content": str(current_message)})
 
         # replace by env parameters, user parameters and inputs.
         for message in self.messages:
             if "content" not in message or message["content"] is None:
                 continue
 
-            for key, value in context.get_env_parameters().items():
-                value = value if isinstance(value, str) else str(value)
-                message["content"] = message["content"].replace(env_str(key), value)
-                # For dify workflow compatiable env.
-                message["content"] = message["content"].replace(compatiable_env_str(key), value)
-
-            for key, value in context.get_user_parameters().items():
-                value = value if isinstance(value, str) else str(value)
-                message["content"] = message["content"].replace(var_str(key), value)
-
-            # replace by inputs parameters
-            if inputs:
-                for key, value in inputs.items():
-                    if key in ["conversation_history", "current_message"]:
-                        continue  # Skip special keys that we've already handled
+            # 处理多模态消息
+            if isinstance(message["content"], list):
+                # 多模态消息，只处理文本部分
+                for content_item in message["content"]:
+                    if content_item.get("type") == "text":
+                        text_content = content_item["text"]
+                        # 替换环境变量
+                        for key, value in context.get_env_parameters().items():
+                            value = value if isinstance(value, str) else str(value)
+                            text_content = text_content.replace(env_str(key), value)
+                            text_content = text_content.replace(compatiable_env_str(key), value)
+                        
+                        # 替换用户参数
+                        for key, value in context.get_user_parameters().items():
+                            value = value if isinstance(value, str) else str(value)
+                            text_content = text_content.replace(var_str(key), value)
+                        
+                        # 替换输入参数
+                        if inputs:
+                            for key, value in inputs.items():
+                                if key in ["conversation_history", "current_message", "image_url", "text"]:
+                                    continue  # Skip special keys
+                                value = value if isinstance(value, str) else str(value)
+                                input_placeholder = "{{" + key + "}}"
+                                text_content = text_content.replace(input_placeholder, value)
+                        
+                        text_content = self._replace_placeholders(text_content)
+                        content_item["text"] = text_content
+            else:
+                # 纯文本消息
+                text_content = message["content"]
+                for key, value in context.get_env_parameters().items():
                     value = value if isinstance(value, str) else str(value)
-                    # Support {{inputs.key}} format
-                    input_placeholder = "{{" + key + "}}"
-                    message["content"] = message["content"].replace(input_placeholder, value)
+                    text_content = text_content.replace(env_str(key), value)
+                    # For dify workflow compatiable env.
+                    text_content = text_content.replace(compatiable_env_str(key), value)
 
-            message["content"] = self._replace_placeholders(message["content"])
+                for key, value in context.get_user_parameters().items():
+                    value = value if isinstance(value, str) else str(value)
+                    text_content = text_content.replace(var_str(key), value)
+
+                # replace by inputs parameters
+                if inputs:
+                    for key, value in inputs.items():
+                        if key in ["conversation_history", "current_message", "image_url", "text"]:
+                            continue  # Skip special keys that we've already handled
+                        value = value if isinstance(value, str) else str(value)
+                        # Support {{inputs.key}} format
+                        input_placeholder = "{{" + key + "}}"
+                        text_content = text_content.replace(input_placeholder, value)
+
+                text_content = self._replace_placeholders(text_content)
+                message["content"] = text_content
 
         logging.info(f"{self}, {self.id} chat context messages {self.messages}")
 
