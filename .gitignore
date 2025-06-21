@@ -67,3 +67,6 @@ Thumbs.db
 test-docs/
 .cursor/
 vector_db
+
+# config bakcup
+config/llm.yml.backup*
