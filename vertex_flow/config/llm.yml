@@ -19,6 +19,11 @@ llm:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
     enabled: false
     model-name: deepseek/deepseek-chat-v3-0324:free
+  ollama:
+    sk: ${llm.ollama.sk:-ollama-local}          # 本地模型不需要真实API key，使用占位符
+    enabled: false                               # 默认不启用，需要手动切换
+    model-name: ${llm.ollama.model:-qwen:7b}    # Ollama模型名称，例如: qwen:7b, llama3:8b
+    base-url: ${llm.ollama.base_url:-http://localhost:11434}  # Ollama服务地址
 
 web-search:
   bocha:

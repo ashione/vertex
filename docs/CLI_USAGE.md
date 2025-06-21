@@ -29,6 +29,7 @@ Vertex CLI提供以下主要命令：
 | `vertex workflow` | 工作流模式 | 启动VertexFlow可视化编辑器 |
 | `vertex config` | 配置管理 | 管理系统配置文件 |
 | `vertex rag` | RAG问答 | 基于文档的智能问答系统 |
+| `vertex --desktop` | 桌面端模式 | 使用PyWebView启动桌面应用 |
 
 ## 🎯 详细使用说明
 
@@ -185,6 +186,82 @@ vertex rag -d ./documents --reindex --query "文档摘要"
 | 仅索引 | `-d path --reindex` | 按文档量 | 仅构建索引 |
 | 统计信息 | `--show-stats` | <1秒 | 显示数据库状态 |
 
+### 5. 桌面端模式 (Desktop Mode)
+
+使用PyWebView封装Gradio应用，提供原生桌面应用体验。
+
+#### 5.1 基础用法
+
+```bash
+# 启动桌面端应用（标准模式）
+vertex --desktop
+
+# 启动桌面端工作流编辑器
+vertex workflow --desktop
+
+# 启动桌面端RAG系统
+vertex rag --desktop
+```
+
+#### 5.2 桌面端特性
+
+**优势**：
+- ✅ 原生桌面窗口体验
+- ✅ 无需浏览器访问
+- ✅ 更好的系统集成
+- ✅ 独立进程运行
+- ✅ 支持窗口管理
+
+**系统要求**：
+- macOS: 10.14+ (Mojave及以上)
+- Windows: Windows 7+
+- Linux: 需要安装WebKit2GTK
+
+#### 5.3 安装桌面端依赖
+
+```bash
+# 安装项目依赖（包含桌面端支持）
+pip install -e .
+
+# 或使用uv安装
+uv pip install -e .
+
+# 手动安装PyWebView（如果需要）
+pip install pywebview
+```
+
+#### 5.4 桌面端配置
+
+```bash
+# 指定窗口标题
+vertex --desktop --title "Vertex AI助手"
+
+# 指定窗口大小
+vertex --desktop --width 1200 --height 800
+
+# 组合使用
+vertex workflow --desktop --title "工作流编辑器" --width 1400 --height 900
+```
+
+#### 5.5 桌面端故障排除
+
+```bash
+# 检查PyWebView安装
+python -c "import webview; print('PyWebView已安装')"
+
+# 重新安装依赖
+pip uninstall pywebview
+pip install pywebview
+
+# 查看详细错误信息
+vertex --desktop --debug
+```
+
+**常见问题**：
+1. **窗口无法启动**：确保PyWebView正确安装
+2. **界面显示异常**：检查系统WebKit支持
+3. **性能问题**：桌面端相比浏览器模式可能有轻微性能差异
+
 ## 🛠️ 高级用法
 
 ### 环境变量配置
@@ -287,6 +364,24 @@ docker run -p 8999:8999 vertex-ai vertex workflow --port 8999
    # 错误：ImportError: No module named 'sentence_transformers'
    # 解决：安装RAG依赖
    pip install sentence-transformers faiss-cpu
+   ```
+
+5. **桌面端依赖缺失**
+   ```bash
+   # 错误：ImportError: No module named 'webview'
+   # 解决：安装项目依赖
+   pip install -e .
+   # 或
+   uv pip install -e .
+   ```
+
+6. **桌面端窗口启动失败**
+   ```bash
+   # 错误：webview.WebViewException
+   # 解决：检查系统WebKit支持
+   # macOS: 确保系统版本 >= 10.14
+   # Linux: 安装WebKit2GTK
+   # Windows: 确保系统版本 >= Windows 7
    ```
 
 ### 调试模式
@@ -406,12 +501,58 @@ jobs:
         vertex rag --query "使用方法" --fast
 ```
 
+### 场景5：桌面端应用部署
+
+```bash
+# 1. 安装项目依赖（包含桌面端支持）
+pip install -e .
+
+# 2. 启动桌面端应用
+vertex --desktop
+
+# 3. 自定义桌面端配置
+vertex workflow --desktop --title "Vertex工作流" --width 1400 --height 900
+
+# 4. 创建桌面端快捷方式（macOS）
+cat > ~/Desktop/Vertex.desktop << EOF
+[Desktop Entry]
+Name=Vertex AI
+Exec=vertex --desktop
+Icon=terminal
+Type=Application
+Categories=Development;
+EOF
+chmod +x ~/Desktop/Vertex.desktop
+```
+
+### 场景6：多模式对比测试
+
+```bash
+# 1. 浏览器模式测试
+vertex run --port 8080 &
+sleep 5
+curl http://localhost:8080
+
+# 2. 桌面端模式测试
+vertex --desktop &
+sleep 3
+
+# 3. 工作流模式对比
+vertex workflow --port 8999 &
+vertex workflow --desktop &
+
+# 4. 性能对比
+time vertex rag --query "测试查询" --fast
+time vertex rag --desktop --query "测试查询" --fast
+```
+
 ## 🔗 相关文档
 
 - [RAG CLI详细说明](./RAG_CLI_USAGE.md)
 - [RAG性能优化](./RAG_PERFORMANCE_OPTIMIZATION.md)
 - [配置文件说明](./CONFIG_REFERENCE.md)
 - [工作流设计指南](./WORKFLOW_GUIDE.md)
+- [桌面端应用指南](./DESKTOP_APP.md)
 
 ## 🆘 获取帮助
 
@@ -430,4 +571,4 @@ vertex --version
 
 ---
 
-通过这个完整的CLI指南，你可以充分利用Vertex的所有功能，从基础聊天到高级工作流设计，再到智能文档问答系统。选择适合你需求的模式，享受AI驱动的工作流体验！ 
+通过这个完整的CLI指南，你可以充分利用Vertex的所有功能，从基础聊天到高级工作流设计，再到智能文档问答系统和桌面端应用。选择适合你需求的模式，享受AI驱动的工作流体验！

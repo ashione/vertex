@@ -5,6 +5,7 @@ Vertex 统一命令行入口
 """
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -21,6 +22,9 @@ def create_parser():
   vertex                    # 启动标准模式（默认）
   vertex run                # 启动标准模式
   vertex workflow           # 启动工作流模式
+  vertex deepresearch       # 启动深度研究分析工具
+  vertex dr --topic "AI发展趋势"  # 命令行模式深度研究
+  vertex research --dev     # 开发模式启动深度研究
   vertex config             # 交互式配置向导
   vertex config init        # 快速初始化配置
   vertex config check       # 检查配置状态
@@ -32,6 +36,12 @@ def create_parser():
     # 添加版本信息
     parser.add_argument("--version", "-v", action="version", version="vertex 0.1.0")
 
+    # 添加桌面端参数（全局）
+    parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
+    parser.add_argument("--title", help="桌面端窗口标题")
+    parser.add_argument("--width", type=int, help="桌面端窗口宽度")
+    parser.add_argument("--height", type=int, help="桌面端窗口高度")
+
     # 添加子命令
     subparsers = parser.add_subparsers(dest="command", help="可用命令", metavar="COMMAND")
 
@@ -39,12 +49,22 @@ def create_parser():
     run_parser = subparsers.add_parser("run", help="启动标准模式（默认）", description="启动Vertex标准聊天界面")
     run_parser.add_argument("--port", "-p", type=int, default=None, help="指定Web服务端口")
     run_parser.add_argument("--host", default=None, help="指定Web服务主机地址")
+    run_parser.add_argument("--config", "-c", help="指定配置文件路径")
+    run_parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
+    run_parser.add_argument("--title", help="桌面端窗口标题")
+    run_parser.add_argument("--width", type=int, help="桌面端窗口宽度")
+    run_parser.add_argument("--height", type=int, help="桌面端窗口高度")
 
     # workflow 子命令
     workflow_parser = subparsers.add_parser(
         "workflow", help="启动工作流模式", description="启动VertexFlow可视化工作流编辑器"
     )
     workflow_parser.add_argument("--port", "-p", type=int, default=None, help="指定Web服务端口")
+    workflow_parser.add_argument("--config", "-c", help="指定配置文件路径")
+    workflow_parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
+    workflow_parser.add_argument("--title", help="桌面端窗口标题")
+    workflow_parser.add_argument("--width", type=int, help="桌面端窗口宽度")
+    workflow_parser.add_argument("--height", type=int, help="桌面端窗口高度")
 
     # config 子命令
     config_parser = subparsers.add_parser("config", help="配置管理", description="管理Vertex配置文件")
@@ -70,88 +90,159 @@ def create_parser():
     rag_parser.add_argument("--reindex", action="store_true", help="强制重新索引所有文档")
     rag_parser.add_argument("--show-stats", action="store_true", help="显示向量数据库统计信息")
     rag_parser.add_argument("--fast", action="store_true", help="使用快速模式（跳过LLM生成，仅显示检索结果）")
+    rag_parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
+    rag_parser.add_argument("--title", help="桌面端窗口标题")
+    rag_parser.add_argument("--width", type=int, help="桌面端窗口宽度")
+    rag_parser.add_argument("--height", type=int, help="桌面端窗口高度")
+
+    # deepresearch 子命令
+    research_parser = subparsers.add_parser(
+        "deepresearch", help="深度研究分析", description="启动深度研究工作流分析工具", aliases=["dr", "research"]
+    )
+    research_parser.add_argument("--port", "-p", type=int, default=7860, help="指定Web服务端口 (默认: 7860)")
+    research_parser.add_argument("--host", default="127.0.0.1", help="指定Web服务主机地址 (默认: 127.0.0.1)")
+    research_parser.add_argument("--share", action="store_true", help="启用公共访问链接")
+    research_parser.add_argument("--config", "-c", help="指定配置文件路径")
+    research_parser.add_argument("--dev", action="store_true", help="开发模式（启用更详细的日志）")
+    research_parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
+    research_parser.add_argument("--title", help="桌面端窗口标题")
+    research_parser.add_argument("--width", type=int, help="桌面端窗口宽度")
+    research_parser.add_argument("--height", type=int, help="桌面端窗口高度")
+    research_parser.add_argument("--topic", "-t", help="直接指定研究主题（命令行模式）")
+    research_parser.add_argument("--batch", "-b", action="store_true", help="批量模式（非流式输出）")
+    research_parser.add_argument("--save-intermediate", action="store_true", default=True, help="保存中间文档")
+    research_parser.add_argument("--save-final", action="store_true", default=True, help="保存最终报告")
+    research_parser.add_argument("--output-dir", "-o", help="指定输出目录 (默认: reports/)")
 
     return parser
+
+
+def _launch_app_with_args(main_func, args_dict=None, fallback_func=None, fallback_message=""):
+    """通用应用启动器，避免sys.argv处理冗余"""
+    original_argv = sys.argv.copy()
+
+    try:
+        # 重建sys.argv
+        sys.argv = [sys.argv[0]]
+
+        # 添加参数
+        if args_dict:
+            for key, value in args_dict.items():
+                if value is not None:
+                    if isinstance(value, bool) and value:
+                        sys.argv.append(f"--{key}")
+                    elif not isinstance(value, bool):
+                        sys.argv.extend([f"--{key}", str(value)])
+
+        # 尝试启动主应用
+        try:
+            main_func()
+        except Exception as e:
+            if fallback_func:
+                print(fallback_message)
+                fallback_func()
+            else:
+                raise e
+
+    finally:
+        # 恢复原始的sys.argv
+        sys.argv = original_argv
 
 
 def run_standard_mode(args=None):
     """运行标准模式"""
     try:
-        import os
-        import sys
+        from vertex_flow.src.workflow_app import main as workflow_app_main
 
-        # 保存原始的sys.argv
-        original_argv = sys.argv.copy()
+        # 检查是否为桌面端模式
+        if args and args.desktop:
+            print("启动Vertex标准模式桌面端...")
+            from vertex_flow.src.desktop_app import create_desktop_app
 
-        try:
-            # 重建sys.argv来匹配app的期望格式
-            sys.argv = [sys.argv[0]]  # 只保留程序名
+            window_title = args.title if args.title else "Vertex - AI工作流系统"
+            window_width = args.width if args.width else 1200
+            window_height = args.height if args.height else 800
 
-            # 如果有端口或主机参数，添加到app的参数中
-            if args and args.port:
-                sys.argv.extend(["--port", str(args.port)])
-            if args and args.host:
-                sys.argv.extend(["--host", args.host])
+            desktop_app = create_desktop_app(
+                config_path=args.config,
+                host=args.host or "127.0.0.1",
+                port=args.port or 7860,
+                window_title=window_title,
+                window_width=window_width,
+                window_height=window_height,
+                app_type="workflow_app",
+            )
+            return
 
-            # 优先尝试使用基于workflow的新应用
-            try:
-                from vertex_flow.src.workflow_app import main as workflow_app_main
+        print("启动Vertex标准模式 (基于 Workflow LLM)...")
+        args_dict = {}
+        if args and args.port:
+            args_dict["port"] = args.port
+        if args and args.host:
+            args_dict["host"] = args.host
+        if args and args.config:
+            args_dict["config"] = args.config
 
-                print("启动Vertex标准模式 (基于 Workflow LLM)...")
-                workflow_app_main()
-            except Exception as workflow_error:
-                print(f"Workflow应用启动失败，回退到传统模式: {workflow_error}")
-                # 回退到原始应用
-                from vertex_flow.src.app import main as app_main
-
-                print("启动Vertex标准模式 (传统模式)...")
-                app_main()
-
-        finally:
-            # 恢复原始的sys.argv
-            sys.argv = original_argv
+        # 直接启动workflow_app_main
+        _launch_app_with_args(
+            main_func=workflow_app_main,
+            args_dict=args_dict,
+        )
 
     except ImportError as e:
         print(f"启动失败: {e}")
         print("请确保正确安装了vertex包")
+        if args and args.desktop:
+            print("桌面端模式需要安装: pip install pywebview")
         sys.exit(1)
 
 
 def run_workflow_mode(args=None):
     """运行工作流模式"""
     try:
-        import os
-        import sys
+        from vertex_flow.workflow.app.app import main as workflow_main
 
-        # 保存原始的sys.argv
-        original_argv = sys.argv.copy()
+        # 检查是否为桌面端模式
+        if args and args.desktop:
+            print("启动Vertex工作流模式桌面端...")
+            from vertex_flow.src.desktop_app import create_desktop_app
 
-        try:
-            # 修改sys.argv来匹配workflow app的期望
-            sys.argv = [sys.argv[0]]  # 只保留程序名
+            # 获取桌面端参数
+            window_title = args.title if args.title else "Vertex - 工作流编辑器"
+            window_width = args.width if args.width else 1400
+            window_height = args.height if args.height else 900
 
-            # 如果有配置文件参数，添加到workflow app的参数中
-            config_file = os.environ.get("CONFIG_FILE")
-            if config_file:
-                sys.argv.extend(["--config", config_file])
+            desktop_app = create_desktop_app(
+                config_path=args.config,
+                host=args.host or "127.0.0.1",
+                port=args.port or 8999,
+                window_title=window_title,
+                window_width=window_width,
+                window_height=window_height,
+                app_type="workflow_app",
+            )
+            return
 
-            from vertex_flow.workflow.app.app import main as workflow_main
+        print("启动Vertex工作流模式...")
 
-            print("启动Vertex工作流模式...")
+        # 构建参数字典
+        args_dict = {}
+        config_file = os.environ.get("CONFIG_FILE")
+        if config_file:
+            args_dict["config"] = config_file
 
-            # 设置端口环境变量（如果指定了的话）
-            if args and args.port:
-                os.environ["VERTEX_WORKFLOW_PORT"] = str(args.port)
+        # 设置端口环境变量（如果指定了的话）
+        if args and args.port:
+            os.environ["VERTEX_WORKFLOW_PORT"] = str(args.port)
 
-            workflow_main()
-
-        finally:
-            # 恢复原始的sys.argv
-            sys.argv = original_argv
+        # 使用通用启动器
+        _launch_app_with_args(main_func=workflow_main, args_dict=args_dict)
 
     except ImportError as e:
         print(f"启动失败: {e}")
         print("请确保正确安装了vertex包")
+        if args and args.desktop:
+            print("桌面端模式需要安装: pip install pywebview")
         sys.exit(1)
 
 
@@ -232,9 +323,161 @@ def run_config_reset():
         sys.exit(1)
 
 
+def run_deepresearch_mode(args):
+    """运行深度研究模式"""
+    print("=== Deep Research - 深度研究工作流 ===")
+
+    try:
+        # 设置配置文件环境变量
+        if args.config:
+            os.environ["CONFIG_FILE"] = args.config
+
+        # 如果指定了研究主题，运行命令行模式
+        if args.topic:
+            print(f"开始深度研究: {args.topic}")
+            return run_deepresearch_cli(args)
+
+        # 检查是否为桌面端模式
+        if args.desktop:
+            print("启动桌面端模式...")
+            from vertex_flow.src.desktop_app import create_desktop_app
+
+            # 获取桌面端参数
+            window_title = args.title if args.title else "Deep Research - 深度研究工作流"
+            window_width = args.width if args.width else 1200
+            window_height = args.height if args.height else 800
+
+            desktop_app = create_desktop_app(
+                config_path=args.config,
+                host=args.host,
+                port=args.port,
+                window_title=window_title,
+                window_width=window_width,
+                window_height=window_height,
+                app_type="deep_research",
+            )
+            return
+
+        # 否则启动Web界面，直接创建应用实例并运行
+        from vertex_flow.src.deep_research_app import DeepResearchApp, create_gradio_interface
+
+        print(f"启动深度研究Web界面...")
+        print(f"访问地址: http://{args.host}:{args.port}")
+
+        # 创建应用实例
+        app = DeepResearchApp(args.config)
+
+        # 创建并启动Gradio界面
+        demo = create_gradio_interface(app)
+        demo.launch(server_name=args.host, server_port=args.port, share=args.share, debug=args.dev, show_error=args.dev)
+
+    except ImportError as e:
+        print(f"启动失败: {e}")
+        print("请确保正确安装了vertex包和相关依赖")
+        if args.desktop:
+            print("桌面端模式需要安装: uv add pywebview")
+        else:
+            print("Web模式需要安装: uv add gradio")
+        sys.exit(1)
+    except Exception as e:
+        print(f"深度研究系统运行失败: {e}")
+        if args.dev:
+            import traceback
+
+            traceback.print_exc()
+        sys.exit(1)
+
+
+def run_deepresearch_cli(args):
+    """运行深度研究命令行模式"""
+    try:
+        import os
+
+        from vertex_flow.src.deep_research_app import DeepResearchApp
+
+        # 创建应用实例
+        config_path = args.config if args.config else None
+        app = DeepResearchApp(config_path)
+
+        # 准备输出目录
+        output_dir = args.output_dir if args.output_dir else "reports"
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(f"研究主题: {args.topic}")
+        print(f"输出目录: {output_dir}")
+        print(f"流式模式: {'否' if args.batch else '是'}")
+        print(f"保存中间文档: {'是' if args.save_intermediate else '否'}")
+        print(f"保存最终报告: {'是' if args.save_final else '否'}")
+        print("-" * 50)
+
+        # 执行研究
+        enable_stream = not args.batch
+
+        # 使用生成器获取结果
+        for result in app.start_research(args.topic, args.save_intermediate, args.save_final, enable_stream):
+            if len(result) >= 2:
+                status, content = result[0], result[1]
+
+                # 显示状态
+                print(f"\r状态: {status}", end="", flush=True)
+
+                # 如果是最终报告，显示完整内容
+                if "完成!" in status and len(content) > 100:
+                    print(f"\n\n=== 研究报告 ===")
+                    print(content)
+
+                    # 保存到文件
+                    if args.save_final:
+                        from datetime import datetime
+
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"{output_dir}/深度研究报告_{args.topic.replace(' ', '_')}_{timestamp}.md"
+
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(content)
+
+                        print(f"\n报告已保存到: {filename}")
+                    break
+
+        print(f"\n研究完成!")
+
+    except Exception as e:
+        print(f"命令行研究执行失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def run_rag_mode(args):
     """运行RAG模式"""
     print("=== RAG检索增强生成系统 ===")
+
+    # 检查是否为桌面端模式
+    if args.desktop:
+        print("启动RAG系统桌面端...")
+        try:
+            from vertex_flow.src.desktop_app import create_desktop_app
+
+            # 获取桌面端参数
+            window_title = args.title if args.title else "Vertex - RAG问答系统"
+            window_width = args.width if args.width else 1200
+            window_height = args.height if args.height else 800
+
+            desktop_app = create_desktop_app(
+                config_path=None,
+                host="127.0.0.1",
+                port=7860,
+                window_title=window_title,
+                window_width=window_width,
+                window_height=window_height,
+                app_type="workflow_app",  # RAG使用workflow_app类型
+            )
+            return
+        except ImportError as e:
+            print(f"桌面端启动失败: {e}")
+            print("请安装桌面端依赖: pip install pywebview")
+            sys.exit(1)
 
     try:
         import tempfile
@@ -395,15 +638,48 @@ def main():
 
     args = parser.parse_args()
 
-    # 根据命令执行相应操作
-    if args.command is None or args.command == "run":
-        run_standard_mode(args)
-    elif args.command == "workflow":
-        run_workflow_mode(args)
-    elif args.command == "config":
-        run_config_command(args)
-    elif args.command == "rag":
-        run_rag_mode(args)
+    # 处理桌面端模式（全局参数）
+    if args.desktop and not args.command:
+        # 如果没有指定命令但有桌面端参数，启动标准模式的桌面端
+        print("启动桌面端模式...")
+        try:
+            from vertex_flow.src.desktop_app import create_desktop_app
+
+            # 获取桌面端参数
+            window_title = args.title if args.title else "Vertex - AI工作流系统"
+            window_width = args.width if args.width else 1200
+            window_height = args.height if args.height else 800
+
+            desktop_app = create_desktop_app(
+                config_path=None,
+                host="127.0.0.1",
+                port=7860,
+                window_title=window_title,
+                window_width=window_width,
+                window_height=window_height,
+                app_type="workflow_app",
+            )
+            return
+        except ImportError as e:
+            print(f"桌面端启动失败: {e}")
+            print("请安装桌面端依赖: pip install pywebview")
+            sys.exit(1)
+
+    # 命令映射字典
+    command_map = {
+        None: run_standard_mode,
+        "run": run_standard_mode,
+        "workflow": run_workflow_mode,
+        "config": run_config_command,
+        "rag": run_rag_mode,
+        "deepresearch": run_deepresearch_mode,
+        "dr": run_deepresearch_mode,
+        "research": run_deepresearch_mode,
+    }
+
+    # 执行对应命令
+    if args.command in command_map:
+        command_map[args.command](args)
     else:
         parser.print_help()
         sys.exit(1)

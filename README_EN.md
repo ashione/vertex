@@ -5,11 +5,13 @@ A powerful local AI workflow system with multi-model support and visual workflow
 ## Features
 
 - **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter, Tongyi)
+- **Function Tools**: Built-in command line execution and system integration tools
 - **Unified CLI**: Simple command interface with multiple operation modes
 - **VertexFlow Engine**: Visual workflow orchestration with drag-and-drop nodes
 - **RAG System**: Local Retrieval-Augmented Generation with document processing
 - **Smart Configuration**: Template-based config with automatic setup
 - **Document Processing**: Support for TXT, MD, PDF, DOCX formats
+- **Desktop Application**: Native desktop app with PyWebView integration
 
 ## Quick Start
 
@@ -53,6 +55,9 @@ vertex workflow
 
 # RAG document Q&A mode
 vertex rag --interactive
+
+# Desktop mode
+vertex --desktop
 ```
 
 Access the Web interface at [http://localhost:7860](http://localhost:7860)
@@ -79,6 +84,10 @@ vertex config reset       # Reset to template
 vertex rag --interactive  # Interactive Q&A
 vertex rag --query "question"  # Direct query
 vertex rag --directory /path/to/docs  # Index documents
+
+# Desktop mode
+vertex --desktop          # Desktop application
+vertex workflow --desktop # Desktop workflow editor
 ```
 
 ### RAG System
@@ -95,6 +104,19 @@ rag_system.index_documents(documents)
 # Query the knowledge base
 answer = rag_system.query("What is the main topic?")
 print(answer)
+```
+
+### Function Tools
+```python
+# Access various function tools through service
+from vertex_flow.workflow.service import VertexFlowService
+
+service = VertexFlowService()
+cmd_tool = service.get_command_line_tool()      # Command execution
+web_tool = service.get_web_search_tool()        # Web search
+finance_tool = service.get_finance_tool()       # Financial data
+
+# Tools integrate seamlessly with AI workflows
 ```
 
 ### Basic Workflow
@@ -152,11 +174,13 @@ export web_search_bocha_sk="your-bocha-key"
 
 ### 📖 User Guides
 - [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
+- [Desktop Application Guide](docs/DESKTOP_APP.md) - Desktop app usage
 - [RAG CLI Detailed Guide](docs/RAG_CLI_USAGE.md) - RAG Q&A system guide
 - [RAG Performance Optimization](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - Performance analysis and tips
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ### 🔧 Technical Documentation
+- [Function Tools Guide](docs/FUNCTION_TOOLS.md) - Complete function tools reference
 - [RAG System Overview](vertex_flow/docs/RAG_README.md) - Retrieval-Augmented Generation
 - [Document Update Mechanism](vertex_flow/docs/DOCUMENT_UPDATE.md) - Incremental updates and deduplication
 - [Deduplication Features](vertex_flow/docs/DEDUPLICATION.md) - Smart document deduplication
@@ -165,12 +189,15 @@ export web_search_bocha_sk="your-bocha-key"
 ## Examples
 
 ```bash
-# Run RAG example
+# Function tools examples
 cd vertex_flow/examples
-python rag_example.py
+python command_line_example.py   # Command line tool
+python web_search_example.py     # Web search tool  
+python finance_example.py        # Finance tool
 
-# Run deduplication demo
-python deduplication_demo.py
+# Other examples
+python rag_example.py            # RAG system
+python deduplication_demo.py     # Deduplication
 ```
 
 ## Development

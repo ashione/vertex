@@ -49,7 +49,6 @@ dependencies = [
     "openai>=1.0.0",
     "tqdm>=4.65.0",
     "websockets>=10.0,<13.0",
-    "dashvector>=1.0.19",
     "dashscope>=1.23.4",
     "ruamel-yaml>=0.18.14",
     # RAG系统依赖（使用预编译包，排除grpcio相关）
@@ -65,6 +64,7 @@ dependencies = [
     "aiohttp>=3.8.0",
     "httpx>=0.24.0",
     "socksio>=1.0.0",
+    "pywebview>=5.4",
 ]
 
 [project.urls]
@@ -94,6 +94,11 @@ rag = [
 # 云端向量存储（可选，需要编译grpcio）
 cloud-vector = [
     "dashvector>=1.0.19",
+]
+
+# 桌面端应用（可选）
+desktop = [
+    "pywebview>=5.4",
 ]
 
 [project.scripts]

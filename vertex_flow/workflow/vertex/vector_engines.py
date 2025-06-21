@@ -3,7 +3,13 @@ import hashlib
 import os
 from typing import Any, Dict, List, Optional
 
-import dashvector
+# 将dashvector设为可选依赖，避免grpcio编译问题
+try:
+    import dashvector
+    HAS_DASHVECTOR = True
+except ImportError:
+    HAS_DASHVECTOR = False
+    dashvector = None
 
 from vertex_flow.utils.logger import LoggerUtil
 
@@ -123,6 +129,14 @@ class VectorEngine(metaclass=abc.ABCMeta):
 class DashVector(VectorEngine):
     def __init__(self, api_key, endpoint, index_name=None):
         super().__init__(api_key, endpoint, index_name)
+
+        if not HAS_DASHVECTOR:
+            raise ImportError(
+                "DashVector requires dashvector package. "
+                "Install it with: pip install dashvector\n"
+                "Note: This will require compilation of grpcio. "
+                "Use LocalVectorEngine for a no-compilation alternative."
+            )
 
         self._client = dashvector.Client(api_key=api_key, endpoint=endpoint)
         # 判断client是否创建成功

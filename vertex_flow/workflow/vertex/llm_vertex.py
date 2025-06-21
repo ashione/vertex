@@ -126,9 +126,10 @@ class LLMVertex(Vertex[T]):
                 # Add each message in the conversation history
                 for msg in conversation_history:
                     if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                        # 标准消息格式
                         self.messages.append(msg)
-                    elif isinstance(msg, tuple) and len(msg) == 2:
-                        # Handle (user_msg, assistant_msg) tuple format
+                    elif isinstance(msg, (tuple, list)) and len(msg) == 2:
+                        # Handle (user_msg, assistant_msg) tuple/list format
                         user_msg, assistant_msg = msg
                         self.messages.append({"role": "user", "content": str(user_msg)})
                         self.messages.append({"role": "assistant", "content": str(assistant_msg)})

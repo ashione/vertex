@@ -11,6 +11,7 @@ A powerful local AI workflow system with multi-model support and visual workflow
 - **RAG System**: Local Retrieval-Augmented Generation with document processing
 - **Smart Configuration**: Template-based config with automatic setup
 - **Document Processing**: Support for TXT, MD, PDF, DOCX formats
+- **Desktop Application**: Native desktop app with PyWebView integration
 
 ## Quick Start
 
@@ -57,6 +58,9 @@ vertex workflow
 
 # RAG document Q&A mode
 vertex rag --interactive
+
+# Desktop mode
+vertex --desktop
 ```
 
 Access the Web interface at [http://localhost:7860](http://localhost:7860) (or [http://localhost:7864](http://localhost:7864) for workflow app)
@@ -86,6 +90,10 @@ vertex config reset       # Reset to template
 vertex rag --interactive  # Interactive Q&A
 vertex rag --query "question"  # Direct query
 vertex rag --directory /path/to/docs  # Index documents
+
+# Desktop mode
+vertex --desktop          # Desktop application
+vertex workflow --desktop # Desktop workflow editor
 ```
 
 ### RAG System
@@ -172,6 +180,7 @@ export web_search_bocha_sk="your-bocha-key"
 
 ### 📖 User Guides
 - [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
+- [Desktop Application Guide](docs/DESKTOP_APP.md) - Desktop app usage
 - [RAG CLI Detailed Guide](docs/RAG_CLI_USAGE.md) - RAG Q&A system guide
 - [RAG Performance Optimization](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - Performance analysis and tips
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions

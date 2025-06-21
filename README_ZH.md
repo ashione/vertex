@@ -11,6 +11,7 @@
 - **RAG系统**：本地检索增强生成，支持文档处理
 - **智能配置**：基于模板的配置系统，自动化设置
 - **文档处理**：支持TXT、MD、PDF、DOCX格式
+- **桌面端应用**：基于PyWebView的原生桌面应用
 
 ## 快速开始
 
@@ -29,6 +30,18 @@ cd vertex
 pip install -e .
 ```
 
+### 配置
+```bash
+# 快速设置 - 初始化配置
+vertex config init
+
+# 交互式配置向导
+vertex config
+
+# 检查配置状态
+vertex config check
+```
+
 ### 启动
 ```bash
 # 标准聊天模式（默认）
@@ -45,6 +58,9 @@ vertex workflow
 
 # RAG文档问答模式
 vertex rag --interactive
+
+# 桌面端模式
+vertex --desktop
 ```
 
 访问Web界面：[http://localhost:7860](http://localhost:7860)（或[http://localhost:7864](http://localhost:7864)访问工作流应用）
@@ -71,6 +87,10 @@ vertex config reset       # 重置配置
 vertex rag --interactive  # 交互式问答
 vertex rag --query "问题"  # 直接查询
 vertex rag --directory /path/to/docs  # 索引文档
+
+# 桌面端模式
+vertex --desktop          # 桌面端应用
+vertex workflow --desktop # 桌面端工作流编辑器
 ```
 
 ### Web界面
@@ -92,6 +112,19 @@ rag_system.index_documents(documents)
 # 查询知识库
 answer = rag_system.query("主要主题是什么？")
 print(answer)
+```
+
+### Function Tools
+```python
+# 通过服务访问各种功能工具
+from vertex_flow.workflow.service import VertexFlowService
+
+service = VertexFlowService()
+cmd_tool = service.get_command_line_tool()      # 命令行执行
+web_tool = service.get_web_search_tool()        # 网络搜索
+finance_tool = service.get_finance_tool()       # 金融数据
+
+# 工具与AI工作流无缝集成
 ```
 
 ### 基础工作流
@@ -149,6 +182,7 @@ export web_search_bocha_sk="your-bocha-key"
 
 ### 📖 使用指南
 - [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
+- [桌面端应用指南](docs/DESKTOP_APP.md) - 桌面端应用使用说明
 - [RAG CLI详细说明](docs/RAG_CLI_USAGE.md) - RAG问答系统专项指南
 - [RAG性能优化](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - 性能分析与优化建议
 - [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
