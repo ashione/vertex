@@ -118,9 +118,11 @@ vertex config reset
 ```yaml
 llm:
   openrouter:
-    sk: your-api-key
+    sk: ${llm.openrouter.sk:sk-or-your-key}
     enabled: true
-    model-name: deepseek/deepseek-chat-v3-0324:free
+    models:
+      - name: deepseek/deepseek-chat-v3-0324:free
+        enabled: true
 
 embedding:
   local:

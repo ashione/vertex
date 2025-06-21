@@ -89,7 +89,7 @@ class ConfigLoader:
                 "deepseek": {
                     "sk": "${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}",
                     "enabled": False,
-                    "model-name": "deepseek-chat",
+                    "models": [{"name": "deepseek-chat", "enabled": True, "default": True}],
                 }
             },
             "web": {"port": 8999, "host": "0.0.0.0", "workers": 8},

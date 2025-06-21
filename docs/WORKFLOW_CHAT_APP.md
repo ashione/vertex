@@ -1,314 +1,162 @@
-# Vertex Workflow Chat 应用
+# Workflow Chat 应用
 
-## 概述
+基于 Workflow LLM Vertex 的新一代聊天应用，提供统一配置系统和现代化界面。
 
-Vertex Workflow Chat 是基于 Workflow LLM Vertex 的新一代聊天应用，它使用统一配置系统和强大的 LLM Vertex 功能，提供了更好的模型管理和聊天体验。
+## 🚀 特性
 
-## 主要特性
+- **统一配置系统**: 支持多种 LLM 提供商
+- **动态模型切换**: 实时切换不同的模型提供商
+- **多模态支持**: 支持文本和图片URL输入
+- **AI思考过程**: 支持DeepSeek R1等reasoning模型
+- **流式输出**: 实时流式响应
+- **工具调用**: 支持Function Tools
+- **现代化界面**: 基于Gradio的Web界面
 
-### 🚀 **核心优势**
+## 📋 配置结构
 
-1. **统一配置系统**
-   - 使用 `vertex_flow/config/llm.yml` 统一配置
-   - 支持多种 LLM 提供商：DeepSeek、OpenRouter、Moonshot、Tongyi 等
-   - 环境变量支持，便于部署管理
+### 简化的配置格式
 
-2. **基于 Workflow LLM Vertex**
-   - 复用 workflow 系统的强大功能
-   - 支持工具调用（Tool Calls）
-   - 更好的错误处理和日志记录
+配置结构已简化，只使用 `enabled` 字段：
 
-3. **动态模型切换**
-   - 运行时切换不同的 LLM 提供商
-   - 实时显示可用模型列表
-   - 无需重启应用
+```yaml
+llm:
+  openrouter:
+    sk: ${llm.openrouter.sk:-YOUR_API_KEY}
+    enabled: true
+    models:
+      - name: deepseek/deepseek-chat-v3-0324:free
+        enabled: true
+      - name: google/gemini-2.5-pro
+        enabled: false
+```
 
-4. **现代化界面**
-   - 基于 Gradio 的美观界面
-   - 支持自定义系统提示
-   - 响应式设计
+### 配置说明
 
-5. **🎨 多模态支持**
-   - 支持图片上传和图片URL输入
-   - 基于 OpenRouter 的 Gemini 2.5 Pro 模型
-   - 智能图片分析和描述
-   - 文本+图片的混合对话
+- **provider级别**: `enabled` 表示该提供商是否启用
+- **model级别**: `enabled` 表示该模型是否可用
+- **模型选择**: 用户选择时，系统自动选择该提供商下第一个 `enabled: true` 的模型
 
-## 使用方法
+## 🛠️ 使用方法
 
 ### 启动应用
 
 ```bash
-# 使用默认端口 7860
-uv run vertex run
+# 使用默认配置
+uv run python -m vertex_flow.src.workflow_app
 
-# 指定端口和主机
-uv run vertex run --port 8080 --host 0.0.0.0
-
-# 直接运行 workflow 应用
-uv run python vertex_flow/src/workflow_app.py --port 7860
+# 指定端口
+uv run python -m vertex_flow.src.workflow_app --port 7860
 ```
 
-### 配置 LLM 模型
+### 界面功能
 
-编辑 `vertex_flow/config/llm.yml` 文件：
+1. **聊天界面**: 支持文本输入和图片URL
+2. **模型管理**: 实时显示和切换模型
+3. **思考过程**: 启用/禁用AI推理过程显示
+4. **工具管理**: 启用/禁用Function Tools
+5. **本地模型**: Ollama模型管理
+
+### Reasoning功能
+
+支持显示AI的思考过程，让用户了解AI的推理步骤：
+
+**支持的模型**:
+- DeepSeek R1系列模型
+- 其他支持reasoning输出的模型
+
+**使用方法**:
+1. 选择支持reasoning的模型（如`deepseek/deepseek-r1-0528:free`）
+2. 在"🤔 思考过程"配置面板中：
+   - 勾选"启用思考过程"
+   - 可选择是否"显示思考过程"
+3. 发送问题，查看AI的详细推理过程
+
+**应用场景**:
+- 数学问题求解
+- 逻辑推理分析
+- 复杂问题分解
+- 学习AI思维模式
+
+## 🔧 配置示例
 
 ```yaml
 llm:
-  deepseek:
-    sk: ${llm.deepseek.sk:your-deepseek-api-key}
-    enabled: true  # 启用此模型
-    model-name: deepseek-chat
-  
   openrouter:
-    sk: ${llm.openrouter.sk:your-openrouter-api-key}
-    enabled: false
-    model-name: deepseek/deepseek-chat-v3-0324:free
-  
-  moonshoot:
-    sk: ${llm.moonshoot.sk:your-moonshot-api-key}
-    enabled: false
-    model-name: moonshot-v1-128k
+    sk: your-api-key
+    enabled: true
+    models:
+      - name: deepseek/deepseek-chat-v3-0324:free
+        enabled: true
+      - name: google/gemini-2.5-pro
+        enabled: false
 ```
 
-### 环境变量配置
-
-```bash
-# 设置 API 密钥
-export llm_deepseek_sk="sk-your-deepseek-key"
-export llm_openrouter_sk="sk-or-your-openrouter-key"
-export llm_moonshoot_sk="sk-your-moonshot-key"
-
-# 启动应用
-uv run vertex run
-```
-
-## 界面功能
-
-### 主要区域
-
-1. **聊天区域**
-   - 对话历史显示
-   - 消息输入框
-   - 发送和清除按钮
-
-2. **多模态输入区域**
-   - 图片上传组件：支持本地图片文件上传
-   - 图片URL输入框：支持网络图片链接
-   - 自动Base64编码：本地图片自动转换为兼容格式
-   - 智能URL验证：检测不支持的图片源（如Discord）
-
-3. **配置面板**
-   - 系统提示自定义
-   - 当前模型信息
-   - 可用模型列表
-   - 模型切换功能
-
-### 系统提示
-
-可以自定义系统提示来改变 AI 的行为：
-
-```
-你是一个专业的技术顾问，擅长回答编程和技术相关问题。
-请提供详细、准确的技术建议。
-```
-
-### 模型切换
-
-在界面右侧的"切换模型"输入框中输入提供商名称：
-
-- `deepseek` - 切换到 DeepSeek 模型
-- `openrouter` - 切换到 OpenRouter 模型
-- `moonshoot` - 切换到 Moonshot 模型
-- `tongyi` - 切换到通义千问模型
-
-### 多模态输入
-
-- 支持图片上传和图片URL输入
-- 基于 OpenRouter 的 Gemini 2.5 Pro 模型
-- 智能图片分析和描述
-- 文本+图片的混合对话
-
-## 与传统应用的对比
-
-| 特性 | Workflow Chat App | 传统 App |
-|------|------------------|----------|
-| 配置系统 | 统一配置文件 | 命令行参数 |
-| 模型管理 | 动态切换 | 固定模型 |
-| 功能扩展 | 支持 Workflow 功能 | 基础聊天 |
-| 错误处理 | 完善的异常处理 | 基础错误处理 |
-| 界面设计 | 现代化 UI | 简单界面 |
-
-## 技术架构
-
-### 核心组件
-
-1. **WorkflowChatApp**
-   - 主应用类
-   - 管理 LLM 模型和配置
-   - 处理聊天逻辑
-
-2. **VertexFlowService**
-   - 统一配置服务
-   - LLM 模型工厂
-   - 配置管理
-
-3. **LLMVertex**
-   - Workflow 系统的 LLM 顶点
-   - 支持工具调用
-   - 完善的上下文管理
-
-### 工作流程
-
-```
-用户输入 → WorkflowChatApp → LLMVertex → ChatModel → API调用 → 响应
-```
-
-## 故障排除
+## 🔍 故障排除
 
 ### 常见问题
 
-1. **启动失败：配置文件错误**
-   ```
-   ❌ 启动失败: 无法获取聊天模型，请检查配置文件
-   ```
-   **解决方案：** 检查 `vertex_flow/config/llm.yml` 文件格式和 API 密钥
+1. **模型切换失败**: 检查提供商和模型是否启用
+2. **Ollama连接失败**: 确保服务运行在 `http://localhost:11434`
+3. **图片处理失败**: 检查URL可访问性和格式支持
 
-2. **模型切换失败**
-   ```
-   ❌ 无法切换到模型: deepseek
-   ```
-   **解决方案：** 确保目标模型在配置文件中存在且 API 密钥正确
+## 🔄 更新日志
 
-3. **聊天错误**
-   ```
-   聊天错误: API调用失败
-   ```
-   **解决方案：** 检查网络连接和 API 密钥有效性
+### v1.0.0 (2025-06-21)
+- ✅ 简化配置结构，移除 `default` 字段
+- ✅ 只使用 `enabled` 字段表示模型状态
+- ✅ 优化模型切换逻辑
+- ✅ 改进用户界面显示
 
-4. **多模态功能问题**
-   ```
-   ⚠️ 检测到Discord图片链接，可能不被支持
-   ```
-   **解决方案：** Discord图片链接不被支持，建议：
-   - 下载图片后重新上传
-   - 使用其他图片托管服务
-   - 直接粘贴其他图片URL
+## 🎯 使用场景
 
-5. **图片处理失败**
-   ```
-   图片处理失败，可能是图片格式不支持或链接无效
-   ```
-   **解决方案：**
-   - 确保图片格式为常见格式（JPG、PNG等）
-   - 检查图片链接是否可公开访问
-   - 尝试使用其他图片
+### 1. 多模型对比
+- 配置多个模型提供商
+- 实时切换不同模型进行对比测试
+- 评估不同模型的性能和效果
 
-### 日志查看
+### 2. 本地开发
+- 使用Ollama本地模型进行开发测试
+- 避免API调用费用
+- 保护隐私和数据安全
 
-应用会输出详细的日志信息，包括：
-- 模型初始化状态
-- 配置加载情况
-- API 调用结果
-- 错误详情
+### 3. 生产部署
+- 使用云端模型服务
+- 配置高可用性和负载均衡
+- 监控和日志记录
 
-## 配置示例
+### 4. 工具集成
+- 启用Function Tools进行复杂任务处理
+- 集成命令行工具执行系统操作
+- 扩展自定义工具功能
 
-### 完整配置文件示例
+## 🤝 贡献
 
-```yaml
-llm:
-  deepseek:
-    sk: ${llm.deepseek.sk:sk-your-key}
-    enabled: true
-    model-name: deepseek-chat
-  
-  openrouter:
-    sk: ${llm.openrouter.sk:sk-or-your-key}
-    enabled: true  # 启用多模态支持
-    model-name: google/gemini-2.5-pro  # Gemini 2.5 Pro 模型
-  
-  moonshoot:
-    sk: ${llm.moonshoot.sk:sk-your-key}
-    enabled: false
-    model-name: moonshot-v1-128k
-  
-  tongyi:
-    sk: ${llm.tongyi.sk:sk-your-key}
-    enabled: false
-    model-name: qwen-max
+欢迎提交Issue和Pull Request来改进这个应用！
 
-web:
-  port: 7860
-  host: 127.0.0.1
-  workers: 1
+### 开发环境设置
+```bash
+# 克隆仓库
+git clone https://github.com/your-repo/localqwen.git
+cd localqwen
+
+# 安装依赖
+uv sync
+
+# 运行开发版本
+uv run python -m vertex_flow.src.workflow_app --port 7860
 ```
 
-### Docker 部署示例
+### 测试
+```bash
+# 运行测试
+uv run pytest vertex_flow/tests/
 
-```dockerfile
-FROM python:3.9
-
-WORKDIR /app
-COPY . .
-
-RUN pip install -r requirements.txt
-
-ENV llm_deepseek_sk="your-api-key"
-ENV llm_openrouter_sk="your-api-key"
-
-EXPOSE 7860
-
-CMD ["python", "vertex_flow/src/workflow_app.py", "--host", "0.0.0.0", "--port", "7860"]
+# 运行特定测试
+uv run pytest vertex_flow/tests/test_workflow_app.py
 ```
 
-### 多模态配置说明
+---
 
-要启用多模态功能，需要：
-
-1. **启用 OpenRouter 提供商**
-   ```yaml
-   openrouter:
-     enabled: true
-     model-name: google/gemini-2.5-pro
-   ```
-
-2. **设置 OpenRouter API 密钥**
-   ```bash
-   export llm_openrouter_sk="sk-or-your-openrouter-api-key"
-   ```
-
-3. **确保网络访问**
-   - 应用需要能够访问 OpenRouter API
-   - 图片URL需要可公开访问
-
-## 开发指南
-
-### 扩展新的 LLM 提供商
-
-1. 在 `vertex_flow/workflow/chat.py` 中添加新的 ChatModel 类
-2. 在配置文件中添加相应的配置项
-3. 测试模型切换功能
-
-### 自定义界面
-
-修改 `create_gradio_interface` 函数来自定义界面：
-- 添加新的组件
-- 修改样式和布局
-- 增加新的功能按钮
-
-## 总结
-
-Vertex Workflow Chat 应用提供了一个现代化、可扩展的聊天界面，充分利用了 Vertex Flow 系统的强大功能。它不仅支持多种 LLM 提供商，还提供了灵活的配置管理和优雅的用户体验。
-
-通过使用统一配置系统和 Workflow LLM Vertex，用户可以轻松地在不同模型之间切换，同时享受到 Workflow 系统带来的高级功能，如工具调用、上下文管理等。
-
-### 🎨 多模态功能亮点
-
-- **智能图片分析**：基于 Gemini 2.5 Pro 的强大图像理解能力
-- **多种输入方式**：支持本地图片上传和网络图片URL
-- **自动格式转换**：本地图片自动转换为兼容的Base64格式
-- **智能错误处理**：对不支持的图片源提供友好提示
-- **混合对话**：文本和图片的完美结合，提供更丰富的交互体验
-
-多模态功能的加入使得 Vertex Workflow Chat 应用不仅是一个强大的文本聊天工具，更是一个能够理解和分析视觉内容的智能助手，为用户提供了更加全面和直观的AI交互体验。 
+**📝 文档版本**: v1.0.0  
+**🔄 最后更新**: 2025-06-21  
+**📋 维护者**: Vertex开发团队 

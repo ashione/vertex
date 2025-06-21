@@ -4,14 +4,21 @@ A powerful local AI workflow system with multi-model support and visual workflow
 
 ## Features
 
-- **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter, Tongyi)
-- **Function Tools**: Built-in command line execution and system integration tools
-- **Unified CLI**: Simple command interface with multiple operation modes
-- **VertexFlow Engine**: Visual workflow orchestration with drag-and-drop nodes
-- **RAG System**: Local Retrieval-Augmented Generation with document processing
-- **Smart Configuration**: Template-based config with automatic setup
-- **Document Processing**: Support for TXT, MD, PDF, DOCX formats
-- **Desktop Application**: Native desktop app with PyWebView integration
+| Category | Feature | Description |
+|----------|---------|-------------|
+| **AI Models** | Multi-Model Support | Ollama local models and external APIs (DeepSeek, OpenRouter, Tongyi) |
+| **Advanced AI** | 🎨 Multimodal Support | Image analysis and text+image conversations with Gemini 2.5 Pro |
+| | 🤔 Reasoning Display | AI thinking process visualization (supports DeepSeek R1) |
+| | 🔬 Deep Research | Six-stage research workflow with intelligent analysis |
+| **Tools & Search** | 🔍 Smart Web Search | Multi-engine support (SerpAPI, DuckDuckGo, Bocha AI, etc.) |
+| | Function Tools | Command line execution, web search, financial data tools |
+| **Interface** | ⚡ Streaming Output | Real-time AI response display for better interaction |
+| | Unified CLI | Simple command interface with multiple operation modes |
+| | Desktop Application | Native desktop app with PyWebView integration |
+| **Workflow** | VertexFlow Engine | Visual workflow orchestration with drag-and-drop nodes |
+| | RAG System | Local Retrieval-Augmented Generation with document processing |
+| **Configuration** | Smart Configuration | Simplified configuration system with automatic setup |
+| | Document Processing | Support for TXT, MD, PDF, DOCX formats |
 
 ## Quick Start
 
@@ -47,8 +54,13 @@ vertex config check
 # Standard chat mode (default)
 vertex
 
-# Or explicitly specify mode
-vertex run
+# Advanced workflow chat with function tools and reasoning
+python -m vertex_flow.src.workflow_app --port 7864
+
+# Deep Research analysis tool
+vertex deepresearch
+# or short form
+vertex dr
 
 # VertexFlow workflow mode
 vertex workflow
@@ -60,7 +72,7 @@ vertex rag --interactive
 vertex --desktop
 ```
 
-Access the Web interface at [http://localhost:7860](http://localhost:7860)
+Access the Web interface at [http://localhost:7860](http://localhost:7860) (or [http://localhost:7864](http://localhost:7864) for workflow app)
 
 ## Usage Guide
 
@@ -69,6 +81,14 @@ Access the Web interface at [http://localhost:7860](http://localhost:7860)
 # Standard mode
 vertex                    # Launch chat interface
 vertex run --port 8080   # Custom port
+
+# Advanced workflow chat mode
+python -m vertex_flow.src.workflow_app --port 7864  # With function tools, web search, reasoning
+
+# Deep Research mode
+vertex deepresearch       # Start deep research analysis tool
+vertex dr --topic "AI trends"  # Direct research from command line
+vertex dr --port 8080     # Custom port for web interface
 
 # Workflow mode
 vertex workflow           # Visual workflow editor
@@ -88,6 +108,24 @@ vertex rag --directory /path/to/docs  # Index documents
 # Desktop mode
 vertex --desktop          # Desktop application
 vertex workflow --desktop # Desktop workflow editor
+```
+
+### Deep Research System
+The Deep Research tool provides comprehensive analysis through a six-stage workflow:
+
+1. **Topic Analysis** 🔍 - Initial topic understanding and scope definition
+2. **Research Planning** 📋 - Strategic research approach and methodology
+3. **Information Collection** 📚 - Comprehensive data gathering and source compilation
+4. **Deep Analysis** 🔬 - In-depth examination and critical evaluation
+5. **Cross Validation** ✅ - Verification and fact-checking across sources
+6. **Summary Report** 📄 - Professional research report generation
+
+```python
+# Deep Research via API
+from vertex_flow.src.deep_research_app import DeepResearchApp
+
+app = DeepResearchApp()
+# Configure research parameters and execute
 ```
 
 ### RAG System
@@ -113,10 +151,10 @@ from vertex_flow.workflow.service import VertexFlowService
 
 service = VertexFlowService()
 cmd_tool = service.get_command_line_tool()      # Command execution
-web_tool = service.get_web_search_tool()        # Web search
-finance_tool = service.get_finance_tool()       # Financial data
+web_tool = service.get_web_search_tool()        # Smart web search (SerpAPI/DuckDuckGo/Bocha etc.)
+finance_tool = service.get_finance_tool()       # Financial data retrieval
 
-# Tools integrate seamlessly with AI workflows
+# Tools integrate seamlessly with AI workflows, supporting streaming and reasoning
 ```
 
 ### Basic Workflow
@@ -162,6 +200,7 @@ Set API keys for external models:
 export llm_deepseek_sk="your-deepseek-key"
 export llm_openrouter_sk="your-openrouter-key"
 export llm_tongyi_sk="your-tongyi-key"
+export web_search_serpapi_api_key="your-serpapi-key"
 export web_search_bocha_sk="your-bocha-key"
 ```
 
@@ -175,16 +214,25 @@ export web_search_bocha_sk="your-bocha-key"
 ### 📖 User Guides
 - [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
 - [Desktop Application Guide](docs/DESKTOP_APP.md) - Desktop app usage
-- [RAG CLI Detailed Guide](docs/RAG_CLI_USAGE.md) - RAG Q&A system guide
-- [RAG Performance Optimization](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - Performance analysis and tips
+- [Workflow Chat App Guide](docs/WORKFLOW_CHAT_APP.md) - Advanced chat with function tools and reasoning
+- [🎨 Multimodal Features Guide](docs/MULTIMODAL_FEATURES.md) - Image analysis and text+image conversations
+- [🔍 Web Search Configuration](docs/WEB_SEARCH_CONFIGURATION.md) - Multi-engine search setup
+- [🔬 Deep Research Guide](vertex_flow/docs/DEEP_RESEARCH_APP.md) - Six-stage research analysis tool
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ### 🔧 Technical Documentation
 - [Function Tools Guide](docs/FUNCTION_TOOLS.md) - Complete function tools reference
+- [Command Line Tool Guide](docs/COMMAND_LINE_TOOL.md) - Command line tool detailed guide
 - [RAG System Overview](vertex_flow/docs/RAG_README.md) - Retrieval-Augmented Generation
 - [Document Update Mechanism](vertex_flow/docs/DOCUMENT_UPDATE.md) - Incremental updates and deduplication
 - [Deduplication Features](vertex_flow/docs/DEDUPLICATION.md) - Smart document deduplication
 - [Workflow Components](vertex_flow/docs/) - VertexFlow engine components
+
+### 🎯 Development & Maintenance
+- [Version Management](docs/VERSION_MANAGEMENT.md) - Version control and release management
+- [Publishing Guide](docs/PUBLISHING.md) - Package publishing workflow
+- [Configuration Sanitization](docs/SANITIZATION_README.md) - Config file security handling
+- [Pre-commit Checks](docs/PRECOMMIT_README.md) - Code quality and automated checks
 
 ## Examples
 
@@ -198,6 +246,10 @@ python finance_example.py        # Finance tool
 # Other examples
 python rag_example.py            # RAG system
 python deduplication_demo.py     # Deduplication
+
+# Deep Research examples
+vertex dr --topic "Artificial Intelligence in Healthcare"
+vertex dr --topic "Blockchain Applications in Finance" --batch
 ```
 
 ## Development
@@ -208,6 +260,9 @@ python deduplication_demo.py     # Deduplication
 
 # Sanitize config files
 python scripts/sanitize_config.py
+
+# Version management
+python scripts/version_bump.py
 ```
 
 ## License

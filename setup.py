@@ -9,7 +9,7 @@ setup(
         # 代码质量工具
         "autopep8>=2.3.2",
         "black>=25.1.0",
-        "flake8>=7.2.0",
+        "flake8>=6.0.0",
         "isort>=6.0.1",
         # 基础依赖
         "requests>=2.28.2",
@@ -30,14 +30,6 @@ setup(
         # AI服务相关依赖
         "dashscope>=1.23.4",
         "ruamel-yaml>=0.18.14",
-        # RAG系统依赖
-        "sentence-transformers>=2.2.0",
-        "faiss-cpu>=1.7.0",
-        "numpy>=1.21.0",
-        # 文档处理依赖
-        "PyPDF2>=3.0.0",
-        "python-docx>=0.8.11",
-        "reportlab>=4.4.2",
         # 网络和HTTP客户端依赖
         "urllib3>=2.0.0",
         "aiohttp>=3.8.0",
@@ -45,8 +37,55 @@ setup(
         "socksio>=1.0.0",
         # 桌面端应用依赖
         "pywebview>=5.4",
+        # 异步支持
+        "nest-asyncio>=1.6.0",
     ],
     python_requires=">=3.9",
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.0.0",
+            "pytest-asyncio>=0.21.0",
+            "pre-commit>=3.0.0",
+            "twine>=4.0.0",
+            "build>=0.10.0",
+        ],
+        "rag": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.0",
+            "numpy>=1.21.0",
+            "PyPDF2>=3.0.0",
+            "python-docx>=0.8.11",
+            "reportlab>=4.4.2",
+        ],
+        # Web搜索工具（可选）
+        "web-search": [
+            "requests>=2.28.2",  # 基础HTTP请求库（已包含在主依赖中）
+            # 未来可能添加的搜索相关依赖
+            # "beautifulsoup4>=4.12.0",  # 网页解析
+            # "lxml>=4.9.0",  # XML解析
+        ],
+        # 云端向量存储（可选，需要编译grpcio）
+        "cloud-vector": [
+            "dashvector>=1.0.19",
+        ],
+        # 桌面端应用（可选）
+        "desktop": [
+            "pywebview>=5.4",
+        ],
+        # 完整功能（包含所有可选依赖）
+        "all": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.0",
+            "numpy>=1.21.0",
+            "PyPDF2>=3.0.0",
+            "python-docx>=0.8.11",
+            "reportlab>=4.4.2",
+            "dashvector>=1.0.19",
+            "pywebview>=5.4",
+            "requests>=2.28.2",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "vertex=vertex_flow.cli:main",

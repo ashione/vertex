@@ -4,15 +4,21 @@
 
 ## 功能特性
 
-- **多模型支持**：Ollama本地模型和外部API（DeepSeek、OpenRouter、通义）
-- **🎨 多模态支持**：基于Gemini 2.5 Pro的图片分析和文本+图片对话
-- **Function Tools**：内置命令行执行和系统集成工具
-- **统一CLI**：简洁的命令行界面，支持多种运行模式
-- **VertexFlow引擎**：可视化工作流编排，支持拖拽节点
-- **RAG系统**：本地检索增强生成，支持文档处理
-- **智能配置**：基于模板的配置系统，自动化设置
-- **文档处理**：支持TXT、MD、PDF、DOCX格式
-- **桌面端应用**：基于PyWebView的原生桌面应用
+| 分类 | 功能 | 说明 |
+|------|------|------|
+| **AI模型** | 多模型支持 | Ollama本地模型和外部API（DeepSeek、OpenRouter、通义） |
+| **高级AI** | 🎨 多模态支持 | 基于Gemini 2.5 Pro的图片分析和文本+图片对话 |
+| | 🤔 思考过程显示 | 支持AI推理过程展示（支持DeepSeek R1等reasoning模型） |
+| | 🔬 深度研究 | 六阶段研究工作流，智能分析系统 |
+| **工具与搜索** | 🔍 智能Web搜索 | 多搜索引擎支持（SerpAPI、DuckDuckGo、Bocha AI等） |
+| | Function Tools | 内置命令行执行、Web搜索、金融数据等工具 |
+| **界面** | ⚡ 流式输出 | 实时显示AI回复，提供更好的交互体验 |
+| | 统一CLI | 简洁的命令行界面，支持多种运行模式 |
+| | 桌面端应用 | 基于PyWebView的原生桌面应用 |
+| **工作流** | VertexFlow引擎 | 可视化工作流编排，支持拖拽节点 |
+| | RAG系统 | 本地检索增强生成，支持文档处理 |
+| **配置** | 智能配置 | 简化的配置系统，自动化设置 |
+| | 文档处理 | 支持TXT、MD、PDF、DOCX格式 |
 
 ## 快速开始
 
@@ -48,11 +54,13 @@ vertex config check
 # 标准聊天模式（默认）
 vertex
 
-# 或明确指定运行模式
-vertex run
+# 高级工作流聊天模式（支持Function Tools + Web搜索 + Reasoning）
+python -m vertex_flow.src.workflow_app --port 7864
 
-# 高级工作流聊天模式（支持Function Tools）
-python vertex_flow/src/workflow_app.py --port 7864
+# 深度研究分析工具
+vertex deepresearch
+# 或简写形式
+vertex dr
 
 # VertexFlow工作流模式
 vertex workflow
@@ -74,6 +82,14 @@ vertex --desktop
 vertex                    # 启动聊天界面
 vertex run --port 8080   # 自定义端口
 
+# 高级工作流聊天模式
+python -m vertex_flow.src.workflow_app --port 7864  # 支持Function Tools、Web搜索、Reasoning
+
+# 深度研究模式
+vertex deepresearch       # 启动深度研究分析工具
+vertex dr --topic "AI发展趋势"  # 命令行直接研究
+vertex dr --port 8080     # 自定义Web界面端口
+
 # 工作流模式
 vertex workflow           # 可视化工作流编辑器
 vertex workflow --port 8080
@@ -94,10 +110,23 @@ vertex --desktop          # 桌面端应用
 vertex workflow --desktop # 桌面端工作流编辑器
 ```
 
-### Web界面
-- **聊天**：多轮对话，支持流式输出
-- **工作流编辑器**：可视化工作流设计，访问 [http://localhost:7860/workflow](http://localhost:7860/workflow)
-- **配置管理**：API密钥和模型参数
+### 深度研究系统
+深度研究工具通过六阶段工作流提供全面分析：
+
+1. **主题分析** 🔍 - 初步理解主题并定义研究范围
+2. **研究规划** 📋 - 制定战略性研究方法和策略
+3. **信息收集** 📚 - 全面数据收集和信息源汇编
+4. **深度分析** 🔬 - 深入检查和批判性评估
+5. **交叉验证** ✅ - 跨信息源验证和事实核查
+6. **总结报告** 📄 - 生成专业研究报告
+
+```python
+# 通过API使用深度研究
+from vertex_flow.src.deep_research_app import DeepResearchApp
+
+app = DeepResearchApp()
+# 配置研究参数并执行
+```
 
 ### RAG系统
 ```python
@@ -122,10 +151,10 @@ from vertex_flow.workflow.service import VertexFlowService
 
 service = VertexFlowService()
 cmd_tool = service.get_command_line_tool()      # 命令行执行
-web_tool = service.get_web_search_tool()        # 网络搜索
-finance_tool = service.get_finance_tool()       # 金融数据
+web_tool = service.get_web_search_tool()        # 智能Web搜索（SerpAPI/DuckDuckGo/Bocha等）
+finance_tool = service.get_finance_tool()       # 金融数据获取
 
-# 工具与AI工作流无缝集成
+# 工具与AI工作流无缝集成，支持流式输出和reasoning
 ```
 
 ### 基础工作流
@@ -171,6 +200,7 @@ vertex config reset
 export llm_deepseek_sk="your-deepseek-key"
 export llm_openrouter_sk="your-openrouter-key"
 export llm_tongyi_sk="your-tongyi-key"
+export web_search_serpapi_api_key="your-serpapi-key"
 export web_search_bocha_sk="your-bocha-key"
 ```
 
@@ -184,19 +214,25 @@ export web_search_bocha_sk="your-bocha-key"
 ### 📖 使用指南
 - [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
 - [桌面端应用指南](docs/DESKTOP_APP.md) - 桌面端应用使用说明
-- [工作流聊天应用指南](docs/WORKFLOW_CHAT_APP.md) - 支持Function Tools的高级聊天
+- [工作流聊天应用指南](docs/WORKFLOW_CHAT_APP.md) - 支持Function Tools和Reasoning的高级聊天
 - [🎨 多模态功能指南](docs/MULTIMODAL_FEATURES.md) - 图片分析和文本+图片对话
-- [🎨 多模态使用示例](docs/MULTIMODAL_EXAMPLES.md) - 实际使用场景和示例
-- [RAG CLI详细说明](docs/RAG_CLI_USAGE.md) - RAG问答系统专项指南
-- [RAG性能优化](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - 性能分析与优化建议
+- [🔍 Web搜索配置指南](docs/WEB_SEARCH_CONFIGURATION.md) - 多搜索引擎配置和使用
+- [🔬 深度研究指南](vertex_flow/docs/DEEP_RESEARCH_APP.md) - 六阶段研究分析工具
 - [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
 
 ### 🔧 技术文档
 - [Function Tools指南](docs/FUNCTION_TOOLS.md) - 完整的功能工具参考
+- [命令行工具指南](docs/COMMAND_LINE_TOOL.md) - 命令行工具详细说明
 - [RAG系统详解](vertex_flow/docs/RAG_README.md) - 检索增强生成系统
 - [文档更新机制](vertex_flow/docs/DOCUMENT_UPDATE.md) - 增量更新和去重
 - [去重功能说明](vertex_flow/docs/DEDUPLICATION.md) - 智能文档去重
 - [工作流组件](vertex_flow/docs/) - VertexFlow引擎组件
+
+### 🎯 开发与维护
+- [版本管理](docs/VERSION_MANAGEMENT.md) - 版本控制和发布管理
+- [发布指南](docs/PUBLISHING.md) - 包发布工作流程
+- [配置脱敏](docs/SANITIZATION_README.md) - 配置文件安全处理
+- [预提交检查](docs/PRECOMMIT_README.md) - 代码质量和自动化检查
 
 ## 示例
 
@@ -210,6 +246,10 @@ python finance_example.py        # 金融数据工具
 # 其他示例
 python rag_example.py            # RAG系统
 python deduplication_demo.py     # 去重功能
+
+# 深度研究示例
+vertex dr --topic "人工智能在医疗领域的应用"
+vertex dr --topic "区块链在金融科技中的应用" --batch
 ```
 
 ## 开发
@@ -220,6 +260,9 @@ python deduplication_demo.py     # 去重功能
 
 # 脱敏配置文件
 python scripts/sanitize_config.py
+
+# 版本管理
+python scripts/version_bump.py
 ```
 
 ## 许可证

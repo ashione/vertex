@@ -325,29 +325,26 @@ def save_config():
         if "llm" in data:
             llm_config = data["llm"]
 
-            # Moonshot配置
-            if "moonshot" in llm_config:
-                moonshot = llm_config["moonshot"]
-                config_data["llm"]["moonshoot"] = {
-                    "sk": f"${{llm.moonshoot.sk:{moonshot.get('sk', '-')}}}",
-                    "enabled": moonshot.get("enabled", False),
-                    "model-name": moonshot.get("model", "moonshot-v1-128k"),
-                }
-            else:
-                # 保持原有的moonshot配置
-                config_data["llm"]["moonshoot"] = {
-                    "sk": "${llm.moonshoot.sk:-}",
-                    "enabled": False,
-                    "model-name": "moonshot-v1-128k",
-                }
-
             # DeepSeek配置
             if "deepseek" in llm_config:
                 deepseek = llm_config["deepseek"]
                 config_data["llm"]["deepseek"] = {
                     "sk": f"${{llm.deepseek.sk:{deepseek.get('sk', '-')}}}",
-                    "enabled": deepseek.get("enabled", True),
-                    "model-name": deepseek.get("model", "deepseek-chat"),
+                    "enabled": deepseek.get("enabled", False),
+                    "models": [
+                        {
+                            "name": deepseek.get("model", "deepseek-chat"),
+                            "enabled": deepseek.get("enabled", False),
+                            "default": True,
+                        }
+                    ],
+                }
+            else:
+                # 保持原有的deepseek配置
+                config_data["llm"]["deepseek"] = {
+                    "sk": "${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}",
+                    "enabled": False,
+                    "models": [{"name": "deepseek-chat", "enabled": False, "default": True}],
                 }
 
             # 通义千问配置
@@ -356,7 +353,13 @@ def save_config():
                 config_data["llm"]["tongyi"] = {
                     "sk": f"${{llm.tongyi.sk:{tongyi.get('sk', '-')}}}",
                     "enabled": tongyi.get("enabled", False),
-                    "model-name": tongyi.get("model", "qwen-max"),
+                    "models": [
+                        {
+                            "name": tongyi.get("model", "qwen-max"),
+                            "enabled": tongyi.get("enabled", False),
+                            "default": True,
+                        }
+                    ],
                 }
 
             # OpenRouter配置
@@ -365,7 +368,29 @@ def save_config():
                 config_data["llm"]["openrouter"] = {
                     "sk": f"${{llm.openrouter.sk:{openrouter.get('sk', '-')}}}",
                     "enabled": openrouter.get("enabled", False),
-                    "model-name": openrouter.get("model", "deepseek/deepseek-chat-v3-0324:free"),
+                    "models": [
+                        {
+                            "name": openrouter.get("model", "deepseek/deepseek-chat-v3-0324:free"),
+                            "enabled": openrouter.get("enabled", False),
+                            "default": True,
+                        }
+                    ],
+                }
+
+            # Ollama配置
+            if "ollama" in llm_config:
+                ollama = llm_config["ollama"]
+                config_data["llm"]["ollama"] = {
+                    "sk": f"${{llm.ollama.sk:{ollama.get('sk', 'ollama-local')}}}",
+                    "enabled": ollama.get("enabled", False),
+                    "base-url": f"${{llm.ollama.base_url:{ollama.get('base_url', 'http://localhost:11434')}}}",
+                    "models": [
+                        {
+                            "name": ollama.get("model", "qwen:7b"),
+                            "enabled": ollama.get("enabled", False),
+                            "default": True,
+                        }
+                    ],
                 }
 
         # 处理向量数据库配置

@@ -1,7 +1,7 @@
 import abc
 import base64
 import requests
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
@@ -77,7 +77,8 @@ class ChatModel(abc.ABC):
         logging.debug(f"Processed messages: {processed_messages}")
         return processed_messages
 
-    def _create_completion(self, messages, option: Dict[str, Any] = None, stream: bool = False, tools=None) -> Choice:
+    def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
+        """Create completion with proper error handling"""
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -93,19 +94,25 @@ class ChatModel(abc.ABC):
         # 处理多模态消息
         processed_messages = self._process_multimodal_messages(messages)
         
-        # 构建API调用参数
-        api_params = {"model": self.name, "messages": processed_messages, **default_option}
+        # 构建API调用参数 - 过滤掉自定义参数
+        filtered_option = {k: v for k, v in default_option.items() 
+                          if k not in ["show_reasoning", "enable_reasoning"]}
+        api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
+        
+        try:
+            completion = self.client.chat.completions.create(**api_params)
+            return completion
+        except Exception as e:
+            logging.error(f"Error creating completion: {e}")
+            raise
 
-        completion = self.client.chat.completions.create(**api_params)
-        return completion
-
-    def chat(self, messages, option: Dict[str, Any] = None, tools=None) -> Choice:
+    def chat(self, messages, option: Optional[Dict[str, Any]] = None, tools=None) -> Choice:
         completion = self._create_completion(messages, option, stream=False, tools=tools)
         return completion.choices[0]
 
-    def chat_stream(self, messages, option: Dict[str, Any] = None, tools=None):
+    def chat_stream(self, messages, option: Optional[Dict[str, Any]] = None, tools=None):
         completion = self._create_completion(messages, option, stream=True, tools=tools)
         for chunk in completion:
             # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
@@ -116,11 +123,61 @@ class ChatModel(abc.ABC):
             else:
                 logging.debug("Chunk object does not have valid choices or delta content.")
 
+    def chat_stream_with_reasoning(self, messages, option: Optional[Dict[str, Any]] = None):
+        """
+        Enhanced chat stream method with reasoning support
+        
+        For DeepSeek R1 models, reasoning content is automatically returned in the response
+        without needing special parameters in the request.
+        """
+        try:
+            # Create completion without reasoning parameter
+            tools = option.get("tools") if option else None
+            completion = self._create_completion(messages, option, stream=True, tools=tools)
+            
+            reasoning_buffer = ""
+            content_buffer = ""
+            is_reasoning_phase = True
+            
+            for chunk in completion:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    
+                    # Check for reasoning content (DeepSeek R1 models)
+                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                        reasoning_buffer += delta.reasoning_content
+                        if option and option.get("show_reasoning", True):
+                            yield f"{delta.reasoning_content}"
+                        continue
+                    
+                    # Regular content
+                    if hasattr(delta, 'content') and delta.content:
+                        # If we were in reasoning phase and now have content, add separator
+                        if is_reasoning_phase and reasoning_buffer and option and option.get("show_reasoning", True):
+                            yield "\n\n💭 **回答：**\n"
+                            is_reasoning_phase = False
+                        
+                        content_buffer += delta.content
+                        yield delta.content
+                        
+            # Log the complete reasoning and content for debugging
+            if reasoning_buffer:
+                logging.info(f"Reasoning length: {len(reasoning_buffer)} chars")
+            if content_buffer:
+                logging.info(f"Content length: {len(content_buffer)} chars")
+                
+        except Exception as e:
+            logging.error(f"Error in chat_stream_with_reasoning: {e}")
+            # Fallback to regular streaming
+            logging.info("Falling back to regular chat streaming")
+            for chunk in self.chat_stream(messages, option):
+                yield chunk
+
     def model_name(self) -> str:
         return self.name
 
     def __str__(self):
-        return self.model_name()
+        return self.model_name() or f"{self.__class__.__name__}({self.provider})"
 
     # search 工具的具体实现，这里我们只需要返回参数即可
     def search_impl(self, arguments: Dict[str, Any]) -> Any:
@@ -131,33 +188,6 @@ class ChatModel(abc.ABC):
         这最大程度保证了兼容性，允许你在不同的模型间切换，并且不需要对代码有破坏性的修改。
         """
         return arguments
-
-
-class MoonshotChat(ChatModel):
-    def __init__(
-        self,
-        name="moonshot-v1-128k",
-        sk="",
-    ):
-        super().__init__(name=name, sk=sk, base_url="https://api.moonshot.cn/v1", provider="moonshot")
-
-    @timer_decorator
-    def chat(self, messages, option: Dict[str, Any] = None, tools: list = None) -> Choice:
-        completion = self.client.chat.completions.create(
-            model="moonshot-v1-128k",
-            messages=messages,
-            temperature=0.8,
-            stream=False,  # 非流式调用
-            tools=[
-                {
-                    "type": "builtin_function",
-                    "function": {
-                        "name": "$web_search",
-                    },
-                }
-            ] if tools else None,
-        )
-        return completion.choices[0]
 
 
 class DeepSeek(ChatModel):

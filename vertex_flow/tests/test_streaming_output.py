@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+from vertex_flow.workflow.constants import CONTENT_KEY, MESSAGE_KEY
 from vertex_flow.workflow.event_channel import EventChannel, EventType
 
 
@@ -46,7 +47,7 @@ async def test_streaming_output():
         async for event in channel.astream([EventType.MESSAGES]):
             receive_time = time.time()
             event_id = event.get("id", "unknown")
-            message = event.get("message", "")
+            message = event.get(CONTENT_KEY) or event.get(MESSAGE_KEY) or ""
             send_time = event.get("timestamp", 0)
 
             delay = receive_time - send_time if send_time > 0 else 0
@@ -107,7 +108,7 @@ async def test_concurrent_events():
         async for event in channel.astream([EventType.MESSAGES]):
             event_count += 1
             source = event.get("source", "unknown")
-            message = event.get("message", "")
+            message = event.get(CONTENT_KEY) or event.get(MESSAGE_KEY) or ""
 
             print(f"[接收] 事件 {event_count}: 来源={source}, 消息={message}")
 
