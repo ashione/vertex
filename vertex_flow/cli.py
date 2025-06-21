@@ -60,6 +60,7 @@ def create_parser():
         "workflow", help="启动工作流模式", description="启动VertexFlow可视化工作流编辑器"
     )
     workflow_parser.add_argument("--port", "-p", type=int, default=None, help="指定Web服务端口")
+    workflow_parser.add_argument("--host", default=None, help="指定Web服务主机地址")
     workflow_parser.add_argument("--config", "-c", help="指定配置文件路径")
     workflow_parser.add_argument("--desktop", action="store_true", help="桌面端模式（使用PyWebView封装）")
     workflow_parser.add_argument("--title", help="桌面端窗口标题")
