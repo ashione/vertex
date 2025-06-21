@@ -186,8 +186,7 @@ class EventChannel:
                             event_type, event_data = await task
                             if event_data is not None:  # 忽略超时返回的None
                                 has_valid_event = True
-                                logger.info(f"Event received from {event_type}: {event_data}")
-                                logger.debug(f"About to yield event: {event_data}")
+                                logger.debug(f"Event received from {event_type}: {event_data}")
 
                                 # 检查是否收到 workflow 状态事件
                                 status = event_data.get("status")

@@ -65,10 +65,12 @@ class ChatModel(abc.ABC):
         completion = self._create_completion(messages, option, stream=True, tools=tools)
         for chunk in completion:
             # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
-            if hasattr(chunk, "choices") and chunk.choices[0].delta:
-                yield chunk.choices[0].delta.content
+            if hasattr(chunk, "choices") and len(chunk.choices) > 0 and chunk.choices[0].delta:
+                content = chunk.choices[0].delta.content
+                if content is not None:  # 只yield非None的内容
+                    yield content
             else:
-                logging.error("Chunk object does not have 'choices' attribute or delta is missing.")
+                logging.debug("Chunk object does not have valid choices or delta content.")
 
     def model_name(self) -> str:
         return self.name
@@ -101,7 +103,7 @@ class MoonshotChat(ChatModel):
             model="moonshot-v1-128k",
             messages=messages,
             temperature=0.8,
-            stream=True,
+            stream=False,  # 非流式调用
             tools=[
                 {
                     "type": "builtin_function",
@@ -109,11 +111,9 @@ class MoonshotChat(ChatModel):
                         "name": "$web_search",
                     },
                 }
-            ],
+            ] if tools else None,
         )
-        for chunk in completion:
-            # 确保正确处理生成器对象的内容
-            yield chunk.choices[0].delta.content if chunk.choices[0].delta else ""
+        return completion.choices[0]
 
 
 class DeepSeek(ChatModel):
@@ -139,3 +139,17 @@ class OpenRouter(ChatModel):
             base_url="https://openrouter.ai/api/v1",
             provider="openrouter",
         )
+
+
+class Ollama(ChatModel):
+    def __init__(self, name="qwen:7b", sk="ollama-local", base_url="http://localhost:11434"):
+        # Ollama不需要真实的API key，使用占位符
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=f"{base_url}/v1",
+            provider="ollama",
+        )
+    
+    def model_name(self) -> str:
+        return self.name

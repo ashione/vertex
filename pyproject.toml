@@ -38,12 +38,17 @@ dependencies = [
     "isort>=6.0.1",
     "requests>=2.28.2",
     "PySocks>=1.7.1",
-    "gradio>=3.50.0,<5.0.0",
+    # Web UI 依赖 - 使用已知稳定的版本组合
+    "gradio==4.40.0",
+    "gradio-client==1.2.0",
+    "fastapi==0.112.2",
+    "pydantic==2.10.6",
+    "starlette==0.38.6",
+    "uvicorn==0.30.6",
     "python-dotenv>=0.21.0",
     "openai>=1.0.0",
     "tqdm>=4.65.0",
     "websockets>=10.0,<13.0",
-    "dashvector>=1.0.19",
     "dashscope>=1.23.4",
     "ruamel-yaml>=0.18.14",
     # RAG系统依赖（使用预编译包，排除grpcio相关）
@@ -59,6 +64,7 @@ dependencies = [
     "aiohttp>=3.8.0",
     "httpx>=0.24.0",
     "socksio>=1.0.0",
+    "pywebview>=5.4",
 ]
 
 [project.urls]
@@ -90,9 +96,13 @@ cloud-vector = [
     "dashvector>=1.0.19",
 ]
 
+# 桌面端应用（可选）
+desktop = [
+    "pywebview>=5.4",
+]
+
 [project.scripts]
-vertex = "vertex_flow.src.app:main"
-vertex-workflow = "vertex_flow.workflow.app.app:main"
+vertex = "vertex_flow.cli:main"
 
 
 

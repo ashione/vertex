@@ -7,6 +7,7 @@ include pyproject.toml
 recursive-include vertex_flow *.py
 recursive-include vertex_flow/docs *.md
 recursive-include vertex_flow/examples *.py
+recursive-include vertex_flow/config *.yml *.yaml *.template
 recursive-include web_ui *.py *.html *.css *.js
 recursive-include config *.yml *.yaml
 recursive-include scripts *.py *.sh
