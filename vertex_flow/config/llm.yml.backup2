@@ -1,0 +1,145 @@
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+
+========
+# 配置模板文件 - 请根据此模板创建您的实际配置文件
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+# 通过docker env可以注入相关的配置，作为修改值
+# 例如ll.deepseek.sk，则通过llm_deepseek_sk环境变量
+# 在docker启动时设置-e llm_deepseek_sk=?
+llm:
+  moonshoot:
+    sk: ${llm.moonshoot.sk:-YOUR_MOONSHOT_API_KEY}
+    enabled: false
+    model-name: moonshot-v1-128k
+  deepseek:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+    sk: ${llm.deepseek.sk:sk-***SANITIZED***}
+    enabled: true
+========
+    sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
+    enabled: false
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+    model-name: deepseek-chat
+  tongyi:
+    sk: ${llm.tongyi.sk:-YOUR_TONGYI_API_KEY}
+    enabled: false
+    model-name: qwen-max
+  openrouter:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+    sk: ${llm.openrouter.sk:sk-or-***SANITIZED***}
+========
+    sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+    enabled: false
+    model-name: deepseek/deepseek-chat-v3-0324:free
+
+web-search:
+  bocha:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+    sk: ${web-search.bocha.sk:sk-***SANITIZED***}
+    enabled: true
+========
+    sk: ${web-search.bocha.sk:-YOUR_BOCHA_API_KEY}
+    enabled: false
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+  bing:
+    sk: ${web-search.bing.sk:-YOUR_BING_API_KEY}
+    enabled: false
+
+finance:
+  alpha-vantage:
+    api-key: ${finance.alpha-vantage.api-key:-YOUR_ALPHA_VANTAGE_API_KEY}
+    enabled: false
+  finnhub:
+    api-key: ${finance.finnhub.api-key:-YOUR_FINNHUB_API_KEY}
+    enabled: false
+  yahoo-finance:
+    enabled: true
+    
+workflow:
+  dify:
+    root-path: config/
+    instances:
+    - name: if_else_test
+      path: if-else-test.yml
+
+web:
+  port: 8999
+  host: 0.0.0.0
+  workers: 8
+
+vector:
+  dashvector:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+    api-key: ${vector.dashvector.api_key:sk-}
+    endpoint: ${vector.dashvector.endpoint:-}
+    cluster: ${vector.dashvector.cluster:vertex-vector}
+    collection: ${vector.dashvector.collection:-}
+    image-collection: ${vector.dashvector.image_collection:-}
+========
+    enabled: false  # 默认不启用云端
+    api-key: ${vector.dashvector.api_key:-YOUR_DASHVECTOR_API_KEY}
+    endpoint: ${vector.dashvector.endpoint:-YOUR_DASHVECTOR_ENDPOINT}
+    cluster: ${vector.dashvector.cluster:-vertex-vector}
+    collection: ${vector.dashvector.collection:-YOUR_COLLECTION_NAME}
+    image-collection: ${vector.dashvector.image_collection:-YOUR_IMAGE_COLLECTION_NAME}
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+
+embedding:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+  dashscope:
+    endpoint: ${embedding.dashscope.endpoint:default}
+    api-key: ${embedding.dashscope.api_key:-}
+    model-name: ${embedding.dashscope.model_name:text-embedding-v1}
+  bce:
+    api-key: ${embedding.bce.api_key:-}
+    endpoint: ${embedding.bce.endpoint:https://api.siliconflow.cn/v1/embeddings}
+    model-name: ${embedding.bce.model_name:netease-youdao/bce-embedding-base_v1}
+========
+  # 本地嵌入模型配置
+  local:
+    enabled: true  # 默认启用本地嵌入
+    model_name: "all-MiniLM-L6-v2"  # 本地嵌入模型名称
+    dimension: 384  # 向量维度
+    use_mirror: true  # 是否使用国内镜像源（默认true）
+    mirror_url: "https://hf-mirror.com"  # 镜像源URL
+  
+  # DashScope云端配置
+  dashscope:
+    enabled: false  # 默认不启用云端
+    endpoint: ${embedding.dashscope.endpoint:-default}
+    api-key: ${embedding.dashscope.api_key:-YOUR_DASHSCOPE_API_KEY}
+    model-name: ${embedding.dashscope.model_name:-text-embedding-v1}
+  
+  # BCE云端配置
+  bce:
+    enabled: false  # 默认不启用云端
+    api-key: ${embedding.bce.api_key:-YOUR_BCE_API_KEY}
+    endpoint: ${embedding.bce.endpoint:-https://api.siliconflow.cn/v1/embeddings}
+    model-name: ${embedding.bce.model_name:-netease-youdao/bce-embedding-base_v1}
+>>>>>>>> origin/main:vertex_flow/config/llm.yml
+
+rerank:
+  bce:
+<<<<<<<< HEAD:vertex_flow/config/llm.yml.backup2
+    api-key: ${rerank.bce.api_key:-}
+    endpoint: ${rerank.bce.endpoint:https://api.siliconflow.cn/v1/rerank}
+    model-name: ${rerank.bce.model_name:netease-youdao/bce-reranker-base_v1}
+========
+    enabled: false  # 默认不启用云端重排序
+    api-key: ${rerank.bce.api_key:-YOUR_BCE_RERANK_API_KEY}
+    endpoint: ${rerank.bce.endpoint:-https://api.siliconflow.cn/v1/rerank}
+    model-name: ${rerank.bce.model_name:-netease-youdao/bce-reranker-base_v1}
+
+# 文档处理配置
+document:
+  chunk_size: 1000  # 文档分块大小
+  chunk_overlap: 200  # 分块重叠大小
+  supported_formats: ["txt", "md", "pdf", "docx"]  # 支持的文档格式
+
+# 检索配置
+retrieval:
+  top_k: 3  # 检索的文档数量
+  similarity_threshold: 0.7  # 相似度阈值
+  rerank: false  # 是否启用重排序 
+>>>>>>>> origin/main:vertex_flow/config/llm.yml

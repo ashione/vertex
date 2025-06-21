@@ -50,6 +50,9 @@ vertex
 # Or explicitly specify mode
 vertex run
 
+# Advanced workflow chat with function tools
+python vertex_flow/src/workflow_app.py --port 7864
+
 # VertexFlow workflow mode
 vertex workflow
 
@@ -60,7 +63,7 @@ vertex rag --interactive
 vertex --desktop
 ```
 
-Access the Web interface at [http://localhost:7860](http://localhost:7860)
+Access the Web interface at [http://localhost:7860](http://localhost:7860) (or [http://localhost:7864](http://localhost:7864) for workflow app)
 
 ## Usage Guide
 
@@ -69,6 +72,9 @@ Access the Web interface at [http://localhost:7860](http://localhost:7860)
 # Standard mode
 vertex                    # Launch chat interface
 vertex run --port 8080   # Custom port
+
+# Advanced workflow chat mode
+python vertex_flow/src/workflow_app.py --port 7864  # With function tools support
 
 # Workflow mode
 vertex workflow           # Visual workflow editor

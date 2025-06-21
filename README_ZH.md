@@ -50,6 +50,9 @@ vertex
 # 或明确指定运行模式
 vertex run
 
+# 高级工作流聊天模式（支持Function Tools）
+python vertex_flow/src/workflow_app.py --port 7864
+
 # VertexFlow工作流模式
 vertex workflow
 
@@ -60,7 +63,7 @@ vertex rag --interactive
 vertex --desktop
 ```
 
-访问Web界面：[http://localhost:7860](http://localhost:7860)
+访问Web界面：[http://localhost:7860](http://localhost:7860)（或[http://localhost:7864](http://localhost:7864)访问工作流应用）
 
 ## 使用指南
 
@@ -89,6 +92,11 @@ vertex rag --directory /path/to/docs  # 索引文档
 vertex --desktop          # 桌面端应用
 vertex workflow --desktop # 桌面端工作流编辑器
 ```
+
+### Web界面
+- **聊天**：多轮对话，支持流式输出
+- **工作流编辑器**：可视化工作流设计，访问 [http://localhost:7860/workflow](http://localhost:7860/workflow)
+- **配置管理**：API密钥和模型参数
 
 ### RAG系统
 ```python
