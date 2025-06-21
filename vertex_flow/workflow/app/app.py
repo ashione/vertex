@@ -12,7 +12,17 @@ from pydantic import BaseModel
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
-from vertex_flow.workflow.constants import ENABLE_STREAM
+from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
+    ENABLE_STREAM,
+    ERROR_KEY,
+    MESSAGE_KEY,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_REGULAR,
+    OUTPUT_KEY,
+    TYPE_KEY,
+    VERTEX_ID_KEY,
+)
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.service import VertexFlowService
@@ -302,11 +312,17 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             try:
                 async for result in workflow_instance.workflow_obj.astream([EventType.MESSAGES, EventType.UPDATES]):
                     logger.info(f"workflow result {result}")
-                    if result.get("vertex_id"):
+                    if result.get(VERTEX_ID_KEY):
+                        # 统一处理不同的消息键名
+                        output_content = result.get(CONTENT_KEY) or result.get(MESSAGE_KEY) or ""
+                        # 获取消息类型，用于前端区分显示
+                        message_type = result.get(TYPE_KEY, MESSAGE_TYPE_REGULAR)
+
                         yield json.dumps(
                             {
-                                "vertex_id": result["vertex_id"],
-                                "output": result["message"],
+                                VERTEX_ID_KEY: result[VERTEX_ID_KEY],
+                                OUTPUT_KEY: output_content,
+                                TYPE_KEY: message_type,
                                 "status": True,
                             },
                             ensure_ascii=False,
@@ -316,9 +332,9 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                 traceback.print_exc()
                 yield json.dumps(
                     {
-                        "output": "error",
+                        OUTPUT_KEY: ERROR_KEY,
                         "status": False,
-                        "message": str(e),
+                        MESSAGE_KEY: str(e),
                         "vertices_status": workflow_instance.workflow_obj.status(),
                     }
                 ) + "\n"
@@ -341,9 +357,9 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             logger.info(f"workflow run exception {e}")
             traceback.print_exc()
             return {
-                "output": "error",
+                OUTPUT_KEY: ERROR_KEY,
                 "status": False,
-                "message": str(e),
+                MESSAGE_KEY: str(e),
                 "vertices_status": workflow.status(),
             }
 

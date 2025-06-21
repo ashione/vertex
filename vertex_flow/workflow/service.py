@@ -113,6 +113,7 @@ class VertexFlowService:
 
         如果实例已经包含一个模型属性，则直接返回该模型。
         否则，根据配置信息初始化并返回一个聊天模型。
+        支持多模型结构，选择第一个enabled的provider中的第一个enabled的model。
         """
         if hasattr(self, "model"):
             return self.model
@@ -120,22 +121,55 @@ class VertexFlowService:
         # 记录llm配置信息
         logging.info("llm config : %s", self._config["llm"])
 
-        # 过滤出启用的模型
-        selected_model = list(filter(lambda value: value[1]["enabled"], self._config["llm"].items()))
+        # 过滤出启用的provider
+        enabled_providers = list(filter(lambda value: value[1]["enabled"], self._config["llm"].items()))
         self.model: ChatModel = None
 
-        # 如果有模型被选中，则创建该模型的实例
-        if selected_model:
-            selected_model = selected_model[0]
-            model_name = selected_model[1].get("model-name")
-            self.model = create_instance(
-                class_name=selected_model[0],
-                sk=selected_model[1]["sk"],
-                name=model_name,
-            )
+        # 如果有provider被启用，则选择第一个enabled的provider
+        if enabled_providers:
+            selected_provider = enabled_providers[0]
+            provider_name = selected_provider[0]
+            provider_config = selected_provider[1]
+
+            # 检查是否有models配置（多模型结构）
+            if "models" in provider_config:
+                # 多模型结构：选择第一个enabled的model
+                models = provider_config["models"]
+                enabled_models = list(filter(lambda m: m.get("enabled", False), models))
+
+                if enabled_models:
+                    selected_model = enabled_models[0]
+                    model_name = selected_model["name"]
+                    logging.info("Selected model %s from provider %s", model_name, provider_name)
+                else:
+                    logging.warning("No enabled models found in provider %s", provider_name)
+                    return None
+            else:
+                # 旧格式：使用model-name
+                model_name = provider_config.get("model-name")
+                if not model_name:
+                    logging.warning("No model-name found in provider %s", provider_name)
+                    return None
+                logging.info("Using legacy model-name %s from provider %s", model_name, provider_name)
+
+            # 创建模型实例
+            create_params = {
+                "sk": provider_config["sk"],
+                "name": model_name,
+            }
+
+            # 对于Ollama，需要额外传递base_url参数
+            if provider_name.lower() == "ollama":
+                base_url = provider_config.get("base-url", "http://localhost:11434")
+                create_params["base_url"] = base_url
+
+            self.model = create_instance(class_name=provider_name, **create_params)
 
         # 记录选定的模型信息
-        logging.info("model selected : %s", self.model)
+        if self.model is not None:
+            logging.info("model selected : %s", self.model)
+        else:
+            logging.warning("no model selected from configuration")
         return self.model
 
     def get_chatmodel_by_provider(self, provider, name=None):
@@ -143,11 +177,11 @@ class VertexFlowService:
         根据提供商获取聊天模型。
 
         根据给定的提供商和可选的名称，从配置中选择并创建聊天模型实例。
-        如果找到了匹配的提供商，将使用其配置创建一个聊天模型实例。
+        支持多模型结构，可以指定具体的model名称。
 
         参数:
         - provider (str): 用于选择聊天模型提供商的标识符。
-        - name (str, 可选): 要创建的聊天模型的名称。默认为None。
+        - name (str, 可选): 要创建的聊天模型的名称。默认为None，将选择第一个enabled的model。
 
         返回:
         - ChatModel: 返回创建的聊天模型实例，如果没有找到匹配的提供商，则返回None。
@@ -161,26 +195,93 @@ class VertexFlowService:
         if selected_model:
             # 如果找到了匹配的模型配置，使用第一个匹配项
             selected_model = selected_model[0]
-            model_name = selected_model[1].get("model-name")
-            # 优先使用参数name，否则用配置中的model-name
-            final_name = name if name is not None else model_name
+            provider_config = selected_model[1]
+
+            # 检查是否有models配置（多模型结构）
+            if "models" in provider_config:
+                models = provider_config["models"]
+
+                if name is not None:
+                    # 指定了model名称，查找匹配的model
+                    target_model = None
+                    for m in models:
+                        if m["name"] == name:
+                            target_model = m
+                            break
+
+                    if target_model is None:
+                        logging.warning("Model %s not found in provider %s", name, provider)
+                        return None
+
+                    model_name = target_model["name"]
+                    logging.info("Using specified model %s from provider %s", model_name, provider)
+                else:
+                    # 没有指定model名称，选择第一个enabled的model
+                    enabled_models = list(filter(lambda m: m.get("enabled", False), models))
+
+                    if enabled_models:
+                        selected_model_config = enabled_models[0]
+                        model_name = selected_model_config["name"]
+                        logging.info("Using first enabled model %s from provider %s", model_name, provider)
+                    else:
+                        logging.warning("No enabled models found in provider %s", provider)
+                        return None
+            else:
+                # 旧格式：使用model-name
+                model_name = provider_config.get("model-name")
+                if not model_name:
+                    logging.warning("No model-name found in provider %s", provider)
+                    return None
+                logging.info("Using legacy model-name %s from provider %s", model_name, provider)
 
             # 构建创建模型实例的参数
             create_params = {
-                "sk": selected_model[1]["sk"],
-                "name": final_name,
+                "sk": provider_config["sk"],
+                "name": model_name,
             }
 
             # 对于Ollama，需要额外传递base_url参数
-            if selected_model[0].lower() == "ollama":
-                base_url = selected_model[1].get("base-url", "http://localhost:11434")
+            if provider.lower() == "ollama":
+                base_url = provider_config.get("base-url", "http://localhost:11434")
                 create_params["base_url"] = base_url
 
             # 使用匹配的模型配置创建聊天模型实例
-            model = create_instance(class_name=selected_model[0], **create_params)
+            model = create_instance(class_name=provider, **create_params)
+
         # 记录选定的模型信息
-        logging.info("model selected : %s-%s in provider %s", model, model.model_name(), provider)
+        if model is not None:
+            logging.info("model selected : %s-%s in provider %s", model, model.model_name(), provider)
+        else:
+            logging.warning("no model found for provider %s", provider)
         return model
+
+    def get_available_models(self):
+        """
+        获取所有可用的模型列表。
+
+        返回:
+        - list: 包含所有provider和model信息的列表
+        """
+        available_models = []
+
+        for provider_name, provider_config in self._config["llm"].items():
+            provider_info = {"provider": provider_name, "enabled": provider_config.get("enabled", False), "models": []}
+
+            # 检查是否有models配置（多模型结构）
+            if "models" in provider_config:
+                for model_config in provider_config["models"]:
+                    model_info = {"name": model_config["name"], "enabled": model_config.get("enabled", False)}
+                    provider_info["models"].append(model_info)
+            else:
+                # 旧格式：使用model-name
+                model_name = provider_config.get("model-name")
+                if model_name:
+                    model_info = {"name": model_name, "enabled": provider_config.get("enabled", False)}
+                    provider_info["models"].append(model_info)
+
+            available_models.append(provider_info)
+
+        return available_models
 
     def _prompt_file_path(self, file_path):
         abs_path = "".join([self.__prompt_root_path, file_path])
@@ -400,7 +501,7 @@ class VertexFlowService:
         """获取Web搜索配置
 
         Args:
-            provider: 搜索提供商，默认为"bocha"
+            provider: 搜索提供商，默认为"bocha"，支持"bocha"、"bing"、"free"
 
         Returns:
             包含API密钥和启用状态的配置字典
@@ -439,6 +540,45 @@ class VertexFlowService:
 
             return {"api_key": api_key, "enabled": enabled}
 
+        elif provider == "duckduckgo":
+            # DuckDuckGo搜索服务（无需API密钥）
+            duckduckgo_config = web_search_config.get("duckduckgo", {})
+
+            # 获取启用状态，默认不启用（需要显式配置）
+            enabled = duckduckgo_config.get("enabled", False)
+
+            logging.info(f"DuckDuckGo搜索配置 - 启用状态: {enabled}")
+
+            return {"enabled": enabled, "api_key": None}
+
+        elif provider == "serpapi":
+            # SerpAPI搜索服务
+            serpapi_config = web_search_config.get("serpapi", {})
+
+            # 获取API key
+            api_key = serpapi_config.get("api_key") or os.getenv("WEB_SEARCH_SERPAPI_KEY")
+
+            # 获取启用状态
+            enabled = serpapi_config.get("enabled", False)
+
+            logging.info(f"SerpAPI搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
+
+            return {"api_key": api_key, "enabled": enabled}
+
+        elif provider == "searchapi":
+            # SearchAPI.io搜索服务
+            searchapi_config = web_search_config.get("searchapi", {})
+
+            # 获取API key
+            api_key = searchapi_config.get("api_key") or os.getenv("WEB_SEARCH_SEARCHAPI_KEY")
+
+            # 获取启用状态
+            enabled = searchapi_config.get("enabled", False)
+
+            logging.info(f"SearchAPI搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
+
+            return {"api_key": api_key, "enabled": enabled}
+
         else:
             raise ValueError(f"不支持的搜索提供商: {provider}")
 
@@ -458,7 +598,8 @@ class VertexFlowService:
         if not config.get("enabled", False):
             raise ValueError(f"{provider}搜索服务未启用，请检查配置文件")
 
-        if not config.get("api_key"):
+        # DuckDuckGo不需要API密钥
+        if provider != "duckduckgo" and not config.get("api_key"):
             raise ValueError(f"{provider}搜索API密钥未配置，请检查配置文件")
 
         return create_web_search_tool()

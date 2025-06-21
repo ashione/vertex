@@ -75,39 +75,20 @@
                                 <h5 class="mb-0">大语言模型配置</h5>
                             </div>
                             <div class="card-body">
-                                <!-- Moonshot -->
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <h6><i class="bi bi-moon"></i> Moonshot</h6>
-                        <div class="mb-3">
-                            <label class="form-label">API Key</label>
-                            <input type="password" class="form-control" id="moonshot-sk" placeholder="输入 Moonshot API Key">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">模型名称</label>
-                            <input type="text" class="form-control" id="moonshot-model" value="moonshot-v1-128k" readonly>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="moonshot-enabled">
-                            <label class="form-check-label" for="moonshot-enabled">启用</label>
-                        </div>
-                    </div>
-                </div>
-
                                 <!-- DeepSeek -->
-                                <div class="row mb-4">
-                                    <div class="col-md-6">
-                                        <h6><i class="bi bi-search"></i> DeepSeek</h6>
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-lightning"></i> DeepSeek</h6>
                                         <div class="mb-3">
-                                            <label class="form-label">API Key</label>
+                                            <label for="deepseek-sk" class="form-label">API Key</label>
                                             <input type="password" class="form-control" id="deepseek-sk" placeholder="输入 DeepSeek API Key">
                                         </div>
                                         <div class="mb-3">
-                                            <label class="form-label">模型名称</label>
+                                            <label for="deepseek-model" class="form-label">模型名称</label>
                                             <input type="text" class="form-control" id="deepseek-model" value="deepseek-chat" readonly>
                                         </div>
                                         <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="deepseek-enabled" checked>
+                                            <input class="form-check-input" type="checkbox" id="deepseek-enabled">
                                             <label class="form-check-label" for="deepseek-enabled">启用</label>
                                         </div>
                                     </div>
@@ -142,11 +123,30 @@
                                         </div>
                                         <div class="mb-3">
                                             <label class="form-label">模型名称</label>
-                                            <input type="text" class="form-control" id="openrouter-model" value="deepseek/deepseek-chat-v3-0324:free" readonly>
+                                            <input type="text" class="form-control" id="openrouter-model" value="google/gemini-2.5-pro" readonly>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="openrouter-enabled">
                                             <label class="form-check-label" for="openrouter-enabled">启用</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Ollama -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-cpu"></i> Ollama (本地模型)</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">服务地址</label>
+                                            <input type="text" class="form-control" id="ollama-base-url" value="http://localhost:11434" placeholder="Ollama服务地址">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <input type="text" class="form-control" id="ollama-model" value="qwen:7b" readonly>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="ollama-enabled">
+                                            <label class="form-check-label" for="ollama-enabled">启用</label>
                                         </div>
                                     </div>
                                 </div>
@@ -321,11 +321,6 @@
                                                 <small class="form-text text-muted">覆盖 llm.deepseek.sk 配置</small>
                                             </div>
                                             <div class="col-md-6 mb-3">
-                                                <label class="form-label">llm_moonshoot_sk</label>
-                                                <input type="password" class="form-control" id="env-llm-moonshoot-sk" placeholder="Moonshot API Key">
-                                                <small class="form-text text-muted">覆盖 llm.moonshoot.sk 配置</small>
-                                            </div>
-                                            <div class="col-md-6 mb-3">
                                                 <label class="form-label">llm_tongyi_sk</label>
                                                 <input type="password" class="form-control" id="env-llm-tongyi-sk" placeholder="通义千问 API Key">
                                                 <small class="form-text text-muted">覆盖 llm.tongyi.sk 配置</small>
@@ -384,25 +379,26 @@
             // 收集所有配置数据
             const config = {
                 llm: {
-                    moonshoot: {
-                        sk: $('#moonshot-sk').val(),
-                        enabled: $('#moonshot-enabled').is(':checked'),
-                        'model-name': $('#moonshot-model').val()
-                    },
                     deepseek: {
                         sk: $('#deepseek-sk').val(),
                         enabled: $('#deepseek-enabled').is(':checked'),
-                        'model-name': $('#deepseek-model').val()
+                        model: $('#deepseek-model').val()
                     },
                     tongyi: {
                         sk: $('#tongyi-sk').val(),
                         enabled: $('#tongyi-enabled').is(':checked'),
-                        'model-name': $('#tongyi-model').val()
+                        model: $('#tongyi-model').val()
                     },
                     openrouter: {
                         sk: $('#openrouter-sk').val(),
                         enabled: $('#openrouter-enabled').is(':checked'),
-                        'model-name': $('#openrouter-model').val()
+                        model: $('#openrouter-model').val()
+                    },
+                    ollama: {
+                        sk: 'ollama-local',
+                        enabled: $('#ollama-enabled').is(':checked'),
+                        base_url: $('#ollama-base-url').val(),
+                        model: $('#ollama-model').val()
                     }
                 },
                 vector: {
@@ -441,7 +437,6 @@
                  env: {
                      // 常用环境变量
                      llm_deepseek_sk: $('#env-llm-deepseek-sk').val(),
-                     llm_moonshoot_sk: $('#env-llm-moonshoot-sk').val(),
                      llm_tongyi_sk: $('#env-llm-tongyi-sk').val(),
                      llm_openrouter_sk: $('#env-llm-openrouter-sk').val(),
                      vector_dashvector_api_key: $('#env-vector-dashvector-api-key').val(),
@@ -500,11 +495,10 @@
                  $('input[type="checkbox"]').prop('checked', false);
                  
                  // 恢复默认值
-                 $('#moonshot-model').val('moonshot-v1-128k');
                  $('#deepseek-model').val('deepseek-chat');
                  $('#deepseek-enabled').prop('checked', true);
                  $('#tongyi-model').val('qwen-max');
-                 $('#openrouter-model').val('deepseek/deepseek-chat-v3-0324:free');
+                 $('#openrouter-model').val('google/gemini-2.5-pro');
                  $('#dashvector-cluster').val('vertex-vector');
                  $('#dashscope-endpoint').val('default');
                  $('#dashscope-model').val('text-embedding-v1');
@@ -579,20 +573,18 @@
                         
                         // 加载LLM配置
                          if (config.llm) {
-                             // Moonshot配置
-                             if (config.llm.moonshoot) {
-                                 const moonshot = config.llm.moonshoot;
-                                 $('#moonshot-sk').val(moonshot.sk || '');
-                                 $('#moonshot-enabled').prop('checked', moonshot.enabled || false);
-                                 $('#moonshot-model').val(moonshot['model-name'] || 'moonshot-v1-128k');
-                             }
-                             
                              // DeepSeek配置
                              if (config.llm.deepseek) {
                                  const deepseek = config.llm.deepseek;
                                  $('#deepseek-sk').val(deepseek.sk || '');
                                  $('#deepseek-enabled').prop('checked', deepseek.enabled || false);
-                                 $('#deepseek-model').val(deepseek['model-name'] || 'deepseek-chat');
+                                 // 支持多模型结构
+                                 if (deepseek.models && deepseek.models.length > 0) {
+                                     const defaultModel = deepseek.models.find(m => m.default) || deepseek.models[0];
+                                     $('#deepseek-model').val(defaultModel.name || 'deepseek-chat');
+                                 } else {
+                                     $('#deepseek-model').val(deepseek.model || deepseek['model-name'] || 'deepseek-chat');
+                                 }
                              }
                              
                              // 通义千问配置
@@ -600,7 +592,13 @@
                                  const tongyi = config.llm.tongyi;
                                  $('#tongyi-sk').val(tongyi.sk || '');
                                  $('#tongyi-enabled').prop('checked', tongyi.enabled || false);
-                                 $('#tongyi-model').val(tongyi['model-name'] || 'qwen-max');
+                                 // 支持多模型结构
+                                 if (tongyi.models && tongyi.models.length > 0) {
+                                     const defaultModel = tongyi.models.find(m => m.default) || tongyi.models[0];
+                                     $('#tongyi-model').val(defaultModel.name || 'qwen-max');
+                                 } else {
+                                     $('#tongyi-model').val(tongyi.model || tongyi['model-name'] || 'qwen-max');
+                                 }
                              }
                              
                              // OpenRouter配置
@@ -608,7 +606,27 @@
                                  const openrouter = config.llm.openrouter;
                                  $('#openrouter-sk').val(openrouter.sk || '');
                                  $('#openrouter-enabled').prop('checked', openrouter.enabled || false);
-                                 $('#openrouter-model').val(openrouter['model-name'] || 'deepseek/deepseek-chat-v3-0324:free');
+                                 // 支持多模型结构
+                                 if (openrouter.models && openrouter.models.length > 0) {
+                                     const defaultModel = openrouter.models.find(m => m.default) || openrouter.models[0];
+                                     $('#openrouter-model').val(defaultModel.name || 'google/gemini-2.5-pro');
+                                 } else {
+                                     $('#openrouter-model').val(openrouter.model || openrouter['model-name'] || 'google/gemini-2.5-pro');
+                                 }
+                             }
+
+                             // Ollama配置
+                             if (config.llm.ollama) {
+                                 const ollama = config.llm.ollama;
+                                 $('#ollama-base-url').val(ollama['base-url'] || ollama.base_url || 'http://localhost:11434');
+                                 $('#ollama-enabled').prop('checked', ollama.enabled || false);
+                                 // 支持多模型结构
+                                 if (ollama.models && ollama.models.length > 0) {
+                                     const defaultModel = ollama.models.find(m => m.default) || ollama.models[0];
+                                     $('#ollama-model').val(defaultModel.name || 'qwen:7b');
+                                 } else {
+                                     $('#ollama-model').val(ollama.model || ollama['model-name'] || 'qwen:7b');
+                                 }
                              }
                          }
                         

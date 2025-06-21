@@ -2,15 +2,32 @@
 
 本指南将帮助您安装RAG系统，**完全排除grpcio编译问题**，仅使用本地功能。
 
+## 重要更新：RAG依赖现在是可选的
+
+从最新版本开始，RAG系统的依赖已经从主依赖中移除，变为可选依赖。这意味着：
+
+- ✅ **基础安装更轻量**: 默认安装不包含RAG依赖，安装更快
+- ✅ **按需安装**: 只有需要使用RAG功能时才安装相关依赖
+- ✅ **避免编译问题**: 不会因为RAG依赖导致基础安装失败
+
 ## 快速安装（推荐）
 
-### 1. 使用安装脚本
+### 1. 使用可选依赖安装（推荐）
+```bash
+# 安装vertex包并包含RAG功能
+uv pip install vertex[rag]
+
+# 或者使用pip
+pip install vertex[rag]
+```
+
+### 2. 使用安装脚本
 ```bash
 # 运行自动安装脚本（排除grpcio）
 ./scripts/install_rag_deps.sh
 ```
 
-### 2. 手动安装
+### 3. 手动安装
 ```bash
 # 使用uv安装（推荐，排除grpcio）
 uv pip install sentence-transformers>=2.2.0
@@ -18,6 +35,34 @@ uv pip install faiss-cpu>=1.7.0
 uv pip install numpy>=1.21.0
 uv pip install PyPDF2>=3.0.0
 uv pip install python-docx>=0.8.11
+```
+
+## 依赖检查
+
+系统会自动检查RAG依赖是否已安装。如果缺少依赖，会显示详细的安装指导：
+
+```bash
+vertex rag --interactive
+```
+
+如果缺少依赖，会显示：
+```
+❌ RAG功能需要以下依赖包，但未安装:
+   - sentence-transformers
+   - faiss-cpu
+   - numpy
+
+请选择以下方式之一安装RAG依赖:
+1. 使用可选依赖安装:
+   uv pip install vertex[rag]
+   # 或者
+   pip install vertex[rag]
+
+2. 手动安装核心依赖:
+   uv pip install sentence-transformers faiss-cpu numpy
+
+3. 安装完整RAG功能（包含文档处理）:
+   uv pip install sentence-transformers faiss-cpu numpy PyPDF2 python-docx
 ```
 
 ## 排除grpcio编译问题
@@ -105,6 +150,15 @@ pip install faiss-cpu --no-build-isolation
 uv pip install sentence-transformers -i https://pypi.tuna.tsinghua.edu.cn/simple/
 ```
 
+### 4. RAG功能不可用
+**错误信息**: `ImportError: RAG功能需要以下依赖包，但未安装`
+
+**解决方案**:
+```bash
+# 安装RAG可选依赖
+uv pip install vertex[rag]
+```
+
 ## 最小化安装
 
 如果只需要基本功能，可以只安装核心依赖：
@@ -124,8 +178,12 @@ uv pip install sentence-transformers faiss-cpu numpy
 
 安装完成后，运行测试：
 ```bash
+# 测试RAG功能
+vertex rag --interactive
+
+# 或者运行Python示例
 cd vertex_flow/examples
-python test_rag_simple.py
+python rag_example.py
 ```
 
 如果测试通过，说明安装完成！
@@ -150,9 +208,26 @@ answer = rag_system.query("什么是人工智能？")
 print(answer)
 ```
 
+## 命令行使用
+
+```bash
+# 交互式RAG问答
+vertex rag --interactive
+
+# 直接查询
+vertex rag --query "什么是人工智能？"
+
+# 索引指定目录的文档
+vertex rag --directory /path/to/documents
+
+# 显示向量数据库统计
+vertex rag --show-stats
+```
+
 ## 注意事项
 
 1. **仅本地功能**: 此配置不支持云端向量存储
 2. **无需API密钥**: 本地RAG系统完全离线工作
 3. **性能良好**: faiss-cpu在本地提供优秀的向量搜索性能
 4. **易于部署**: 无需外部服务，适合本地部署 
+5. **可选依赖**: RAG功能现在是可选的，不会影响基础功能 

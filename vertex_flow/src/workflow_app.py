@@ -60,19 +60,37 @@ class WorkflowChatApp:
             command_line_tool = self.service.get_command_line_tool()
             self.available_tools.append(command_line_tool)
 
-            # 可以添加其他工具
-            # web_search_tool = self.service.get_web_search_tool()
-            # self.available_tools.append(web_search_tool)
-
-            # finance_tool = self.service.get_finance_tool()
-            # self.available_tools.append(finance_tool)
+            # 初始化Web搜索工具 - 尝试多种搜索服务
+            web_search_tool = self._initialize_web_search_tool()
+            if web_search_tool:
+                self.available_tools.append(web_search_tool)
 
             logger.info(f"已初始化 {len(self.available_tools)} 个工具")
         except Exception as e:
             logger.error(f"初始化工具失败: {e}")
             self.available_tools = []
 
-    def _create_llm_vertex(self, system_prompt: str):
+    def _initialize_web_search_tool(self):
+        """初始化Web搜索工具，尝试多种搜索服务"""
+        # 优先级列表：serpapi -> duckduckgo(免费) -> bocha -> searchapi -> bing
+        search_providers = ["serpapi", "duckduckgo", "bocha", "searchapi", "bing"]
+        
+        for provider in search_providers:
+            try:
+                web_search_tool = self.service.get_web_search_tool(provider)
+                logger.info(f"Web搜索工具已启用 - 使用{provider}服务")
+                return web_search_tool
+            except Exception as e:
+                logger.debug(f"{provider}搜索服务初始化失败: {e}")
+                continue
+        
+        # 如果所有服务都失败，记录警告
+        logger.warning("所有Web搜索服务初始化失败，请检查配置或启用至少一个搜索服务")
+        return None
+
+
+
+    def _create_llm_vertex(self, system_prompt: str, enable_reasoning: bool = False, show_reasoning: bool = True):
         """创建 LLM Vertex 实例"""
         if self.llm_model is None:
             raise ValueError("LLM模型未初始化")
@@ -88,12 +106,21 @@ class WorkflowChatApp:
                 SYSTEM: system_prompt,
                 USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
                 ENABLE_STREAM: True,  # 启用流模式
+                "enable_reasoning": enable_reasoning,  # 启用思考过程
+                "show_reasoning": show_reasoning,  # 显示思考过程
             },
             tools=tools,  # 传递工具列表
         )
 
-    def chat_with_vertex(self, message, history, system_prompt):
-        """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入"""
+    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=True):
+        """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入和思考过程"""
+        # 添加调试信息，显示当前使用的模型
+        try:
+            current_model_name = self.llm_model.model_name() if self.llm_model else "未知"
+            logger.info(f"当前使用的模型: {current_model_name}")
+        except:
+            logger.info(f"当前使用的模型: {self.llm_model}")
+        
         # 支持多模态输入：message可以是str或dict
         if isinstance(message, dict):
             # 多模态输入
@@ -119,7 +146,7 @@ class WorkflowChatApp:
             }
         try:
             # 创建新的 LLM Vertex 实例（每次对话使用新实例避免状态污染）
-            llm_vertex = self._create_llm_vertex(system_prompt)
+            llm_vertex = self._create_llm_vertex(system_prompt, enable_reasoning, show_reasoning)
             # 先进行消息重定向处理
             llm_vertex.messages_redirect(inputs, self.context)
             # 使用流式聊天方法
@@ -143,6 +170,10 @@ class WorkflowChatApp:
                 display_message += " [图片]"
         else:
             display_message = str(message)
+        
+        # 确保history不为None
+        if history is None:
+            history = []
         
         new_history = history + [(display_message, "")]
 
@@ -169,10 +200,10 @@ class WorkflowChatApp:
             yield "", new_history
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
-        logger.info(f"用户: {display_message[:50]}... | 助手: {final_response[:50]}...")
+        logger.info(f"用户: {display_message[:150]}... | 助手: {final_response[:150]}...")
 
-    def get_available_models(self) -> List[str]:
-        """获取可用的模型列表"""
+    def get_available_providers(self) -> List[str]:
+        """获取可用的提供商列表"""
         try:
             config = self.service._config
             if not isinstance(config, dict):
@@ -182,54 +213,84 @@ class WorkflowChatApp:
             if not isinstance(llm_config, dict):
                 return ["LLM配置格式错误"]
 
-            models = []
+            providers = []
             for provider, provider_config in llm_config.items():
                 if isinstance(provider_config, dict):
-                    model_name = provider_config.get("model-name", provider)
                     enabled = provider_config.get("enabled", False)
                     status = "✅" if enabled else "❌"
-                    models.append(f"{status} {provider}: {model_name}")
+                    providers.append(f"{status} {provider}")
+            return providers
+        except Exception as e:
+            logger.error(f"获取提供商列表失败: {e}")
+            return ["配置加载失败"]
+
+    def get_models_by_provider(self, provider: str) -> List[str]:
+        """根据提供商获取对应的模型列表"""
+        try:
+            config = self.service._config
+            if not isinstance(config, dict):
+                return ["配置格式错误"]
+
+            llm_config = config.get("llm", {})
+            if not isinstance(llm_config, dict):
+                return ["LLM配置格式错误"]
+
+            provider_config = llm_config.get(provider, {})
+            if not provider_config:
+                return [f"未找到提供商: {provider}"]
+
+            models = []
+            provider_enabled = provider_config.get("enabled", False)
+            
+            # 支持多模型结构
+            if "models" in provider_config:
+                models_list = provider_config["models"]
+                for model_config in models_list:
+                    if isinstance(model_config, dict):
+                        model_name = model_config.get("name", "unknown")
+                        model_enabled = model_config.get("enabled", False)
+                        is_default = model_config.get("default", False)
+                        status = "✅" if (provider_enabled and model_enabled) else "❌"
+                        default_mark = " (默认)" if is_default else ""
+                        models.append(f"{status} {model_name}{default_mark}")
+            else:
+                # 旧格式：使用model-name
+                model_name = provider_config.get("model-name", provider)
+                status = "✅" if provider_enabled else "❌"
+                models.append(f"{status} {model_name}")
+            
             return models
         except Exception as e:
             logger.error(f"获取模型列表失败: {e}")
             return ["配置加载失败"]
 
-    def switch_model(self, provider: str) -> str:
-        """切换模型提供商"""
+    def switch_model_by_provider_and_name(self, provider: str, model_name: str = None) -> str:
+        """根据提供商和模型名称切换模型"""
         try:
             # 对于Ollama，先检查服务是否可用
             if provider.lower() == "ollama":
                 if not self._check_ollama_service():
                     return "❌ Ollama服务不可用，请确保Ollama正在运行并监听在http://localhost:11434"
 
-            new_model = self.service.get_chatmodel_by_provider(provider)
+            # 如果指定了模型名称，使用它；否则使用默认模型
+            new_model = self.service.get_chatmodel_by_provider(provider, model_name)
             if new_model:
                 self.llm_model = new_model
 
                 # 安全获取模型名称
                 try:
-                    model_name = new_model.model_name()
+                    actual_model_name = new_model.model_name()
                 except:
-                    model_name = str(new_model)
+                    actual_model_name = str(new_model)
 
-                logger.info(f"已切换到模型: {provider} - {model_name}")
-                return f"✅ 已切换到: {provider} - {model_name}"
+                logger.info(f"已切换到模型: {provider} - {actual_model_name}")
+                return f"✅ 已切换到: {provider} - {actual_model_name}"
             else:
                 return f"❌ 无法切换到模型: {provider}"
         except Exception as e:
             error_msg = f"❌ 切换模型失败: {str(e)}"
             logger.error(error_msg)
             return error_msg
-
-    def _check_ollama_service(self) -> bool:
-        """检查Ollama服务是否可用"""
-        try:
-            import requests
-
-            response = requests.get("http://localhost:11434/api/version", timeout=3)
-            return response.status_code == 200
-        except:
-            return False
 
     def get_ollama_models(self) -> List[str]:
         """获取可用的Ollama模型列表"""
@@ -255,6 +316,16 @@ class WorkflowChatApp:
             logger.error(f"获取Ollama模型列表失败: {e}")
             return [f"获取失败: {str(e)}"]
 
+    def _check_ollama_service(self) -> bool:
+        """检查Ollama服务是否可用"""
+        try:
+            import requests
+
+            response = requests.get("http://localhost:11434/api/version", timeout=3)
+            return response.status_code == 200
+        except:
+            return False
+
 
 def parse_args():
     """解析命令行参数"""
@@ -274,6 +345,10 @@ def create_gradio_interface(app: WorkflowChatApp):
         "你是一个友好、聪明且乐于助人的AI助手。"
         "请根据用户的问题提供准确、有用的回答。"
         "如果不确定答案，请诚实地说明。"
+        "\n\n你可以使用网络搜索工具来获取最新信息："
+        "\n- 当用户询问最新新闻、实时信息、股价、天气等时，请主动使用搜索功能"
+        "\n- 当需要查证事实、获取准确数据时，建议进行网络搜索"
+        "\n- 搜索后请基于搜索结果提供准确、有用的回答"
     )
 
     with gr.Blocks(
@@ -700,10 +775,9 @@ def create_gradio_interface(app: WorkflowChatApp):
                 )
 
                 with gr.Row():
-                    msg = gr.Textbox(placeholder="输入您的问题...", lines=1, scale=2, container=False)
-                    image_input = gr.Image(type="filepath", label="上传图片（可选）", scale=1)
-                    image_url_input = gr.Textbox(placeholder="粘贴图片URL（可选）", label="图片URL", lines=1, scale=1)
-                    send_btn = gr.Button("发送", variant="primary", scale=1)
+                    msg = gr.Textbox(placeholder="输入您的问题...", lines=1, scale=4, container=False)
+                    image_url_input = gr.Textbox(placeholder="粘贴图片URL（可选）", label="图片URL", lines=1, scale=3)
+                    send_btn = gr.Button("发送", variant="primary", scale=1, size="sm")
 
                 with gr.Row():
                     clear_btn = gr.Button("清除对话", variant="secondary")
@@ -729,27 +803,39 @@ def create_gradio_interface(app: WorkflowChatApp):
 
                 model_info = gr.Markdown(f"**当前模型:** {current_model}", elem_classes=["model-info"])
 
-                # 可用模型列表
-                available_models = gr.Dropdown(
-                    label="可用模型", choices=app.get_available_models(), interactive=False, info="配置文件中的所有模型"
+                # 模型切换 - 先选择提供商，再选择模型
+                gr.Markdown("#### 选择提供商")
+                provider_dropdown = gr.Dropdown(
+                    label="提供商",
+                    choices=app.get_available_providers(),
+                    interactive=True,
+                    info="选择提供商后显示对应的模型",
+                    allow_custom_value=False
                 )
 
-                # 模型切换 - 使用下拉选择 + 手动输入两种方式
-                with gr.Row():
-                    provider_dropdown = gr.Dropdown(
-                        label="选择提供商",
-                        choices=["deepseek", "openrouter", "tongyi", "moonshoot", "ollama"],
-                        scale=2,
-                        allow_custom_value=True,
-                    )
-                    switch_btn = gr.Button("切换", scale=1)
+                gr.Markdown("#### 选择模型")
+                model_dropdown = gr.Dropdown(
+                    label="模型",
+                    choices=[],
+                    interactive=True,
+                    info="选择要使用的具体模型",
+                    allow_custom_value=False
+                )
 
                 with gr.Row():
-                    provider_input = gr.Textbox(
-                        placeholder="或手动输入提供商名称 (如: deepseek)", label="手动输入提供商", scale=4, visible=True
-                    )
+                    switch_btn = gr.Button("切换模型", variant="primary", scale=1)
+                    refresh_btn = gr.Button("刷新", variant="secondary", scale=1)
 
                 switch_result = gr.Textbox(label="切换结果", interactive=False, lines=2)
+
+                # 手动输入模式（保留兼容性）
+                with gr.Accordion("🔧 手动输入模式", open=False):
+                    provider_input = gr.Textbox(
+                        placeholder="输入提供商名称 (如: deepseek)", 
+                        label="手动输入提供商", 
+                        scale=4
+                    )
+                    manual_switch_btn = gr.Button("手动切换", scale=1)
 
                 # Ollama本地模型管理
                 gr.Markdown("### 🏠 本地模型(Ollama)")
@@ -778,6 +864,17 @@ def create_gradio_interface(app: WorkflowChatApp):
                     info=f"共有 {len(app.available_tools)} 个工具可用",
                 )
 
+                # 思考过程管理
+                gr.Markdown("### 🤔 思考过程")
+
+                enable_reasoning = gr.Checkbox(
+                    label="启用思考过程", value=False, info="让AI显示推理过程（支持DeepSeek R1等模型）"
+                )
+
+                show_reasoning = gr.Checkbox(
+                    label="显示思考过程", value=True, info="是否在对话中显示AI的思考过程"
+                )
+
                 # 命令行工具测试区域
                 with gr.Accordion("🖥️ 命令行工具测试", open=False):
                     cmd_input = gr.Textbox(label="命令", placeholder="例如: ls -la, python --version, pwd", lines=1)
@@ -785,34 +882,29 @@ def create_gradio_interface(app: WorkflowChatApp):
                     cmd_result = gr.JSON(label="执行结果", visible=True)
 
         # 事件绑定
-        def respond(message, history, sys_prompt, image, image_url):
+        def respond(message, history, sys_prompt, image_url, enable_reasoning_val, show_reasoning_val):
             multimodal_inputs = {}
             # 文本
             if message:
                 multimodal_inputs["text"] = message
-            # 图片优先本地上传
-            if image:
-                import base64
-                with open(image, "rb") as f:
-                    img_b64 = "data:image/png;base64," + base64.b64encode(f.read()).decode()
-                multimodal_inputs["image_url"] = img_b64
-            elif image_url and image_url.strip():
+            # 图片URL处理
+            if image_url and image_url.strip():
                 # 验证图片URL
                 url = image_url.strip()
                 if "discordapp.com" in url or "discord.com" in url:
                     # Discord图片可能不被支持，给出提示
-                    yield "⚠️ 检测到Discord图片链接，可能不被支持。建议：\n1. 下载图片后重新上传\n2. 使用其他图片托管服务\n3. 直接粘贴图片URL", history + [(message or "", "⚠️ Discord图片链接可能不被支持，请尝试其他方式。")]
+                    yield "⚠️ 检测到Discord图片链接，可能不被支持。建议：\n1. 使用其他图片托管服务\n2. 直接粘贴图片URL", history + [(message or "", "⚠️ Discord图片链接可能不被支持，请尝试其他方式。")]
                     return
                 elif "cdn.discordapp.com" in url:
                     # Discord CDN图片
-                    yield "⚠️ Discord CDN图片链接可能不被支持。建议下载图片后重新上传。", history + [(message or "", "⚠️ Discord CDN图片链接可能不被支持，请尝试其他方式。")]
+                    yield "⚠️ Discord CDN图片链接可能不被支持。建议使用其他图片托管服务。", history + [(message or "", "⚠️ Discord CDN图片链接可能不被支持，请尝试其他方式。")]
                     return
                 else:
                     multimodal_inputs["image_url"] = url
             
             # 传递给chat_with_vertex
             try:
-                for result in app.chat_with_vertex(multimodal_inputs, history, sys_prompt):
+                for result in app.chat_with_vertex(multimodal_inputs, history, sys_prompt, enable_reasoning_val, show_reasoning_val):
                     yield result
             except Exception as e:
                 error_msg = f"处理失败: {str(e)}"
@@ -823,14 +915,60 @@ def create_gradio_interface(app: WorkflowChatApp):
         def clear_conversation():
             return []
 
-        def switch_model_handler(dropdown_provider, manual_provider):
-            # 优先使用下拉选择的值，如果为空则使用手动输入的值
-            provider = dropdown_provider if dropdown_provider else manual_provider
-            if not provider:
-                return "❌ 请选择或输入提供商名称", model_info.value
+        def update_models_by_provider(selected_provider):
+            """根据选择的提供商更新模型列表"""
+            if not selected_provider:
+                return gr.Dropdown(choices=[])
+            
+            # 移除状态图标获取纯提供商名称
+            provider = selected_provider.replace("✅ ", "").replace("❌ ", "")
+            models = app.get_models_by_provider(provider)
+            return gr.Dropdown(choices=models)
 
-            result = app.switch_model(provider)
+        def switch_model_by_provider_and_model(selected_provider, selected_model):
+            """根据提供商和模型切换"""
+            if not selected_provider:
+                return "❌ 请先选择提供商", model_info.value
+            
+            if not selected_model:
+                return "❌ 请选择模型", model_info.value
+            
+            # 移除状态图标获取纯名称
+            provider = selected_provider.replace("✅ ", "").replace("❌ ", "")
+            model = selected_model.replace("✅ ", "").replace("❌ ", "")
+            
+            # 如果模型名称包含"(默认)"标记，移除它
+            if " (默认)" in model:
+                model = model.replace(" (默认)", "")
+            
+            # 检查模型是否可用
+            if not selected_model.startswith("✅"):
+                return f"❌ 模型 {model} 当前不可用", model_info.value
+            
+            result = app.switch_model_by_provider_and_name(provider, model)
+            
+            # 安全获取新模型名称
+            new_model_name = "未知"
+            if app.llm_model:
+                try:
+                    new_model_name = app.llm_model.model_name()
+                except:
+                    new_model_name = str(app.llm_model)
 
+            new_model_info = f"**当前模型:** {new_model_name}"
+            return result, new_model_info
+
+        def refresh_provider_list():
+            """刷新提供商列表"""
+            return gr.Dropdown(choices=app.get_available_providers())
+
+        def manual_switch_model(manual_provider):
+            """手动切换模型（兼容性）"""
+            if not manual_provider:
+                return "❌ 请输入提供商名称", model_info.value
+            
+            result = app.switch_model_by_provider_and_name(manual_provider)
+            
             # 安全获取新模型名称
             new_model_name = "未知"
             if app.llm_model:
@@ -870,15 +1008,30 @@ def create_gradio_interface(app: WorkflowChatApp):
                 return {"error": f"执行失败: {str(e)}"}
 
         # 绑定发送消息事件（支持流式输出）
-        msg.submit(respond, inputs=[msg, chatbot, system_prompt, image_input, image_url_input], outputs=[msg, chatbot], show_progress="minimal")
-        send_btn.click(respond, inputs=[msg, chatbot, system_prompt, image_input, image_url_input], outputs=[msg, chatbot], show_progress="minimal")
+        msg.submit(respond, inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, show_reasoning], outputs=[msg, chatbot], show_progress="minimal")
+        send_btn.click(respond, inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, show_reasoning], outputs=[msg, chatbot], show_progress="minimal")
 
         # 绑定清除对话事件
         clear_btn.click(clear_conversation, outputs=[chatbot])
 
-        # 绑定模型切换事件 - 支持两种输入方式
+        # 绑定提供商选择事件 - 更新模型列表
+        provider_dropdown.change(
+            update_models_by_provider, inputs=[provider_dropdown], outputs=[model_dropdown]
+        )
+
+        # 绑定模型切换事件
         switch_btn.click(
-            switch_model_handler, inputs=[provider_dropdown, provider_input], outputs=[switch_result, model_info]
+            switch_model_by_provider_and_model, inputs=[provider_dropdown, model_dropdown], outputs=[switch_result, model_info]
+        )
+
+        # 绑定刷新事件
+        refresh_btn.click(
+            refresh_provider_list, outputs=[provider_dropdown]
+        )
+
+        # 绑定手动切换事件
+        manual_switch_btn.click(
+            manual_switch_model, inputs=[provider_input], outputs=[switch_result, model_info]
         )
 
         # 绑定Ollama模型刷新事件

@@ -9,32 +9,74 @@
 # 3. 拉取模型: ollama pull qwen:7b
 # 4. 在应用中切换到ollama提供商
 llm:
-  moonshoot:
-    sk: ${llm.moonshoot.sk:-YOUR_MOONSHOT_API_KEY}
-    enabled: false
-    model-name: moonshot-v1-128k
   deepseek:
     sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
     enabled: false
-    model-name: deepseek-chat
+    models:
+      - name: deepseek-chat
+        enabled: true
+      - name: deepseek-coder
+        enabled: false
   tongyi:
     sk: ${llm.tongyi.sk:-YOUR_TONGYI_API_KEY}
     enabled: false
-    model-name: qwen-max
+    models:
+      - name: qwen-max
+        enabled: true
+      - name: qwen-plus
+        enabled: false
+      - name: qwen-turbo
+        enabled: false
   openrouter:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
     enabled: false
-    model-name: deepseek/deepseek-chat-v3-0324:free
+    models:
+      - name: deepseek/deepseek-chat-v3-0324:free
+        enabled: false
+      - name: deepseek/deepseek-r1-0528:free
+        enabled: false
+      - name: google/gemini-2.5-pro
+        enabled: true
+      - name: anthropic/claude-3.5-sonnet
+        enabled: false
+      - name: openai/gpt-4o
+        enabled: false
   ollama:
     sk: ${llm.ollama.sk:-ollama-local}          # 本地模型不需要真实API key，使用占位符
     enabled: false                               # 默认不启用，需要手动切换
-    model-name: ${llm.ollama.model:-qwen:7b}    # Ollama模型名称，例如: qwen:7b, llama3:8b
     base-url: ${llm.ollama.base_url:-http://localhost:11434}  # Ollama服务地址
+    models:
+      - name: qwen:7b
+        enabled: true
+      - name: llama3:8b
+        enabled: false
+      - name: mistral:7b
+        enabled: false
 
 web-search:
+  # Bocha AI搜索服务 - 高质量AI总结，支持日期过滤
   bocha:
     sk: ${web-search.bocha.sk:-YOUR_BOCHA_API_KEY}
-    enabled: false
+    enabled: false  # 需要API密钥，提供最佳搜索体验
+  
+  # DuckDuckGo搜索服务 - 免费即时答案，无需API密钥
+  duckduckgo:
+    enabled: true  # 默认启用，作为免费备选方案
+  
+  # SerpAPI搜索服务 - Google搜索结果，免费层每月100次
+  serpapi:
+    api_key: ${web-search.serpapi.api_key:-YOUR_SERPAPI_API_KEY}
+    enabled: false  # 需要API密钥，提供Google搜索结果
+  
+  # SearchAPI.io搜索服务 - 多搜索引擎支持，免费层每月100次
+  searchapi:
+    api_key: ${web-search.searchapi.api_key:-YOUR_SEARCHAPI_API_KEY}
+    enabled: false  # 需要API密钥，支持多种搜索引擎
+  
+  # 注意：以上搜索服务按优先级排序，系统会自动选择第一个启用且配置正确的服务
+  # 建议配置：启用Bocha AI（付费，最佳体验）+ DuckDuckGo（免费备选）
+  
+  # 已废弃的配置（保留以兼容旧版本）
   bing:
     sk: ${web-search.bing.sk:-YOUR_BING_API_KEY}
     enabled: false

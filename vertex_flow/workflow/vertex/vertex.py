@@ -10,6 +10,8 @@ from vertex_flow.workflow.constants import (
     LOCAL_VAR,
     SOURCE_SCOPE,
     SOURCE_VAR,
+    VERTEX_ID_KEY,
+    OUTPUT_KEY
 )
 from vertex_flow.workflow.edge import (
     Edge,
@@ -462,7 +464,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         """
         # 在执行后触发 values 事件
         if self.workflow:
-            self.workflow.emit_event("values", {"vertex_id": self.id, "output": self.output})
+            self.workflow.emit_event("values", {VERTEX_ID_KEY: self.id, OUTPUT_KEY: self.output})
         pass
 
     def on_failed(self):
@@ -472,7 +474,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         """
         # 在状态变化时触发 updates 事件
         if self.workflow:
-            self.workflow.emit_event("updates", {"vertex_id": self.id, "status": "failed"})
+            self.workflow.emit_event("updates", {VERTEX_ID_KEY: self.id, "status": "failed"})
         pass
 
     def on_workflow_finished(self):

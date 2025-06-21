@@ -155,36 +155,29 @@ def create_command_line_tool() -> FunctionTool:
     """
 
     schema = {
-        "type": "function",
-        "function": {
-            "name": "execute_command",
-            "description": "Execute a command line command on the local system. Can run shell commands, scripts, and system utilities. Use with caution and avoid destructive operations.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The command to execute (e.g., 'ls -la', 'python --version', 'git status')",
-                    },
-                    "timeout": {"type": "integer", "description": "Timeout in seconds (default: 30)", "default": 30},
-                    "working_dir": {
-                        "type": "string",
-                        "description": "Working directory for command execution (default: current directory)",
-                    },
-                    "capture_output": {
-                        "type": "boolean",
-                        "description": "Whether to capture command output (default: true)",
-                        "default": True,
-                    },
-                    "shell": {
-                        "type": "boolean",
-                        "description": "Whether to use shell for command execution (default: true)",
-                        "default": True,
-                    },
-                },
-                "required": ["command"],
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "The command to execute (e.g., 'ls -la', 'python --version', 'git status')",
+            },
+            "timeout": {"type": "integer", "description": "Timeout in seconds (default: 30)", "default": 30},
+            "working_dir": {
+                "type": "string",
+                "description": "Working directory for command execution (default: current directory)",
+            },
+            "capture_output": {
+                "type": "boolean",
+                "description": "Whether to capture command output (default: true)",
+                "default": True,
+            },
+            "shell": {
+                "type": "boolean",
+                "description": "Whether to use shell for command execution (default: true)",
+                "default": True,
             },
         },
+        "required": ["command"],
     }
 
     return FunctionTool(

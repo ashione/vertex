@@ -9,6 +9,7 @@ from vertex_flow.workflow.constants import (
     WORKFLOW_COMPLETE,
     WORKFLOW_ERROR,
     WORKFLOW_FAILED,
+    MESSAGE_KEY
 )
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.event_channel import EventChannel, EventType
@@ -62,7 +63,7 @@ def around_workflow(func):
         logger.info("on workflow finished.")
         # 发送工作流完成事件
         try:
-            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_COMPLETE, "message": "工作流执行完成"})
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_COMPLETE, MESSAGE_KEY: "工作流执行完成"})
             logger.info(f"emit event {EventType.UPDATES} workflow_complete")
         except Exception as e:
             logger.error(f"Failed to emit event {EventType.UPDATES} workflow_complete: {e}")
@@ -78,7 +79,7 @@ def around_workflow(func):
         logger.info("on workflow failed.")
         # 发送工作流异常事件
         try:
-            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_FAILED, "message": "工作流执行异常"})
+            self.emit_event(EventType.UPDATES, {"status": WORKFLOW_FAILED, MESSAGE_KEY: "工作流执行异常"})
             logger.info(f"emit event {EventType.UPDATES} workflow_failed")
         except Exception as e:
             logger.error(f"Failed to emit event {EventType.UPDATES} workflow_failed: {e}")

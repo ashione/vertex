@@ -464,7 +464,7 @@ class UnifiedRAGWorkflowBuilder:
         # config_path = os.path.join(os.getcwd(), "config", "llm.yml")
         # 复用VertexFlowService的配置
         self.service = VertexFlowService()
-        self.config = self.service._config
+        self.config: Dict[str, Any] = self.service._config
         self.embedding_provider = None
         self.vector_engine = None
         self.llm_model = None
@@ -505,12 +505,15 @@ class UnifiedRAGWorkflowBuilder:
         }
 
     def _initialize_components(self):
-        """初始化组件"""
-        # 初始化嵌入提供者
-        if isinstance(self.config, dict):
+        """
+        初始化RAG组件（嵌入提供者、向量引擎、LLM模型）
+        """
+        # 确保配置是字典类型
+        if not isinstance(self.config, dict):
+            self.config = self._get_default_config()
+
+            # 初始化嵌入提供者
             embedding_config = self.config.get("embedding", {})
-        else:
-            embedding_config = {}
 
         # 优先使用启用的嵌入提供者
         if embedding_config.get("dashscope", {}).get("enabled", False):
@@ -572,7 +575,8 @@ class UnifiedRAGWorkflowBuilder:
         try:
             # 直接使用service的get_chatmodel方法，它会自动处理配置和选择启用的模型
             self.llm_model = self.service.get_chatmodel()
-            logging.info(f"llm config : {self.config['llm']}")
+            llm_config = self.config.get("llm", {})
+            logging.info(f"llm config : {llm_config}")
             logging.info(
                 f"使用LLM模型: {self.llm_model.model_name() if hasattr(self.llm_model, 'model_name') else 'default'}"
             )
@@ -1059,6 +1063,9 @@ class UnifiedRAGSystem:
         初始化统一配置的RAG系统
 
         """
+        # 检查RAG依赖是否已安装
+        self._check_rag_dependencies()
+
         self.builder = UnifiedRAGWorkflowBuilder()
 
         self.indexing_workflow = None
@@ -1069,6 +1076,33 @@ class UnifiedRAGSystem:
         self._embedding_cache = {}  # 查询embedding缓存
         self._is_initialized = False
         self._indexing_only_mode = False  # 仅索引模式标志
+
+    def _check_rag_dependencies(self):
+        """检查RAG依赖是否已安装"""
+        missing_deps = []
+
+        try:
+            import sentence_transformers
+        except ImportError:
+            missing_deps.append("sentence-transformers")
+
+        try:
+            import faiss
+        except ImportError:
+            missing_deps.append("faiss-cpu")
+
+        try:
+            import numpy
+        except ImportError:
+            missing_deps.append("numpy")
+
+        if missing_deps:
+            error_msg = f"RAG功能需要以下依赖包，但未安装: {', '.join(missing_deps)}\n"
+            error_msg += "请使用以下命令安装RAG依赖:\n"
+            error_msg += "  uv pip install vertex[rag]\n"
+            error_msg += "或者手动安装:\n"
+            error_msg += "  uv pip install sentence-transformers faiss-cpu numpy"
+            raise ImportError(error_msg)
 
     def _lazy_initialize(self, indexing_only: bool = False):
         """

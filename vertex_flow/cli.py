@@ -454,6 +454,45 @@ def run_rag_mode(args):
     """运行RAG模式"""
     print("=== RAG检索增强生成系统 ===")
 
+    # 检查RAG依赖是否已安装
+    def check_rag_dependencies():
+        missing_deps = []
+        try:
+            import sentence_transformers
+        except ImportError:
+            missing_deps.append("sentence-transformers")
+
+        try:
+            import faiss
+        except ImportError:
+            missing_deps.append("faiss-cpu")
+
+        try:
+            import numpy
+        except ImportError:
+            missing_deps.append("numpy")
+
+        return missing_deps
+
+    missing_deps = check_rag_dependencies()
+    if missing_deps:
+        print("❌ RAG功能需要以下依赖包，但未安装:")
+        for dep in missing_deps:
+            print(f"   - {dep}")
+        print("\n请选择以下方式之一安装RAG依赖:")
+        print("1. 使用可选依赖安装:")
+        print("   uv pip install vertex[rag]")
+        print("   # 或者")
+        print("   pip install vertex[rag]")
+        print("\n2. 手动安装核心依赖:")
+        print("   uv pip install sentence-transformers faiss-cpu numpy")
+        print("\n3. 安装完整RAG功能（包含文档处理）:")
+        print("   uv pip install sentence-transformers faiss-cpu numpy PyPDF2 python-docx")
+        print("\n安装完成后重新运行命令即可使用RAG功能。")
+        sys.exit(1)
+
+    print("✅ RAG依赖检查通过")
+
     # 检查是否为桌面端模式
     if args.desktop:
         print("启动RAG系统桌面端...")
@@ -560,7 +599,7 @@ def run_rag_mode(args):
     except ImportError as e:
         print(f"启动失败: {e}")
         print("请确保正确安装了vertex包和相关依赖")
-        print("运行: pip install sentence-transformers faiss-cpu")
+        print("运行: uv pip install vertex[rag]")
         sys.exit(1)
     except Exception as e:
         print(f"RAG系统运行失败: {e}")

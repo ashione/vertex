@@ -24,7 +24,18 @@ from vertex_flow.utils.logger import setup_logger
 from vertex_flow.workflow.app.deep_research_workflow import DeepResearchWorkflow
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.event_channel import EventType
-from vertex_flow.workflow.constants import WORKFLOW_COMPLETE, WORKFLOW_FAILED
+from vertex_flow.workflow.constants import (
+    WORKFLOW_COMPLETE, 
+    WORKFLOW_FAILED,
+    CONTENT_KEY,
+    MESSAGE_KEY,
+    VERTEX_ID_KEY,
+    TYPE_KEY,
+    MESSAGE_TYPE_REGULAR,
+    MESSAGE_TYPE_REASONING,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_END
+)
 
 # 应用nest_asyncio以支持嵌套事件循环
 nest_asyncio.apply()
@@ -167,7 +178,7 @@ class DeepResearchApp:
             def on_vertex_complete(event_data):
                 """处理顶点完成事件（values类型）"""
                 try:
-                    vertex_id = event_data.get('vertex_id')
+                    vertex_id = event_data.get(VERTEX_ID_KEY)
                     output = event_data.get('output', '')
                     
                     if vertex_id and vertex_id not in self.stage_history:
@@ -191,9 +202,11 @@ class DeepResearchApp:
             def on_stream_message(event_data):
                 """处理流式消息事件（messages类型）"""
                 try:
-                    vertex_id = event_data.get('vertex_id')
-                    message = event_data.get('message')
+                    vertex_id = event_data.get(VERTEX_ID_KEY)
+                    # 统一处理不同的消息键名，支持向后兼容
+                    message = event_data.get(CONTENT_KEY) or event_data.get(MESSAGE_KEY) or ""
                     status = event_data.get('status')
+                    message_type = event_data.get(TYPE_KEY, MESSAGE_TYPE_REGULAR)
                     
                     if status == 'end':
                         logger.info(f"顶点 {vertex_id} 流式输出结束")
@@ -221,7 +234,7 @@ class DeepResearchApp:
             def on_workflow_update(event_data):
                 """处理工作流更新事件（updates类型）"""
                 try:
-                    vertex_id = event_data.get('vertex_id')
+                    vertex_id = event_data.get(VERTEX_ID_KEY)
                     status = event_data.get('status')
                     
                     if status == 'failed':
@@ -407,50 +420,129 @@ class DeepResearchApp:
         
         return debug_info
     
-    def get_available_models(self) -> List[str]:
-        """获取可用的模型列表"""
+    def get_available_providers(self) -> List[str]:
+        """获取可用的提供商列表"""
         try:
             config = self.service._config
             if not isinstance(config, dict):
                 return ["配置格式错误"]
-                
+
             llm_config = config.get("llm", {})
             if not isinstance(llm_config, dict):
                 return ["LLM配置格式错误"]
-                
-            models = []
+
+            providers = []
             for provider, provider_config in llm_config.items():
                 if isinstance(provider_config, dict):
-                    model_name = provider_config.get("model-name", provider)
                     enabled = provider_config.get("enabled", False)
                     status = "✅" if enabled else "❌"
-                    models.append(f"{status} {provider}: {model_name}")
+                    providers.append(f"{status} {provider}")
+            return providers
+        except Exception as e:
+            logger.error(f"获取提供商列表失败: {e}")
+            return ["配置加载失败"]
+
+    def get_models_by_provider(self, provider: str) -> List[str]:
+        """根据提供商获取对应的模型列表"""
+        try:
+            config = self.service._config
+            if not isinstance(config, dict):
+                return ["配置格式错误"]
+
+            llm_config = config.get("llm", {})
+            if not isinstance(llm_config, dict):
+                return ["LLM配置格式错误"]
+
+            provider_config = llm_config.get(provider, {})
+            if not provider_config:
+                return [f"未找到提供商: {provider}"]
+
+            models = []
+            provider_enabled = provider_config.get("enabled", False)
+            
+            # 支持多模型结构
+            if "models" in provider_config:
+                models_list = provider_config["models"]
+                for model_config in models_list:
+                    if isinstance(model_config, dict):
+                        model_name = model_config.get("name", "unknown")
+                        model_enabled = model_config.get("enabled", False)
+                        is_default = model_config.get("default", False)
+                        status = "✅" if (provider_enabled and model_enabled) else "❌"
+                        default_mark = " (默认)" if is_default else ""
+                        models.append(f"{status} {model_name}{default_mark}")
+            else:
+                # 旧格式：使用model-name
+                model_name = provider_config.get("model-name", provider)
+                status = "✅" if provider_enabled else "❌"
+                models.append(f"{status} {model_name}")
+            
             return models
         except Exception as e:
             logger.error(f"获取模型列表失败: {e}")
             return ["配置加载失败"]
-    
-    def switch_model(self, provider: str) -> str:
-        """切换模型提供商"""
+
+    def switch_model_by_provider_and_name(self, provider: str, model_name: str = None) -> str:
+        """根据提供商和模型名称切换模型"""
         try:
-            new_model = self.service.get_chatmodel_by_provider(provider)
+            # 如果指定了模型名称，使用它；否则使用默认模型
+            new_model = self.service.get_chatmodel_by_provider(provider, model_name)
             if new_model:
                 self.llm_model = new_model
                 # 重新初始化工作流构建器
                 self.workflow_builder = DeepResearchWorkflow(self.service)
                 
                 try:
-                    model_name = new_model.model_name()
+                    actual_model_name = new_model.model_name()
                 except:
-                    model_name = str(new_model)
+                    actual_model_name = str(new_model)
                 
-                logger.info(f"已切换到模型: {provider} - {model_name}")
-                return f"✅ 已切换到: {provider} - {model_name}"
+                logger.info(f"已切换到模型: {provider} - {actual_model_name}")
+                return f"✅ 已切换到: {provider} - {actual_model_name}"
             else:
                 return f"❌ 无法切换到模型: {provider}"
         except Exception as e:
             logger.error(f"切换模型失败: {e}")
             return f"❌ 切换失败: {str(e)}"
+
+    def get_available_models(self) -> List[str]:
+        """获取可用的模型列表（保留兼容性）"""
+        try:
+            config = self.service._config
+            if not isinstance(config, dict):
+                return ["配置格式错误"]
+
+            llm_config = config.get("llm", {})
+            if not isinstance(llm_config, dict):
+                return ["LLM配置格式错误"]
+
+            models = []
+            for provider, provider_config in llm_config.items():
+                if isinstance(provider_config, dict):
+                    enabled = provider_config.get("enabled", False)
+                    
+                    # 支持多模型结构
+                    if "models" in provider_config:
+                        models_list = provider_config["models"]
+                        for model_config in models_list:
+                            if isinstance(model_config, dict):
+                                model_name = model_config.get("name", "unknown")
+                                model_enabled = model_config.get("enabled", False)
+                                status = "✅" if (enabled and model_enabled) else "❌"
+                                models.append(f"{status} {provider}: {model_name}")
+                    else:
+                        # 旧格式：使用model-name
+                        model_name = provider_config.get("model-name", provider)
+                        status = "✅" if enabled else "❌"
+                        models.append(f"{status} {provider}: {model_name}")
+            return models
+        except Exception as e:
+            logger.error(f"获取模型列表失败: {e}")
+            return ["配置加载失败"]
+
+    def switch_model(self, provider: str) -> str:
+        """切换模型提供商（保留兼容性）"""
+        return self.switch_model_by_provider_and_name(provider)
     
     def is_markdown_content(self, content: str) -> bool:
         """智能检测内容是否包含markdown格式"""
@@ -910,27 +1002,51 @@ def create_gradio_interface(app: DeepResearchApp):
                 
                 model_info = gr.Markdown(f"**当前模型:** {current_model_name}")
                 
-                model_list = gr.Dropdown(
-                    label="可用模型",
-                    choices=app.get_available_models(),
-                    interactive=False,
-                    info="系统中配置的所有模型"
+                # 模型切换 - 先选择提供商，再选择模型
+                gr.Markdown("#### 选择提供商")
+                provider_dropdown = gr.Dropdown(
+                    label="提供商",
+                    choices=app.get_available_providers(),
+                    interactive=True,
+                    info="选择提供商后显示对应的模型",
+                    allow_custom_value=False
                 )
-                
-                provider_input = gr.Textbox(
-                    placeholder="输入提供商名称切换模型",
-                    label="切换模型",
-                    info="例如: deepseek, openai, ollama"
+
+                gr.Markdown("#### 选择模型")
+                model_dropdown = gr.Dropdown(
+                    label="模型",
+                    choices=[],
+                    interactive=True,
+                    info="选择要使用的具体模型",
+                    allow_custom_value=False
                 )
-                
-                switch_btn = gr.Button("切换模型")
-                
+
+                with gr.Row():
+                    switch_btn = gr.Button("切换模型", variant="primary", scale=1)
+                    refresh_btn = gr.Button("刷新", variant="secondary", scale=1)
+
                 switch_result = gr.Textbox(
                     label="切换结果",
                     interactive=False,
                     lines=2
                 )
-                
+
+                # 手动输入模式（保留兼容性）
+                with gr.Accordion("🔧 手动输入模式", open=False):
+                    model_list = gr.Dropdown(
+                        label="可用模型（旧版格式）",
+                        choices=app.get_available_models(),
+                        interactive=False,
+                        info="系统中配置的所有模型"
+                    )
+                    
+                    provider_input = gr.Textbox(
+                        placeholder="输入提供商名称切换模型",
+                        label="切换模型",
+                        info="例如: deepseek, openai, ollama"
+                    )
+                    
+                    manual_switch_btn = gr.Button("手动切换模型")
         
         # 内容显示区域 - 使用标签页组织
         with gr.Tabs():
@@ -1109,7 +1225,72 @@ def create_gradio_interface(app: DeepResearchApp):
             
             new_model_info = f"**当前模型:** {new_model_name}"
             return result, new_model_info
-        
+
+        def update_models_by_provider(selected_provider):
+            """根据选择的提供商更新模型列表"""
+            if not selected_provider:
+                return gr.Dropdown(choices=[])
+            
+            # 移除状态图标获取纯提供商名称
+            provider = selected_provider.replace("✅ ", "").replace("❌ ", "")
+            models = app.get_models_by_provider(provider)
+            return gr.Dropdown(choices=models)
+
+        def switch_model_by_provider_and_model(selected_provider, selected_model):
+            """根据提供商和模型切换"""
+            if not selected_provider:
+                return "❌ 请先选择提供商", model_info.value
+            
+            if not selected_model:
+                return "❌ 请选择模型", model_info.value
+            
+            # 移除状态图标获取纯名称
+            provider = selected_provider.replace("✅ ", "").replace("❌ ", "")
+            model = selected_model.replace("✅ ", "").replace("❌ ", "")
+            
+            # 如果模型名称包含"(默认)"标记，移除它
+            if " (默认)" in model:
+                model = model.replace(" (默认)", "")
+            
+            # 检查模型是否可用
+            if not selected_model.startswith("✅"):
+                return f"❌ 模型 {model} 当前不可用", model_info.value
+            
+            result = app.switch_model_by_provider_and_name(provider, model)
+            
+            # 安全获取新模型名称
+            new_model_name = "未知"
+            if app.llm_model:
+                try:
+                    new_model_name = app.llm_model.model_name()
+                except:
+                    new_model_name = str(app.llm_model)
+
+            new_model_info = f"**当前模型:** {new_model_name}"
+            return result, new_model_info
+
+        def refresh_provider_list():
+            """刷新提供商列表"""
+            return gr.Dropdown(choices=app.get_available_providers())
+
+        def manual_switch_model(manual_provider):
+            """手动切换模型（兼容性）"""
+            if not manual_provider:
+                return "❌ 请输入提供商名称", model_info.value
+            
+            result = app.switch_model_by_provider_and_name(manual_provider)
+            
+            # 安全获取新模型名称
+            new_model_name = "未知"
+            if app.llm_model:
+                try:
+                    new_model_name = app.llm_model.model_name()
+                except:
+                    new_model_name = str(app.llm_model)
+
+            new_model_info = f"**当前模型:** {new_model_name}"
+            return result, new_model_info
+
         def handle_format_toggle(format_mode, current_md_content, current_text_content):
             """处理格式切换事件"""
             if format_mode == "Markdown渲染":
@@ -1136,7 +1317,7 @@ def create_gradio_interface(app: DeepResearchApp):
                 content = status_note + content
             
             return content
-        
+
         # 绑定事件
         start_btn.click(
             handle_start_research,
@@ -1150,13 +1331,27 @@ def create_gradio_interface(app: DeepResearchApp):
             outputs=[status_display]
         )
         
-        switch_btn.click(
-            handle_model_switch,
-            inputs=[provider_input],
-            outputs=[switch_result, model_info]
+        # 绑定提供商选择事件 - 更新模型列表
+        provider_dropdown.change(
+            update_models_by_provider, inputs=[provider_dropdown], outputs=[model_dropdown]
         )
-        
-        # 格式切换事件
+
+        # 绑定模型切换事件
+        switch_btn.click(
+            switch_model_by_provider_and_model, inputs=[provider_dropdown, model_dropdown], outputs=[switch_result, model_info]
+        )
+
+        # 绑定刷新事件
+        refresh_btn.click(
+            refresh_provider_list, outputs=[provider_dropdown]
+        )
+
+        # 绑定手动切换事件
+        manual_switch_btn.click(
+            manual_switch_model, inputs=[provider_input], outputs=[switch_result, model_info]
+        )
+
+        # 绑定格式切换事件
         format_toggle.change(
             handle_format_toggle,
             inputs=[format_toggle, research_report_md, research_report_text],

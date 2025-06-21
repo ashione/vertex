@@ -42,9 +42,12 @@ llm:
     model-name: "gpt-4"
     api-key: "your-openai-api-key"
   deepseek:
-    enabled: true  
-    model-name: "deepseek-chat"
-    api-key: "your-deepseek-api-key"
+    sk: ${llm.deepseek.sk:your-api-key}
+    enabled: true
+    models:
+      - name: deepseek-chat
+        enabled: true
+        default: true
 ```
 
 ### 3. 启动应用
@@ -229,20 +232,12 @@ python vertex_flow/src/deep_research_app.py --port 7861
 ```yaml
 llm:
   deepseek:
+    sk: ${llm.deepseek.sk:your-api-key}
     enabled: true
-    model-name: "deepseek-chat"
-    api-key: "sk-xxx"
-    base-url: "https://api.deepseek.com"
-    
-  openai:
-    enabled: false
-    model-name: "gpt-4"
-    api-key: "sk-xxx"
-    
-  ollama:
-    enabled: true
-    model-name: "llama2"
-    base-url: "http://localhost:11434"
+    models:
+      - name: deepseek-chat
+        enabled: true
+        default: true
 ```
 
 ### 研究配置

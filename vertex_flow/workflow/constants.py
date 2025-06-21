@@ -27,6 +27,21 @@ TMPFILE_PATH = "tmpfile_path"
 ENV_PARAMETERS = "env_parameters"
 USER_PARAMETERS = "user_parameters"
 
+# 流式输出和消息相关常量
+MESSAGE_KEY = "message"
+CONTENT_KEY = "content"
+OUTPUT_KEY = "output"
+ERROR_KEY = "error"
+VERTEX_ID_KEY = "vertex_id"
+TYPE_KEY = "type"
+ROLE_KEY = "role"
+
+# 消息类型常量
+MESSAGE_TYPE_REGULAR = "regular"
+MESSAGE_TYPE_REASONING = "reasoning"
+MESSAGE_TYPE_ERROR = "error"
+MESSAGE_TYPE_END = "end"
+
 # 变量定义相关常量
 LOCAL_VAR = "local_var"
 SOURCE_VAR = "source_var"
