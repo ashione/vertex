@@ -5,6 +5,7 @@
 ## 功能特性
 
 - **多模型支持**：Ollama本地模型和外部API（DeepSeek、OpenRouter、通义）
+- **🎨 多模态支持**：基于Gemini 2.5 Pro的图片分析和文本+图片对话
 - **Function Tools**：内置命令行执行和系统集成工具
 - **统一CLI**：简洁的命令行界面，支持多种运行模式
 - **VertexFlow引擎**：可视化工作流编排，支持拖拽节点
@@ -183,6 +184,9 @@ export web_search_bocha_sk="your-bocha-key"
 ### 📖 使用指南
 - [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
 - [桌面端应用指南](docs/DESKTOP_APP.md) - 桌面端应用使用说明
+- [工作流聊天应用指南](docs/WORKFLOW_CHAT_APP.md) - 支持Function Tools的高级聊天
+- [🎨 多模态功能指南](docs/MULTIMODAL_FEATURES.md) - 图片分析和文本+图片对话
+- [🎨 多模态使用示例](docs/MULTIMODAL_EXAMPLES.md) - 实际使用场景和示例
 - [RAG CLI详细说明](docs/RAG_CLI_USAGE.md) - RAG问答系统专项指南
 - [RAG性能优化](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - 性能分析与优化建议
 - [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
