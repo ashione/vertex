@@ -66,3 +66,4 @@ Thumbs.db
 .cursorignore
 test-docs/
 .cursor/
+vector_db
