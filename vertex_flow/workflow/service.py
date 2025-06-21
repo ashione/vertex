@@ -52,13 +52,13 @@ class VertexFlowService:
                     cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, config_file=default_config_path("llm.yml")):
+    def __init__(self, config_file=None):
         """
         初始化VertexFlowService实例。
 
         参数:
-        config_file (str): 配置文件的路径，默认为'llm.yml'。这个配置文件包含了LLM的配置信息，
-                           如提示模板的根路径和工作流的根路径等。
+        config_file (str): 配置文件的路径。如果为None，则优先使用用户配置文件，
+                           如果用户配置文件不存在，则使用默认配置文件。
 
         该方法主要负责读取配置文件，并初始化实例变量，供类的其他方法使用。
         """
@@ -66,8 +66,26 @@ class VertexFlowService:
         if self._initialized:
             return
 
+        # 如果没有指定配置文件，优先使用用户配置文件
+        if config_file is None:
+            import os
+            from pathlib import Path
+
+            # 检查用户配置文件是否存在
+            user_config = Path.home() / ".vertex" / "config" / "llm.yml"
+            if user_config.exists():
+                config_file = str(user_config)
+                logging.info(f"使用用户配置文件: {config_file}")
+            else:
+                config_file = default_config_path("llm.yml")
+                logging.info(f"用户配置文件不存在，使用默认配置: {config_file}")
+
         # 读取并解析配置文件，初始化_config实例变量
         self._config = read_yaml_config_env_placeholder(config_file)
+
+        # 确保_config是字典类型
+        if not isinstance(self._config, dict):
+            raise ValueError(f"配置文件格式错误，期望字典类型，实际类型: {type(self._config)}")
 
         # 初始化工作流的根路径
         self.__workflow_root_path = self._config["workflow"]["dify"]["root-path"]
@@ -190,12 +208,15 @@ class VertexFlowService:
         return self._config["web"]["workers"]
 
     def get_dify_workflow_instances(self):
+        instances = self._config["workflow"]["dify"]["instances"]
+        if not instances:
+            return []
         return [
             {
                 "name": instance["name"],
                 "path": self._dify_instance_path(instance["path"]),
             }
-            for instance in self._config["workflow"]["dify"]["instances"]
+            for instance in instances
         ]
 
     def get_vector_engine(self, default_index=None):

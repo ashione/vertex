@@ -28,6 +28,12 @@ Vertex Workflow Chat 是基于 Workflow LLM Vertex 的新一代聊天应用，�
    - 支持自定义系统提示
    - 响应式设计
 
+5. **🎨 多模态支持**
+   - 支持图片上传和图片URL输入
+   - 基于 OpenRouter 的 Gemini 2.5 Pro 模型
+   - 智能图片分析和描述
+   - 文本+图片的混合对话
+
 ## 使用方法
 
 ### 启动应用
@@ -86,7 +92,13 @@ uv run vertex run
    - 消息输入框
    - 发送和清除按钮
 
-2. **配置面板**
+2. **多模态输入区域**
+   - 图片上传组件：支持本地图片文件上传
+   - 图片URL输入框：支持网络图片链接
+   - 自动Base64编码：本地图片自动转换为兼容格式
+   - 智能URL验证：检测不支持的图片源（如Discord）
+
+3. **配置面板**
    - 系统提示自定义
    - 当前模型信息
    - 可用模型列表
@@ -109,6 +121,13 @@ uv run vertex run
 - `openrouter` - 切换到 OpenRouter 模型
 - `moonshoot` - 切换到 Moonshot 模型
 - `tongyi` - 切换到通义千问模型
+
+### 多模态输入
+
+- 支持图片上传和图片URL输入
+- 基于 OpenRouter 的 Gemini 2.5 Pro 模型
+- 智能图片分析和描述
+- 文本+图片的混合对话
 
 ## 与传统应用的对比
 
@@ -167,6 +186,24 @@ uv run vertex run
    ```
    **解决方案：** 检查网络连接和 API 密钥有效性
 
+4. **多模态功能问题**
+   ```
+   ⚠️ 检测到Discord图片链接，可能不被支持
+   ```
+   **解决方案：** Discord图片链接不被支持，建议：
+   - 下载图片后重新上传
+   - 使用其他图片托管服务
+   - 直接粘贴其他图片URL
+
+5. **图片处理失败**
+   ```
+   图片处理失败，可能是图片格式不支持或链接无效
+   ```
+   **解决方案：**
+   - 确保图片格式为常见格式（JPG、PNG等）
+   - 检查图片链接是否可公开访问
+   - 尝试使用其他图片
+
 ### 日志查看
 
 应用会输出详细的日志信息，包括：
@@ -188,8 +225,8 @@ llm:
   
   openrouter:
     sk: ${llm.openrouter.sk:sk-or-your-key}
-    enabled: false
-    model-name: deepseek/deepseek-chat-v3-0324:free
+    enabled: true  # 启用多模态支持
+    model-name: google/gemini-2.5-pro  # Gemini 2.5 Pro 模型
   
   moonshoot:
     sk: ${llm.moonshoot.sk:sk-your-key}
@@ -225,6 +262,26 @@ EXPOSE 7860
 CMD ["python", "vertex_flow/src/workflow_app.py", "--host", "0.0.0.0", "--port", "7860"]
 ```
 
+### 多模态配置说明
+
+要启用多模态功能，需要：
+
+1. **启用 OpenRouter 提供商**
+   ```yaml
+   openrouter:
+     enabled: true
+     model-name: google/gemini-2.5-pro
+   ```
+
+2. **设置 OpenRouter API 密钥**
+   ```bash
+   export llm_openrouter_sk="sk-or-your-openrouter-api-key"
+   ```
+
+3. **确保网络访问**
+   - 应用需要能够访问 OpenRouter API
+   - 图片URL需要可公开访问
+
 ## 开发指南
 
 ### 扩展新的 LLM 提供商
@@ -244,4 +301,14 @@ CMD ["python", "vertex_flow/src/workflow_app.py", "--host", "0.0.0.0", "--port",
 
 Vertex Workflow Chat 应用提供了一个现代化、可扩展的聊天界面，充分利用了 Vertex Flow 系统的强大功能。它不仅支持多种 LLM 提供商，还提供了灵活的配置管理和优雅的用户体验。
 
-通过使用统一配置系统和 Workflow LLM Vertex，用户可以轻松地在不同模型之间切换，同时享受到 Workflow 系统带来的高级功能，如工具调用、上下文管理等。 
+通过使用统一配置系统和 Workflow LLM Vertex，用户可以轻松地在不同模型之间切换，同时享受到 Workflow 系统带来的高级功能，如工具调用、上下文管理等。
+
+### 🎨 多模态功能亮点
+
+- **智能图片分析**：基于 Gemini 2.5 Pro 的强大图像理解能力
+- **多种输入方式**：支持本地图片上传和网络图片URL
+- **自动格式转换**：本地图片自动转换为兼容的Base64格式
+- **智能错误处理**：对不支持的图片源提供友好提示
+- **混合对话**：文本和图片的完美结合，提供更丰富的交互体验
+
+多模态功能的加入使得 Vertex Workflow Chat 应用不仅是一个强大的文本聊天工具，更是一个能够理解和分析视觉内容的智能助手，为用户提供了更加全面和直观的AI交互体验。 

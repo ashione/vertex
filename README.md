@@ -5,6 +5,7 @@ A powerful local AI workflow system with multi-model support and visual workflow
 ## Features
 
 - **Multi-Model Support**: Ollama local models and external APIs (DeepSeek, OpenRouter, Tongyi)
+- **🎨 Multimodal Support**: Image analysis and text+image conversations via Gemini 2.5 Pro
 - **Function Tools**: Built-in command line execution and system integration tools
 - **Unified CLI**: Simple command interface with multiple operation modes
 - **VertexFlow Engine**: Visual workflow orchestration with drag-and-drop nodes
@@ -181,6 +182,9 @@ export web_search_bocha_sk="your-bocha-key"
 ### 📖 User Guides
 - [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
 - [Desktop Application Guide](docs/DESKTOP_APP.md) - Desktop app usage
+- [Workflow Chat App Guide](docs/WORKFLOW_CHAT_APP.md) - Advanced chat with function tools
+- [🎨 Multimodal Features Guide](docs/MULTIMODAL_FEATURES.md) - Image analysis and text+image conversations
+- [🎨 Multimodal Examples](docs/MULTIMODAL_EXAMPLES.md) - Practical examples and use cases
 - [RAG CLI Detailed Guide](docs/RAG_CLI_USAGE.md) - RAG Q&A system guide
 - [RAG Performance Optimization](docs/RAG_PERFORMANCE_OPTIMIZATION.md) - Performance analysis and tips
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions

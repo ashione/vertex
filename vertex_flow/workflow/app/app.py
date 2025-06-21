@@ -419,7 +419,7 @@ def main():
     # 添加命令行参数
     parser.add_argument(
         "--config",
-        default=default_config_path("llm.yml"),
+        default=None,  # 改为None，让VertexFlowService自动选择配置文件
         help="指定模型与请求配置",
     )
 

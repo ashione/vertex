@@ -1,5 +1,7 @@
 import abc
-from typing import Any, Dict
+import base64
+import requests
+from typing import Any, Dict, List, Union
 
 from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
@@ -37,6 +39,44 @@ class ChatModel(abc.ABC):
             "provider": self.provider,
         }
 
+    def _process_multimodal_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        处理多模态消息，将文本和图片URL转换为OpenAI兼容的格式
+        """
+        processed_messages = []
+        
+        for message in messages:
+            logging.debug(f"Processing message: {message}")
+            
+            if isinstance(message.get("content"), list):
+                # 多模态消息格式
+                processed_content = []
+                for content_item in message["content"]:
+                    if content_item.get("type") == "text":
+                        processed_content.append(content_item)
+                    elif content_item.get("type") == "image_url":
+                        image_url = content_item["image_url"]["url"]
+                        # 检查是否是base64编码的图片
+                        if image_url.startswith("data:image"):
+                            processed_content.append(content_item)
+                        else:
+                            # 对于网络URL，保持原格式
+                            processed_content.append(content_item)
+                processed_messages.append({
+                    "role": message["role"],
+                    "content": processed_content
+                })
+            elif isinstance(message.get("content"), str):
+                # 纯文本消息，保持原格式
+                processed_messages.append(message)
+            else:
+                # 其他格式，尝试转换为文本
+                logging.warning(f"Unknown message format: {message}")
+                processed_messages.append(message)
+        
+        logging.debug(f"Processed messages: {processed_messages}")
+        return processed_messages
+
     def _create_completion(self, messages, option: Dict[str, Any] = None, stream: bool = False, tools=None) -> Choice:
         default_option = {
             "temperature": 1.0,
@@ -49,8 +89,12 @@ class ChatModel(abc.ABC):
         }
         if option:
             default_option.update(option)
+        
+        # 处理多模态消息
+        processed_messages = self._process_multimodal_messages(messages)
+        
         # 构建API调用参数
-        api_params = {"model": self.name, "messages": messages, **default_option}
+        api_params = {"model": self.name, "messages": processed_messages, **default_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
 
