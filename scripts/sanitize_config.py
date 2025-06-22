@@ -165,11 +165,29 @@ def main():
     project_root = script_dir.parent
 
     # 需要脱敏的配置文件列表（按重要性排序）
-    config_files = [
-        # 新的配置文件位置（优先级高）
-        project_root / "vertex_flow" / "config" / "llm.yml.template",
-        # 可以添加其他需要脱敏的配置文件
-    ]
+    config_files = []
+
+    # 检查根目录config/（如果存在）
+    root_config_dir = project_root / "config"
+    if root_config_dir.exists():
+        # 添加根目录配置文件
+        for pattern in ["*.yml", "*.yaml", "*.template"]:
+            config_files.extend(root_config_dir.glob(pattern))
+
+    # 检查vertex_flow/config/目录
+    vertex_config_dir = project_root / "vertex_flow" / "config"
+    if vertex_config_dir.exists():
+        # 添加vertex_flow配置文件
+        for pattern in ["*.yml", "*.yaml", "*.template"]:
+            config_files.extend(vertex_config_dir.glob(pattern))
+
+    # 如果没有找到配置文件，使用默认列表
+    if not config_files:
+        config_files = [
+            # 新的配置文件位置（优先级高）
+            project_root / "vertex_flow" / "config" / "llm.yml.template",
+            # 可以添加其他需要脱敏的配置文件
+        ]
 
     print("🔒 开始配置文件脱敏处理...")
 
