@@ -190,11 +190,20 @@ if [ -f "scripts/sanitize_config.py" ]; then
     fi
     
     # 如果配置文件被修改，添加到暂存区
-    SANITIZED_FILES=$(git diff --name-only vertex_flow/config/ 2>/dev/null || true)
-    if [ -n "$SANITIZED_FILES" ]; then
-        echo "📝 Adding sanitized files to staging area..."
-        git add $SANITIZED_FILES
-        print_status "Configuration files sanitized and staged"
+    # 检查配置文件目录是否存在并且不为空
+    if [ -d "vertex_flow/config/" ] && [ "$(ls -A vertex_flow/config/ 2>/dev/null)" ]; then
+        # 使用更安全的Git命令，明确指定路径并处理错误
+        SANITIZED_FILES=$(git diff --name-only -- vertex_flow/config/ 2>/dev/null | head -20 || true)
+        if [ -n "$SANITIZED_FILES" ]; then
+            echo "📝 Adding sanitized files to staging area..."
+            echo "   Files to add: $SANITIZED_FILES"
+            git add $SANITIZED_FILES 2>/dev/null || true
+            print_status "Configuration files sanitized and staged"
+        else
+            print_status "No configuration files were modified"
+        fi
+    else
+        print_status "Configuration directory not found or empty, skipping config file staging"
     fi
 else
     print_warning "Sanitization script not found, skipping auto-sanitization"
