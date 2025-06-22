@@ -5,6 +5,8 @@ Vertex 统一命令行入口
 """
 
 import argparse
+import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -29,6 +31,9 @@ def create_parser():
   vertex config init        # 快速初始化配置
   vertex config check       # 检查配置状态
   vertex config reset       # 重置配置
+  vertex mcp server         # 启动MCP服务器
+  vertex mcp client 'vertex mcp server'  # 测试MCP客户端
+  vertex mcp info           # 显示MCP信息
   vertex --help             # 显示帮助信息
         """,
     )
@@ -114,6 +119,24 @@ def create_parser():
     research_parser.add_argument("--save-intermediate", action="store_true", default=True, help="保存中间文档")
     research_parser.add_argument("--save-final", action="store_true", default=True, help="保存最终报告")
     research_parser.add_argument("--output-dir", "-o", help="指定输出目录 (默认: reports/)")
+
+    # mcp 子命令
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="MCP模型上下文协议", description="MCP (Model Context Protocol) 功能管理"
+    )
+    mcp_subparsers = mcp_parser.add_subparsers(dest="mcp_action", help="MCP操作")
+
+    # mcp server
+    server_parser = mcp_subparsers.add_parser("server", help="运行MCP服务器")
+    server_parser.add_argument("--config", "-c", help="指定配置文件路径")
+
+    # mcp client
+    client_parser = mcp_subparsers.add_parser("client", help="测试MCP客户端")
+    client_parser.add_argument("server_command", help="MCP服务器启动命令")
+    client_parser.add_argument("--config", "-c", help="指定配置文件路径")
+
+    # mcp info
+    mcp_subparsers.add_parser("info", help="显示MCP信息和示例")
 
     return parser
 
@@ -667,6 +690,227 @@ def _create_sample_documents():
     return doc_files, temp_dir
 
 
+# MCP related functions
+def create_sample_function_tool():
+    """Create a sample function tool for testing"""
+    try:
+        from vertex_flow.workflow.tools.functions import FunctionTool
+
+        def echo_text(text: str, repeat: int = 1) -> str:
+            """Echo text with optional repetition"""
+            return (text + " ") * repeat
+
+        return FunctionTool(name="echo_text", description="Echo text with optional repetition", func=echo_text)
+    except ImportError:
+        return None
+
+
+async def run_mcp_server(args=None):
+    """Run MCP server for testing"""
+    try:
+        from vertex_flow.mcp.vertex_integration import MCPVertexFlowServer
+        from vertex_flow.utils.logger import LoggerUtil
+        from vertex_flow.workflow.tools.functions import FunctionTool
+
+        logger = LoggerUtil.get_logger(__name__)
+
+        print("启动 Vertex Flow MCP 服务器...")
+
+        # Create server
+        server = MCPVertexFlowServer("VertexFlowTest", "1.0.0")
+
+        # Add sample resources
+        server.add_resource(
+            "config://test.yml",
+            "test_config",
+            "# Test configuration\nname: test\nversion: 1.0\nfeatures:\n  - mcp\n  - workflow",
+        )
+
+        server.add_resource(
+            "workflow://sample.py",
+            "sample_workflow",
+            "# Sample workflow\nfrom vertex_flow.workflow import Workflow\n\nworkflow = Workflow('sample')",
+        )
+
+        # Add sample tools
+        tool = create_sample_function_tool()
+        if tool:
+            server.add_function_tool(tool)
+
+        # Add sample prompts
+        server.add_prompt(
+            "analyze_code",
+            "Analyze the following code for potential issues:\n\n{code}\n\nFocus on: {focus}",
+            "Code analysis prompt",
+            [
+                {"name": "code", "description": "Code to analyze", "required": True},
+                {"name": "focus", "description": "Analysis focus areas", "required": False},
+            ],
+        )
+
+        server.add_prompt(
+            "workflow_help",
+            "Help me create a workflow for: {task}\n\nRequirements: {requirements}",
+            "Workflow creation assistance",
+            [
+                {"name": "task", "description": "Task description", "required": True},
+                {"name": "requirements", "description": "Specific requirements", "required": False},
+            ],
+        )
+
+        print("MCP服务器配置完成:")
+        print("- 资源: config://test.yml, workflow://sample.py")
+        print("- 工具: echo_text")
+        print("- 提示模板: analyze_code, workflow_help")
+        print("\n服务器运行在stdio上。通过stdin发送MCP消息。")
+        print(
+            "示例: {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2024-11-05', 'clientInfo': {'name': 'TestClient', 'version': '1.0.0'}, 'capabilities': {}}}"
+        )
+
+        try:
+            await server.run_stdio()
+        except KeyboardInterrupt:
+            print("\n正在关闭MCP服务器...")
+        except Exception as e:
+            print(f"运行MCP服务器时出错: {e}")
+        finally:
+            await server.close()
+
+    except ImportError as e:
+        print(f"错误: MCP功能不可用: {e}")
+        print("请确保正确安装了MCP相关依赖")
+        sys.exit(1)
+
+
+async def test_mcp_client(server_command: str, args=None):
+    """Test MCP client functionality"""
+    try:
+        from vertex_flow.mcp.vertex_integration import MCPVertexFlowClient
+        from vertex_flow.utils.logger import LoggerUtil
+
+        logger = LoggerUtil.get_logger(__name__)
+
+        print(f"使用服务器命令测试MCP客户端: {server_command}")
+
+        # Create client
+        client = MCPVertexFlowClient("TestClient", "1.0.0")
+
+        try:
+            # Parse server command
+            cmd_parts = server_command.split()
+            command = cmd_parts[0]
+            args_list = cmd_parts[1:] if len(cmd_parts) > 1 else []
+
+            print(f"连接到服务器: {command} {' '.join(args_list)}")
+            await client.connect_stdio(command, *args_list)
+
+            print("连接成功! 测试MCP功能...")
+
+            # Test resources
+            print("\n=== 测试资源 ===")
+            resources = await client.get_resources()
+            print(f"找到 {len(resources)} 个资源:")
+            for resource in resources:
+                print(f"  - {resource.name} ({resource.uri}): {resource.description}")
+
+                # Read first resource as example
+                if resource == resources[0]:
+                    content = await client.read_resource(resource.uri)
+                    print(f"    内容预览: {content[:100]}...")
+
+            # Test tools
+            print("\n=== 测试工具 ===")
+            tools = await client.get_tools()
+            print(f"找到 {len(tools)} 个工具:")
+            for tool in tools:
+                print(f"  - {tool.name}: {tool.description}")
+
+                # Test first tool as example
+                if tool == tools[0] and tool.name == "echo_text":
+                    result = await client.call_tool("echo_text", {"text": "Hello MCP!", "repeat": 2})
+                    if result.isError:
+                        print(f"    错误: {result.content}")
+                    else:
+                        print(f"    结果: {result.content}")
+
+            # Test prompts
+            print("\n=== 测试提示模板 ===")
+            prompts = await client.get_prompts()
+            print(f"找到 {len(prompts)} 个提示模板:")
+            for prompt in prompts:
+                print(f"  - {prompt.name}: {prompt.description}")
+
+                # Test first prompt as example
+                if prompt == prompts[0]:
+                    prompt_text = await client.get_prompt(
+                        prompt.name, {"code": "def hello(): print('world')", "focus": "best practices"}
+                    )
+                    print(f"    生成的提示: {prompt_text[:100]}...")
+
+            print("\n=== MCP客户端测试成功完成 ===")
+
+        except Exception as e:
+            print(f"测试MCP客户端时出错: {e}")
+            import traceback
+
+            traceback.print_exc()
+        finally:
+            await client.close()
+
+    except ImportError as e:
+        print(f"错误: MCP功能不可用: {e}")
+        print("请确保正确安装了MCP相关依赖")
+        sys.exit(1)
+
+
+def print_mcp_info():
+    """Print MCP information and examples"""
+    print("MCP (Model Context Protocol) CLI for Vertex Flow")
+    print("=" * 50)
+    print()
+    print("可用命令:")
+    print("  server    - 运行MCP服务器")
+    print("  client    - 测试MCP客户端")
+    print("  info      - 显示此信息")
+    print()
+    print("示例:")
+    print("  # 运行MCP服务器")
+    print("  vertex mcp server")
+    print()
+    print("  # 使用Python服务器测试客户端")
+    print("  vertex mcp client 'vertex mcp server'")
+    print()
+    print("MCP功能说明:")
+    print("- MCP是一个开放标准，用于在LLM应用和外部数据源及工具之间建立连接")
+    print("- 支持资源访问、工具调用和提示模板管理")
+    print("- 可以与各种开发工具和IDE集成")
+    print()
+
+
+def run_mcp_command(args):
+    """Handle MCP command"""
+    if not args.mcp_action:
+        print_mcp_info()
+        return
+
+    if args.mcp_action == "info":
+        print_mcp_info()
+    elif args.mcp_action == "server":
+        print("启动MCP服务器...")
+        asyncio.run(run_mcp_server(args))
+    elif args.mcp_action == "client":
+        if not hasattr(args, "server_command"):
+            print("错误: 客户端模式需要指定服务器命令")
+            print("示例: vertex mcp client 'vertex mcp server'")
+            sys.exit(1)
+        print("启动MCP客户端测试...")
+        asyncio.run(test_mcp_client(args.server_command, args))
+    else:
+        print(f"未知的MCP操作: {args.mcp_action}")
+        print_mcp_info()
+        sys.exit(1)
+
+
 def main():
     """主入口函数"""
     parser = create_parser()
@@ -715,6 +959,7 @@ def main():
         "deepresearch": run_deepresearch_mode,
         "dr": run_deepresearch_mode,
         "research": run_deepresearch_mode,
+        "mcp": run_mcp_command,
     }
 
     # 执行对应命令

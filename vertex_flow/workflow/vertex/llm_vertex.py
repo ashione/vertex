@@ -7,22 +7,22 @@ from typing import List
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
     ENABLE_STREAM,
+    MESSAGE_KEY,
+    MESSAGE_TYPE_END,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_REASONING,
+    MESSAGE_TYPE_REGULAR,
     MODEL,
     POSTPROCESS,
     PREPROCESS,
-    SYSTEM,
-    USER,
-    MESSAGE_KEY,
-    CONTENT_KEY,
-    VERTEX_ID_KEY,
-    TYPE_KEY,
-    MESSAGE_TYPE_REGULAR,
-    MESSAGE_TYPE_REASONING,
-    MESSAGE_TYPE_ERROR,
-    MESSAGE_TYPE_END,
     SHOW_REASONING,
-    SHOW_REASONING_KEY
+    SHOW_REASONING_KEY,
+    SYSTEM,
+    TYPE_KEY,
+    USER,
+    VERTEX_ID_KEY,
 )
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.utils import (
@@ -66,7 +66,9 @@ class LLMVertex(Vertex[T]):
         self.tools = tools or []  # 保存可用的function tools
         self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
         self.enable_reasoning = params.get("enable_reasoning", False) if params else False  # 支持思考过程
-        self.show_reasoning = params.get(SHOW_REASONING_KEY, SHOW_REASONING) if params else SHOW_REASONING  # 是否显示思考过程
+        self.show_reasoning = (
+            params.get(SHOW_REASONING_KEY, SHOW_REASONING) if params else SHOW_REASONING
+        )  # 是否显示思考过程
 
         if task is None:
             logging.info("Use llm chat in task executing.")
@@ -157,42 +159,28 @@ class LLMVertex(Vertex[T]):
         # Handle current user message if provided separately
         current_message = inputs.get("current_message") if inputs else None
         image_url = inputs.get("image_url") if inputs else None
-        
+
         if current_message or image_url:
             if image_url:
                 # 有图片，创建多模态消息
                 multimodal_content = []
-                
+
                 # 添加文本内容（如果有的话）
                 if current_message:
-                    multimodal_content.append({
-                        "type": "text",
-                        "text": str(current_message)
-                    })
+                    multimodal_content.append({"type": "text", "text": str(current_message)})
                 elif inputs.get("text"):
-                    multimodal_content.append({
-                        "type": "text", 
-                        "text": str(inputs["text"])
-                    })
-                
+                    multimodal_content.append({"type": "text", "text": str(inputs["text"])})
+
                 # 添加图片内容
-                multimodal_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image_url
-                    }
-                })
-                
+                multimodal_content.append({"type": "image_url", "image_url": {"url": image_url}})
+
                 # 替换或添加多模态消息
                 if self.messages and self.messages[-1]["role"] == "user":
                     # 替换最后一个用户消息
                     self.messages[-1]["content"] = multimodal_content
                 else:
                     # 添加新的多模态消息
-                    self.messages.append({
-                        "role": "user",
-                        "content": multimodal_content
-                    })
+                    self.messages.append({"role": "user", "content": multimodal_content})
             else:
                 # 只有文本消息
                 if isinstance(current_message, dict) and "content" in current_message:
@@ -218,12 +206,12 @@ class LLMVertex(Vertex[T]):
                             value = value if isinstance(value, str) else str(value)
                             text_content = text_content.replace(env_str(key), value)
                             text_content = text_content.replace(compatiable_env_str(key), value)
-                        
+
                         # 替换用户参数
                         for key, value in context.get_user_parameters().items():
                             value = value if isinstance(value, str) else str(value)
                             text_content = text_content.replace(var_str(key), value)
-                        
+
                         # 替换输入参数
                         if inputs:
                             for key, value in inputs.items():
@@ -232,7 +220,7 @@ class LLMVertex(Vertex[T]):
                                 value = value if isinstance(value, str) else str(value)
                                 input_placeholder = "{{" + key + "}}"
                                 text_content = text_content.replace(input_placeholder, value)
-                        
+
                         text_content = self._replace_placeholders(text_content)
                         content_item["text"] = text_content
             else:
@@ -268,7 +256,7 @@ class LLMVertex(Vertex[T]):
         if self.enable_stream and hasattr(self.model, "chat_stream"):
             return self._chat_stream(inputs, context)
         llm_tools = self._build_llm_tools()
-        option = self._build_llm_option()
+        option = self._build_llm_option(inputs, context)
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages, option=option, tools=llm_tools)
             finish_reason = choice.finish_reason
@@ -289,7 +277,7 @@ class LLMVertex(Vertex[T]):
             result = self.chat(inputs, context)
             yield result
             return
-        
+
         # 使用专门的流式生成器逻辑，不发送事件但支持工具调用
         for chunk in self._stream_generator_core(inputs, context):
             yield chunk
@@ -299,15 +287,15 @@ class LLMVertex(Vertex[T]):
         full_content = ""
         for chunk in self._stream_chat_core(inputs, context, emit_events=True):
             full_content += chunk
-        
+
         # 应用postprocess处理
         result = full_content if self.postprocess is None else self.postprocess(full_content, inputs, context)
-        
+
         self.output = result
         # 结束事件现在由_unified_stream_core统一处理
         logging.debug(f"chat bot response : {result}")
         return result
-    
+
     def _stream_generator_core(self, inputs: Dict[str, Any], context: WorkflowContext):
         """
         专门用于chat_stream_generator的核心逻辑，支持reasoning和工具调用
@@ -334,23 +322,23 @@ class LLMVertex(Vertex[T]):
             # Build LLM options
             option = self._build_llm_option(inputs, context)
             llm_tools = self._build_llm_tools()
-            
+
             # Handle tool calls in a loop
             finish_reason = None
             while finish_reason is None or finish_reason == "tool_calls":
-                
+
                 # Check if reasoning is enabled
                 enable_reasoning = self.params.get("enable_reasoning", False)
                 show_reasoning = self.params.get(SHOW_REASONING_KEY, True)
-                
+
                 if enable_reasoning:
                     # Use reasoning-enabled streaming with tool support
                     logging.info("Using reasoning-enabled streaming with tool support")
-                    
+
                     # First check if tools are needed with non-streaming call
                     choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                     finish_reason = choice.finish_reason
-                    
+
                     if finish_reason == "tool_calls":
                         # Handle tool calls first
                         logging.info(f"LLM {self.id} wants to call tools in reasoning mode")
@@ -362,18 +350,21 @@ class LLMVertex(Vertex[T]):
                         reasoning_option = option.copy() if option else {}
                         if llm_tools:  # Only set tools if not None/empty
                             reasoning_option["tools"] = llm_tools
-                        
+
                         for chunk in self.model.chat_stream_with_reasoning(self.messages, option=reasoning_option):
                             # Emit event if requested
                             if emit_events and self.workflow:
-                                self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REASONING})
+                                self.workflow.emit_event(
+                                    EventType.MESSAGES,
+                                    {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REASONING},
+                                )
                             logging.info(f"LLM {self.id} reasoning streaming chunk: {chunk}")
                             yield chunk
-                    
+
                 else:
                     # Use regular streaming with tool support
                     logging.info("Using regular streaming with tool support")
-                    
+
                     # Always try streaming first for better user experience
                     logging.info("Using streaming with tool support")
                     try:
@@ -381,7 +372,7 @@ class LLMVertex(Vertex[T]):
                         stream_option = option.copy() if option else {}
                         if llm_tools:
                             stream_option["tools"] = llm_tools
-                        
+
                         # Use streaming
                         has_content = False
                         for chunk in self.model.chat_stream(self.messages, option=stream_option):
@@ -389,9 +380,12 @@ class LLMVertex(Vertex[T]):
                                 has_content = True
                                 # Emit event if requested
                                 if emit_events and self.workflow:
-                                    self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REGULAR})
+                                    self.workflow.emit_event(
+                                        EventType.MESSAGES,
+                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REGULAR},
+                                    )
                                 yield chunk
-                        
+
                         # If we got content via streaming, we're done with this iteration
                         if has_content:
                             finish_reason = "stop"  # Assume successful completion
@@ -400,7 +394,7 @@ class LLMVertex(Vertex[T]):
                             if llm_tools:
                                 choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                                 finish_reason = choice.finish_reason
-                                
+
                                 if finish_reason == "tool_calls":
                                     # Handle tool calls
                                     logging.info(f"LLM {self.id} wants to call tools")
@@ -411,18 +405,25 @@ class LLMVertex(Vertex[T]):
                                     content = choice.message.content or ""
                                     if content:
                                         if emit_events and self.workflow:
-                                            self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: MESSAGE_TYPE_REGULAR})
+                                            self.workflow.emit_event(
+                                                EventType.MESSAGES,
+                                                {
+                                                    VERTEX_ID_KEY: self.id,
+                                                    CONTENT_KEY: content,
+                                                    TYPE_KEY: MESSAGE_TYPE_REGULAR,
+                                                },
+                                            )
                                         yield content
                             else:
                                 finish_reason = "stop"  # No tools, assume completion
-                                
+
                     except Exception as stream_error:
                         # Fallback to non-streaming if streaming fails
                         logging.warning(f"Streaming failed, falling back to non-streaming: {stream_error}")
                         if llm_tools:
                             choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                             finish_reason = choice.finish_reason
-                            
+
                             if finish_reason == "tool_calls":
                                 # Handle tool calls
                                 logging.info(f"LLM {self.id} wants to call tools")
@@ -433,27 +434,41 @@ class LLMVertex(Vertex[T]):
                                 content = choice.message.content or ""
                                 if content:
                                     if emit_events and self.workflow:
-                                        self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: MESSAGE_TYPE_REGULAR})
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {
+                                                VERTEX_ID_KEY: self.id,
+                                                CONTENT_KEY: content,
+                                                TYPE_KEY: MESSAGE_TYPE_REGULAR,
+                                            },
+                                        )
                                     yield content
                         else:
                             choice = self.model.chat(self.messages, option=option)
                             content = choice.message.content or ""
                             if content:
                                 if emit_events and self.workflow:
-                                    self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: MESSAGE_TYPE_REGULAR})
+                                    self.workflow.emit_event(
+                                        EventType.MESSAGES,
+                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: MESSAGE_TYPE_REGULAR},
+                                    )
                                 yield content
                             finish_reason = "stop"
-                    
+
         except Exception as e:
             error_msg = f"LLM streaming error: {str(e)}"
             logging.error(error_msg)
             if emit_events and self.workflow:
-                self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, "error": error_msg, TYPE_KEY: MESSAGE_TYPE_ERROR})
+                self.workflow.emit_event(
+                    EventType.MESSAGES, {VERTEX_ID_KEY: self.id, "error": error_msg, TYPE_KEY: MESSAGE_TYPE_ERROR}
+                )
             yield error_msg
         finally:
             # Send end event when streaming is complete (only for event-based streaming)
             if emit_events and self.workflow:
-                self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END})
+                self.workflow.emit_event(
+                    EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END}
+                )
 
     def _build_llm_tools(self):
         if not self.tools:
@@ -473,7 +488,7 @@ class LLMVertex(Vertex[T]):
     def _build_llm_option(self, inputs: Dict[str, Any], context: WorkflowContext) -> Dict[str, Any]:
         """Build LLM options from inputs and context"""
         option = {}
-        
+
         # Add standard parameters
         if "temperature" in self.params:
             option["temperature"] = self.params["temperature"]
@@ -481,15 +496,15 @@ class LLMVertex(Vertex[T]):
             option["max_tokens"] = self.params["max_tokens"]
         if "top_p" in self.params:
             option["top_p"] = self.params["top_p"]
-            
+
         # Add reasoning parameters (for display control)
         if SHOW_REASONING_KEY in self.params:
             option[SHOW_REASONING_KEY] = self.params[SHOW_REASONING_KEY]
-            
+
         # Add tools if available
         if self.tools:
             option["tools"] = [tool.to_dict() for tool in self.tools]
-            
+
         return option
 
     async def _handle_tool_calls_async(self, choice, context):
@@ -499,9 +514,9 @@ class LLMVertex(Vertex[T]):
             "content": choice.message.content,
         }
         # Add tool_calls if present
-        if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
             message_dict["tool_calls"] = choice.message.tool_calls
-        
+
         self.messages.append(message_dict)
 
         async def call_tool(tool, tool_call, context):

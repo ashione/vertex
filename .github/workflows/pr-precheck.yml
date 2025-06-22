@@ -33,14 +33,28 @@ jobs:
         if [ -f "scripts/sanitize_config.py" ]; then
           python3 scripts/sanitize_config.py
           
-          # 检查是否有未脱敏的文件
-          if git diff --quiet config/; then
-            echo "✓ 配置文件已正确脱敏"
-          else
-            echo "✗ 发现未脱敏的配置文件:"
+          # 检查是否有未脱敏的文件 - 检查两个配置目录
+          CONFIG_CHANGED=false
+          
+          # 检查根目录config/（如果存在）
+          if [ -d "config" ] && ! git diff --quiet config/; then
+            echo "✗ 发现未脱敏的配置文件 (config/):"
             git diff config/
+            CONFIG_CHANGED=true
+          fi
+          
+          # 检查vertex_flow/config/
+          if [ -d "vertex_flow/config" ] && ! git diff --quiet vertex_flow/config/; then
+            echo "✗ 发现未脱敏的配置文件 (vertex_flow/config/):"
+            git diff vertex_flow/config/
+            CONFIG_CHANGED=true
+          fi
+          
+          if [ "$CONFIG_CHANGED" = true ]; then
             echo "请运行 'python3 scripts/sanitize_config.py' 进行脱敏处理"
             exit 1
+          else
+            echo "✓ 配置文件已正确脱敏"
           fi
         else
           echo "⚠ 脱敏脚本不存在，跳过脱敏检查"

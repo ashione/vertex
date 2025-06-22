@@ -31,6 +31,18 @@ from vertex_flow.workflow.utils import default_config_path
 from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
 from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
+# MCP相关导入
+try:
+    from vertex_flow.workflow.mcp_manager import get_mcp_manager
+    from vertex_flow.workflow.vertex.mcp_llm_vertex import MCPLLMVertex
+
+    MCP_AVAILABLE = True
+except ImportError as e:
+    LoggerUtil.get_logger(__name__).warning(f"MCP functionality not available: {e}")
+    MCPLLMVertex = None
+    get_mcp_manager = None
+    MCP_AVAILABLE = False
+
 logger = LoggerUtil.get_logger(__name__)
 
 vertex_flow = FastAPI(title="Vertex Flow API", version="1.0.0")
@@ -46,6 +58,7 @@ class WorkflowInput(BaseModel):
     user_vars: Dict[str, Any] = {}
     content: str = ""
     stream: bool = False  # 新增参数，用于指定是否为流式模式
+    enable_mcp: bool = True  # 🆕 默认启用MCP开关
 
 
 class WorkflowOutput(BaseModel):
@@ -133,6 +146,83 @@ async def validation_exception_handler(request, exc):
 
 
 vertex_service = None
+
+
+def check_mcp_availability():
+    """检查MCP功能是否可用"""
+    if not MCP_AVAILABLE:
+        return False, "MCP modules not available"
+
+    try:
+        global vertex_service
+        if vertex_service and vertex_service.is_mcp_enabled():
+            return True, "MCP is available and enabled"
+        else:
+            return False, "MCP is not enabled in configuration"
+    except Exception as e:
+        return False, f"Error checking MCP status: {e}"
+
+
+def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List[FunctionTool]):
+    """创建LLM Vertex，根据MCP开关选择类型"""
+
+    # 检查是否启用MCP
+    if input_data.enable_mcp:
+        mcp_available, mcp_message = check_mcp_availability()
+        logger.info(f"MCP status: {mcp_message}")
+
+        if mcp_available and MCPLLMVertex:
+            try:
+                # 创建MCP增强的LLM Vertex
+                logger.info("Creating MCP-enhanced LLM Vertex")
+                llm_vertex = MCPLLMVertex(
+                    vertex_id="llm",
+                    params={
+                        "model": chatmodel,
+                        "system": "你是一个热情的聊天机器人，具有访问外部资源和工具的能力。",
+                        "user_messages": [input_data.content],
+                        ENABLE_STREAM: input_data.stream,
+                        # MCP相关参数
+                        "mcp_enabled": True,
+                        "mcp_context_enabled": True,  # 自动包含MCP上下文
+                        "mcp_tools_enabled": True,  # 启用MCP工具调用
+                        "mcp_prompts_enabled": True,  # 启用MCP提示
+                    },
+                    tools=function_tools,
+                )
+
+                # 添加MCP状态信息到日志
+                try:
+                    mcp_manager = get_mcp_manager()
+                    if mcp_manager:
+                        connected_clients = mcp_manager.get_connected_clients()
+                        logger.info(f"MCP clients connected: {connected_clients}")
+                except Exception as e:
+                    logger.warning(f"Could not get MCP manager status: {e}")
+
+                return llm_vertex, "MCP-enhanced LLM Vertex created successfully"
+
+            except Exception as e:
+                logger.error(f"Failed to create MCP LLM Vertex: {e}")
+                logger.info("Falling back to standard LLM Vertex")
+        else:
+            logger.warning(f"MCP requested but not available: {mcp_message}")
+
+    # 创建标准LLM Vertex（默认或fallback）
+    logger.info("Creating standard LLM Vertex")
+    llm_vertex = LLMVertex(
+        id="llm",
+        params={
+            "model": chatmodel,
+            "system": "你是一个热情的聊天机器人。",
+            "user": [input_data.content],
+            ENABLE_STREAM: input_data.stream,
+        },
+        tools=function_tools,
+    )
+
+    mcp_status = "MCP not requested" if not input_data.enable_mcp else "MCP fallback to standard vertex"
+    return llm_vertex, mcp_status
 
 
 def get_default_workflow(input_data):
@@ -238,26 +328,21 @@ def get_default_workflow(input_data):
 
     # 创建顶点
     source = SourceVertex(id="source", task=lambda inputs, context: data.get("input", "Default Input"))
-    llm = LLMVertex(
-        id="llm",
-        params={
-            "model": vertex_service.get_chatmodel(),
-            "system": "你是一个热情的聊天机器人。",
-            "user": [input_data.content],
-            ENABLE_STREAM: input_data.stream,
-        },
-        tools=function_tools,  # 关键：传递function tools
-    )
+
+    # 🆕 使用新的LLM Vertex创建函数，支持MCP开关
+    llm_vertex, mcp_status = create_llm_vertex(input_data, vertex_service.get_chatmodel(), function_tools)
+    logger.info(f"LLM Vertex status: {mcp_status}")
+
     sink = SinkVertex(id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}")
 
     # 添加顶点到工作流
     workflow.add_vertex(source)
-    workflow.add_vertex(llm)
+    workflow.add_vertex(llm_vertex)
     workflow.add_vertex(sink)
 
     # 连接顶点
-    source | llm
-    llm | sink
+    source | llm_vertex
+    llm_vertex | sink
     return workflow
 
 
@@ -279,6 +364,10 @@ def execute_workflow_in_thread(workflow, user_vars):
 @vertex_flow.post("/workflow", response_model=WorkflowOutput)
 async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput):
     logger.info(f"request data {input_data}")
+
+    # 🆕 记录MCP开关状态
+    logger.info(f"MCP enabled: {input_data.enable_mcp}")
+
     workflow_name = input_data.workflow_name
     workflow: Workflow = None
     if workflow_name in dify_workflow_instances:
@@ -362,6 +451,27 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                 MESSAGE_KEY: str(e),
                 "vertices_status": workflow.status(),
             }
+
+
+# 🆕 新增MCP状态检查端点
+@vertex_flow.get("/mcp/status")
+async def get_mcp_status():
+    """获取MCP状态信息"""
+    mcp_available, mcp_message = check_mcp_availability()
+
+    status_info = {"mcp_available": mcp_available, "message": mcp_message, "modules_loaded": MCP_AVAILABLE}
+
+    if mcp_available:
+        try:
+            mcp_manager = get_mcp_manager()
+            if mcp_manager:
+                connected_clients = mcp_manager.get_connected_clients()
+                status_info["connected_clients"] = connected_clients
+                status_info["client_count"] = len(connected_clients)
+        except Exception as e:
+            status_info["manager_error"] = str(e)
+
+    return status_info
 
 
 @vertex_flow.get("/workflow", response_model=WorkflowOutput)

@@ -212,26 +212,24 @@ export web_search_bocha_sk="your-bocha-key"
 ## Documentation
 
 ### 📖 User Guides
-- [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference
+- [Complete CLI Usage Guide](docs/CLI_USAGE.md) - Full CLI command reference and MCP integration
 - [Desktop Application Guide](docs/DESKTOP_APP.md) - Desktop app usage
 - [Workflow Chat App Guide](docs/WORKFLOW_CHAT_APP.md) - Advanced chat with function tools and reasoning
 - [🎨 Multimodal Features Guide](docs/MULTIMODAL_FEATURES.md) - Image analysis and text+image conversations
 - [🔍 Web Search Configuration](docs/WEB_SEARCH_CONFIGURATION.md) - Multi-engine search setup
-- [🔬 Deep Research Guide](vertex_flow/docs/DEEP_RESEARCH_APP.md) - Six-stage research analysis tool
+- [MCP Integration Guide](docs/MCP_INTEGRATION.md) - Model Context Protocol support
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ### 🔧 Technical Documentation
 - [Function Tools Guide](docs/FUNCTION_TOOLS.md) - Complete function tools reference
-- [Command Line Tool Guide](docs/COMMAND_LINE_TOOL.md) - Command line tool detailed guide
+- [Workflow Chain Calling](docs/WORKFLOW_CHAIN_CALLING.md) - Chain workflow execution
 - [RAG System Overview](vertex_flow/docs/RAG_README.md) - Retrieval-Augmented Generation
 - [Document Update Mechanism](vertex_flow/docs/DOCUMENT_UPDATE.md) - Incremental updates and deduplication
 - [Deduplication Features](vertex_flow/docs/DEDUPLICATION.md) - Smart document deduplication
-- [Workflow Components](vertex_flow/docs/) - VertexFlow engine components
+- [Configuration Unification](docs/CONFIGURATION_UNIFICATION.md) - Unified configuration system
 
 ### 🎯 Development & Maintenance
-- [Version Management](docs/VERSION_MANAGEMENT.md) - Version control and release management
-- [Publishing Guide](docs/PUBLISHING.md) - Package publishing workflow
-- [Configuration Sanitization](docs/SANITIZATION_README.md) - Config file security handling
+- [Publishing Guide](docs/PUBLISHING.md) - Package publishing and version management
 - [Pre-commit Checks](docs/PRECOMMIT_README.md) - Code quality and automated checks
 
 ## Examples
@@ -242,14 +240,8 @@ cd vertex_flow/examples
 python command_line_example.py   # Command line tool
 python web_search_example.py     # Web search tool  
 python finance_example.py        # Finance tool
-
-# Other examples
 python rag_example.py            # RAG system
 python deduplication_demo.py     # Deduplication
-
-# Deep Research examples
-vertex dr --topic "Artificial Intelligence in Healthcare"
-vertex dr --topic "Blockchain Applications in Finance" --batch
 ```
 
 ## Development
@@ -257,9 +249,6 @@ vertex dr --topic "Blockchain Applications in Finance" --batch
 ```bash
 # Run pre-commit checks
 ./scripts/precommit.sh
-
-# Sanitize config files
-python scripts/sanitize_config.py
 
 # Version management
 python scripts/version_bump.py

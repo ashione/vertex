@@ -211,45 +211,37 @@ export web_search_bocha_sk="your-bocha-key"
 
 ## 文档
 
-### 📖 使用指南
-- [完整CLI使用指南](docs/CLI_USAGE.md) - Vertex命令行完整使用说明
-- [桌面端应用指南](docs/DESKTOP_APP.md) - 桌面端应用使用说明
-- [工作流聊天应用指南](docs/WORKFLOW_CHAT_APP.md) - 支持Function Tools和Reasoning的高级聊天
+### 📖 用户指南
+- [完整CLI使用指南](docs/CLI_USAGE.md) - 完整CLI命令参考和MCP集成
+- [桌面端应用指南](docs/DESKTOP_APP.md) - 桌面端应用使用
+- [工作流聊天应用指南](docs/WORKFLOW_CHAT_APP.md) - 高级聊天（支持Function Tools和Reasoning）
 - [🎨 多模态功能指南](docs/MULTIMODAL_FEATURES.md) - 图片分析和文本+图片对话
-- [🔍 Web搜索配置指南](docs/WEB_SEARCH_CONFIGURATION.md) - 多搜索引擎配置和使用
-- [🔬 深度研究指南](vertex_flow/docs/DEEP_RESEARCH_APP.md) - 六阶段研究分析工具
+- [🔍 Web搜索配置](docs/WEB_SEARCH_CONFIGURATION.md) - 多搜索引擎配置
+- [MCP集成指南](docs/MCP_INTEGRATION.md) - 模型上下文协议支持
 - [故障排除指南](docs/TROUBLESHOOTING.md) - 常见问题和解决方案
 
 ### 🔧 技术文档
-- [Function Tools指南](docs/FUNCTION_TOOLS.md) - 完整的功能工具参考
-- [命令行工具指南](docs/COMMAND_LINE_TOOL.md) - 命令行工具详细说明
-- [RAG系统详解](vertex_flow/docs/RAG_README.md) - 检索增强生成系统
+- [Function Tools指南](docs/FUNCTION_TOOLS.md) - 完整功能工具参考
+- [工作流链式调用](docs/WORKFLOW_CHAIN_CALLING.md) - 链式工作流执行
+- [RAG系统概览](vertex_flow/docs/RAG_README.md) - 检索增强生成
 - [文档更新机制](vertex_flow/docs/DOCUMENT_UPDATE.md) - 增量更新和去重
-- [去重功能说明](vertex_flow/docs/DEDUPLICATION.md) - 智能文档去重
-- [工作流组件](vertex_flow/docs/) - VertexFlow引擎组件
+- [去重功能](vertex_flow/docs/DEDUPLICATION.md) - 智能文档去重
+- [配置统一化](docs/CONFIGURATION_UNIFICATION.md) - 统一配置系统
 
 ### 🎯 开发与维护
-- [版本管理](docs/VERSION_MANAGEMENT.md) - 版本控制和发布管理
-- [发布指南](docs/PUBLISHING.md) - 包发布工作流程
-- [配置脱敏](docs/SANITIZATION_README.md) - 配置文件安全处理
+- [发布指南](docs/PUBLISHING.md) - 包发布和版本管理
 - [预提交检查](docs/PRECOMMIT_README.md) - 代码质量和自动化检查
 
 ## 示例
 
 ```bash
-# Function Tools示例
+# Function tools示例
 cd vertex_flow/examples
 python command_line_example.py   # 命令行工具
-python web_search_example.py     # 网络搜索工具  
-python finance_example.py        # 金融数据工具
-
-# 其他示例
+python web_search_example.py     # Web搜索工具  
+python finance_example.py        # 金融工具
 python rag_example.py            # RAG系统
 python deduplication_demo.py     # 去重功能
-
-# 深度研究示例
-vertex dr --topic "人工智能在医疗领域的应用"
-vertex dr --topic "区块链在金融科技中的应用" --batch
 ```
 
 ## 开发
@@ -257,9 +249,6 @@ vertex dr --topic "区块链在金融科技中的应用" --batch
 ```bash
 # 运行预提交检查
 ./scripts/precommit.sh
-
-# 脱敏配置文件
-python scripts/sanitize_config.py
 
 # 版本管理
 python scripts/version_bump.py

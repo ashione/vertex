@@ -49,10 +49,22 @@ class ChatModel(abc.ABC):
         for message in messages:
             logging.debug(f"Processing message: {message}")
             
-            if isinstance(message.get("content"), list):
+            # 根据消息角色和内容类型来处理
+            role = message.get("role", "")
+            content = message.get("content")
+            
+            # 助手消息且包含工具调用
+            if role == "assistant" and "tool_calls" in message:
+                # 工具调用消息，保持原格式
+                processed_messages.append(message)
+            # 工具响应消息
+            elif role == "tool":
+                # 工具响应消息，保持原格式
+                processed_messages.append(message)
+            elif isinstance(content, list):
                 # 多模态消息格式
                 processed_content = []
-                for content_item in message["content"]:
+                for content_item in content:
                     if content_item.get("type") == "text":
                         processed_content.append(content_item)
                     elif content_item.get("type") == "image_url":
@@ -64,11 +76,11 @@ class ChatModel(abc.ABC):
                             # 对于网络URL，保持原格式
                             processed_content.append(content_item)
                 processed_messages.append({
-                    "role": message["role"],
+                    "role": role,
                     "content": processed_content
                 })
-            elif isinstance(message.get("content"), str):
-                # 纯文本消息，保持原格式
+            elif isinstance(content, str) or content is None:
+                # 纯文本消息或空内容，保持原格式
                 processed_messages.append(message)
             else:
                 # 其他格式，尝试转换为文本

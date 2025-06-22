@@ -25,6 +25,8 @@ class ConfigLoader:
 
     def __init__(self):
         self.user_config_dir = Path.home() / ".vertex" / "config"
+        # 优先使用统一配置文件，如果不存在则使用LLM配置文件
+        self.unified_config_file = self.user_config_dir / "unified.yml"
         self.user_config_file = self.user_config_dir / "llm.yml"
 
     def load_config(self) -> Dict[str, Any]:
