@@ -60,3 +60,11 @@ WORKFLOW_FAILED = "workflow_failed"  # 工作流执行失败
 WORKFLOW_ERROR = "workflow_error"  # 工作流执行异常
 
 WORKFLOW_END_STATES = [WORKFLOW_COMPLETE, WORKFLOW_FAILED, WORKFLOW_ERROR]
+
+# Reasoning configuration constants
+SHOW_REASONING = True  # Default value for showing reasoning process in AI responses
+SHOW_REASONING_KEY = "show_reasoning"  # Key name for show_reasoning parameter
+
+# Content attribute constants
+CONTENT_ATTR = "content"  # Attribute name for regular content
+REASONING_CONTENT_ATTR = "reasoning_content"  # Attribute name for reasoning content

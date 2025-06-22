@@ -20,7 +20,9 @@ from vertex_flow.workflow.constants import (
     MESSAGE_TYPE_REGULAR,
     MESSAGE_TYPE_REASONING,
     MESSAGE_TYPE_ERROR,
-    MESSAGE_TYPE_END
+    MESSAGE_TYPE_END,
+    SHOW_REASONING,
+    SHOW_REASONING_KEY
 )
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.utils import (
@@ -64,7 +66,7 @@ class LLMVertex(Vertex[T]):
         self.tools = tools or []  # 保存可用的function tools
         self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
         self.enable_reasoning = params.get("enable_reasoning", False) if params else False  # 支持思考过程
-        self.show_reasoning = params.get("show_reasoning", True) if params else True  # 是否显示思考过程
+        self.show_reasoning = params.get(SHOW_REASONING_KEY, SHOW_REASONING) if params else SHOW_REASONING  # 是否显示思考过程
 
         if task is None:
             logging.info("Use llm chat in task executing.")
@@ -339,7 +341,7 @@ class LLMVertex(Vertex[T]):
                 
                 # Check if reasoning is enabled
                 enable_reasoning = self.params.get("enable_reasoning", False)
-                show_reasoning = self.params.get("show_reasoning", True)
+                show_reasoning = self.params.get(SHOW_REASONING_KEY, True)
                 
                 if enable_reasoning:
                     # Use reasoning-enabled streaming with tool support
@@ -358,7 +360,8 @@ class LLMVertex(Vertex[T]):
                         # No tool calls, use reasoning streaming
                         # Pass tools to reasoning stream in case model needs them
                         reasoning_option = option.copy() if option else {}
-                        reasoning_option["tools"] = llm_tools
+                        if llm_tools:  # Only set tools if not None/empty
+                            reasoning_option["tools"] = llm_tools
                         
                         for chunk in self.model.chat_stream_with_reasoning(self.messages, option=reasoning_option):
                             # Emit event if requested
@@ -453,6 +456,8 @@ class LLMVertex(Vertex[T]):
                 self.workflow.emit_event(EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END})
 
     def _build_llm_tools(self):
+        if not self.tools:
+            return None  # Return None instead of empty list to avoid API error
         return [
             {
                 "type": "function",
@@ -478,8 +483,8 @@ class LLMVertex(Vertex[T]):
             option["top_p"] = self.params["top_p"]
             
         # Add reasoning parameters (for display control)
-        if "show_reasoning" in self.params:
-            option["show_reasoning"] = self.params["show_reasoning"]
+        if SHOW_REASONING_KEY in self.params:
+            option[SHOW_REASONING_KEY] = self.params[SHOW_REASONING_KEY]
             
         # Add tools if available
         if self.tools:

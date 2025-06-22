@@ -167,7 +167,6 @@ def main():
     # 需要脱敏的配置文件列表（按重要性排序）
     config_files = [
         # 新的配置文件位置（优先级高）
-        project_root / "vertex_flow" / "config" / "llm.yml",
         project_root / "vertex_flow" / "config" / "llm.yml.template",
         # 可以添加其他需要脱敏的配置文件
     ]
