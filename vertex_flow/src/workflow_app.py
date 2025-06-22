@@ -10,7 +10,7 @@ from typing import List, Tuple
 import gradio as gr
 
 from vertex_flow.utils.logger import setup_logger
-from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER
+from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER, SHOW_REASONING, SHOW_REASONING_KEY
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
 from vertex_flow.workflow.workflow import WorkflowContext
@@ -90,7 +90,7 @@ class WorkflowChatApp:
 
 
 
-    def _create_llm_vertex(self, system_prompt: str, enable_reasoning: bool = False, show_reasoning: bool = True):
+    def _create_llm_vertex(self, system_prompt: str, enable_reasoning: bool = False, show_reasoning: bool = SHOW_REASONING):
         """创建 LLM Vertex 实例"""
         if self.llm_model is None:
             raise ValueError("LLM模型未初始化")
@@ -107,12 +107,12 @@ class WorkflowChatApp:
                 USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
                 ENABLE_STREAM: True,  # 启用流模式
                 "enable_reasoning": enable_reasoning,  # 启用思考过程
-                "show_reasoning": show_reasoning,  # 显示思考过程
+                SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
             },
             tools=tools,  # 传递工具列表
         )
 
-    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=True):
+    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING):
         """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入和思考过程"""
         # 添加调试信息，显示当前使用的模型
         try:
@@ -181,9 +181,36 @@ class WorkflowChatApp:
             # 直接使用流式输出模式
             logger.info("使用流式输出模式")
             chunk_count = 0
+            reasoning_header_added = False
+            answer_header_added = False
+            is_reasoning_phase = True
+            
             for chunk in llm_vertex.chat_stream_generator(inputs, context):
                 if chunk:
                     chunk_count += 1
+                    
+                    # 检查是否是推理模式且需要显示推理过程
+                    enable_reasoning = getattr(llm_vertex, 'enable_reasoning', False)
+                    show_reasoning = getattr(llm_vertex, 'show_reasoning', False)
+                    
+                    if enable_reasoning and show_reasoning and not reasoning_header_added:
+                        # 添加推理模式头部
+                        response_parts.append("🧠 **启用推理模式** - 您将看到AI的完整思考过程\n\n")
+                        response_parts.append("🤔 **思考过程：**\n")
+                        reasoning_header_added = True
+                    
+                    # 检测是否从推理阶段转换到回答阶段
+                    # 简单的启发式：如果chunk包含较多连续的非特殊字符，可能是最终答案的开始
+                    if (enable_reasoning and show_reasoning and is_reasoning_phase and 
+                        reasoning_header_added and not answer_header_added and
+                        chunk_count > 10 and len(chunk.strip()) > 5 and 
+                        not any(marker in chunk for marker in ['思考', '分析', '考虑', '推理'])):
+                        # 添加分隔符和最终答案头部
+                        response_parts.append("\n\n" + "="*50 + "\n")
+                        response_parts.append("💡 **最终回答：**\n\n")
+                        answer_header_added = True
+                        is_reasoning_phase = False
+                    
                     response_parts.append(chunk)
                     current_response = "".join(response_parts)
                     new_history[-1] = (display_message, current_response)
@@ -396,6 +423,7 @@ def create_gradio_interface(app: WorkflowChatApp):
             let scrollContainer = null;
             let isUserScrolling = false;
             let scrollTimeout = null;
+            let autoScrollEnabled = true; // 控制自动滚动是否启用
             
             // 查找并缓存聊天滚动容器
             function findScrollContainer() {
@@ -511,6 +539,17 @@ def create_gradio_interface(app: WorkflowChatApp):
                 return false;
             }
             
+            // 强制滚动到顶部（用于清除对话）
+            function forceScrollToTop() {
+                const container = findScrollContainer();
+                if (container) {
+                    container.scrollTop = 0;
+                    console.log('📜 执行滚动到顶部');
+                    return true;
+                }
+                return false;
+            }
+            
             // 平滑滚动到底部
             function smoothScrollToBottom() {
                 const container = findScrollContainer();
@@ -532,17 +571,62 @@ def create_gradio_interface(app: WorkflowChatApp):
             
             // 检查是否应该自动滚动
             function shouldAutoScroll() {
+                if (!autoScrollEnabled) {
+                    console.log('🛑 自动滚动已禁用');
+                    return false;
+                }
+                
                 if (isUserScrolling) {
                     console.log('🤚 用户正在滚动，跳过自动滚动');
                     return false;
                 }
                 
                 const container = findScrollContainer();
-                if (!container) return false;
+                if (!container) {
+                    console.log('❌ 未找到滚动容器');
+                    return false;
+                }
                 
-                // 如果已经在底部附近，则自动滚动
-                const isNearBottom = container.scrollTop >= container.scrollHeight - container.clientHeight - 100;
-                return isNearBottom;
+                // 修复：在流式输出时始终自动滚动，除非用户明确向上滚动了很多
+                const scrollTop = container.scrollTop;
+                const scrollHeight = container.scrollHeight;
+                const clientHeight = container.clientHeight;
+                const maxScroll = scrollHeight - clientHeight;
+                
+                console.log('📏 容器尺寸信息:', {
+                    scrollTop,
+                    scrollHeight,
+                    clientHeight,
+                    maxScroll,
+                    containerTag: container.tagName,
+                    containerClass: container.className
+                });
+                
+                // 如果内容高度小于容器高度，仍然允许滚动（流式输出中内容会增加）
+                if (maxScroll <= 0) {
+                    console.log('📏 内容未超出容器，但允许滚动（流式输出）');
+                    return true; // 改为true，允许流式输出时的滚动
+                }
+                
+                // 如果用户滚动到了很上面（超过30%），则暂停自动滚动
+                const scrollPercentage = scrollTop / maxScroll;
+                const shouldPause = scrollPercentage < 0.7; // 如果滚动位置在前70%，暂停自动滚动
+                
+                if (shouldPause) {
+                    console.log('📍 用户滚动到较上方位置，暂停自动滚动', {
+                        scrollTop,
+                        maxScroll,
+                        percentage: Math.round(scrollPercentage * 100) + '%'
+                    });
+                    return false;
+                }
+                
+                console.log('✅ 允许自动滚动', {
+                    scrollTop,
+                    maxScroll,
+                    percentage: Math.round(scrollPercentage * 100) + '%'
+                });
+                return true;
             }
             
             // 监听内容变化的Observer
@@ -565,7 +649,7 @@ def create_gradio_interface(app: WorkflowChatApp):
                         }
                     });
                     
-                    if (contentChanged) {
+                    if (contentChanged && autoScrollEnabled && shouldAutoScroll()) {
                         console.log('🔄 内容变化检测，执行自动滚动');
                         // 立即滚动 - 使用多种方法
                         const scrolled = forceScrollToBottom() || bruteForceScroll();
@@ -574,16 +658,20 @@ def create_gradio_interface(app: WorkflowChatApp):
                             console.log('⚠️ 立即滚动失败，延迟重试...');
                             // 延迟滚动作为备用
                             setTimeout(() => {
-                                const retryScrolled = forceScrollToBottom() || bruteForceScroll() || fallbackScroll();
-                                if (retryScrolled) {
-                                    console.log('✅ 延迟滚动成功');
-                                } else {
-                                    console.log('❌ 所有滚动方法都失败了');
+                                if (autoScrollEnabled && shouldAutoScroll()) {
+                                    const retryScrolled = forceScrollToBottom() || bruteForceScroll() || fallbackScroll();
+                                    if (retryScrolled) {
+                                        console.log('✅ 延迟滚动成功');
+                                    } else {
+                                        console.log('❌ 所有滚动方法都失败了');
+                                    }
                                 }
                             }, 100);
                         } else {
                             console.log('✅ 立即滚动成功');
                         }
+                    } else if (contentChanged && !autoScrollEnabled) {
+                        console.log('🛑 内容变化检测，但自动滚动已禁用');
                     }
                 });
                 
@@ -626,7 +714,7 @@ def create_gradio_interface(app: WorkflowChatApp):
             // 定时强制滚动（流式聊天的强力保障）
             function setupPeriodicScroll() {
                 setInterval(() => {
-                    if (!isUserScrolling) {
+                    if (autoScrollEnabled && !isUserScrolling && shouldAutoScroll()) {
                         // 尝试多种滚动方法
                         const scrolled = forceScrollToBottom() || 
                                        bruteForceScroll() || 
@@ -735,8 +823,30 @@ def create_gradio_interface(app: WorkflowChatApp):
                 findScrollContainer();
             }
             
-            // 暴露到全局，便于手动调试
+            // 禁用自动滚动（清除对话时使用）
+            function disableAutoScroll() {
+                autoScrollEnabled = false;
+                console.log('🛑 自动滚动已禁用');
+            }
+            
+            // 启用自动滚动（开始新对话时使用）
+            function enableAutoScroll() {
+                autoScrollEnabled = true;
+                console.log('✅ 自动滚动已启用');
+                // 启用后立即滚动到底部
+                setTimeout(() => {
+                    if (autoScrollEnabled) {
+                        forceScrollToBottom();
+                    }
+                }, 100);
+            }
+            
+            // 暴露到全局，便于手动调试和清除对话时使用
             window.debugScrollContainer = debugFindContainer;
+            window.scrollToTop = forceScrollToTop;
+            window.scrollToBottom = forceScrollToBottom;
+            window.disableAutoScroll = disableAutoScroll;
+            window.enableAutoScroll = enableAutoScroll;
             
             // 等待DOM准备就绪
             if (document.readyState === 'loading') {
@@ -871,10 +981,6 @@ def create_gradio_interface(app: WorkflowChatApp):
                     label="启用思考过程", value=False, info="让AI显示推理过程（支持DeepSeek R1等模型）"
                 )
 
-                show_reasoning = gr.Checkbox(
-                    label="显示思考过程", value=True, info="是否在对话中显示AI的思考过程"
-                )
-
                 # 命令行工具测试区域
                 with gr.Accordion("🖥️ 命令行工具测试", open=False):
                     cmd_input = gr.Textbox(label="命令", placeholder="例如: ls -la, python --version, pwd", lines=1)
@@ -882,7 +988,7 @@ def create_gradio_interface(app: WorkflowChatApp):
                     cmd_result = gr.JSON(label="执行结果", visible=True)
 
         # 事件绑定
-        def respond(message, history, sys_prompt, image_url, enable_reasoning_val, show_reasoning_val):
+        def respond(message, history, sys_prompt, image_url, enable_reasoning_val):
             multimodal_inputs = {}
             # 文本
             if message:
@@ -893,27 +999,32 @@ def create_gradio_interface(app: WorkflowChatApp):
                 url = image_url.strip()
                 if "discordapp.com" in url or "discord.com" in url:
                     # Discord图片可能不被支持，给出提示
-                    yield "⚠️ 检测到Discord图片链接，可能不被支持。建议：\n1. 使用其他图片托管服务\n2. 直接粘贴图片URL", history + [(message or "", "⚠️ Discord图片链接可能不被支持，请尝试其他方式。")]
+                    yield "", history + [(message or "", "⚠️ Discord图片链接可能不被支持，请尝试其他方式。")]
                     return
                 elif "cdn.discordapp.com" in url:
                     # Discord CDN图片
-                    yield "⚠️ Discord CDN图片链接可能不被支持。建议使用其他图片托管服务。", history + [(message or "", "⚠️ Discord CDN图片链接可能不被支持，请尝试其他方式。")]
+                    yield "", history + [(message or "", "⚠️ Discord CDN图片链接可能不被支持，请尝试其他方式。")]
                     return
                 else:
                     multimodal_inputs["image_url"] = url
             
-            # 传递给chat_with_vertex
+            # 传递给chat_with_vertex - enable_reasoning同时控制启用和显示
             try:
-                for result in app.chat_with_vertex(multimodal_inputs, history, sys_prompt, enable_reasoning_val, show_reasoning_val):
-                    yield result
+                for result in app.chat_with_vertex(multimodal_inputs, history, sys_prompt, enable_reasoning_val, enable_reasoning_val):
+                    # 确保输入框始终为空字符串，保持可输入状态
+                    if isinstance(result, tuple) and len(result) == 2:
+                        yield "", result[1]  # 输入框清空，更新聊天历史
+                    else:
+                        yield "", result  # 兼容其他格式
             except Exception as e:
                 error_msg = f"处理失败: {str(e)}"
                 if "500" in str(e) and multimodal_inputs.get("image_url"):
                     error_msg = "图片处理失败，可能是图片格式不支持或链接无效。请尝试：\n1. 使用其他图片\n2. 检查图片链接是否有效\n3. 确保图片格式为常见格式（JPG、PNG等）"
-                yield error_msg, history + [(message or "", error_msg)]
+                yield "", history + [(message or "", error_msg)]
 
         def clear_conversation():
-            return []
+            """清除对话历史并重置滚动位置"""
+            return [], ""  # 同时清空聊天历史和输入框
 
         def update_models_by_provider(selected_provider):
             """根据选择的提供商更新模型列表"""
@@ -1008,11 +1119,90 @@ def create_gradio_interface(app: WorkflowChatApp):
                 return {"error": f"执行失败: {str(e)}"}
 
         # 绑定发送消息事件（支持流式输出）
-        msg.submit(respond, inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, show_reasoning], outputs=[msg, chatbot], show_progress="minimal")
-        send_btn.click(respond, inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, show_reasoning], outputs=[msg, chatbot], show_progress="minimal")
+        msg.submit(
+            respond, 
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning], 
+            outputs=[msg, chatbot], 
+            show_progress="minimal"
+        )
+        send_btn.click(
+            respond, 
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning], 
+            outputs=[msg, chatbot], 
+            show_progress="minimal"
+        )
+        
+        # JavaScript事件处理 - 单独绑定以避免干扰主要功能
+        msg.submit(js="""
+            function() {
+                console.log('💬 开始新对话，启用自动滚动');
+                if (window.enableAutoScroll) {
+                    window.enableAutoScroll();
+                } else {
+                    console.log('⚠️ enableAutoScroll函数未找到');
+                }
+            }
+        """)
+        send_btn.click(js="""
+            function() {
+                console.log('💬 开始新对话，启用自动滚动');
+                if (window.enableAutoScroll) {
+                    window.enableAutoScroll();
+                } else {
+                    console.log('⚠️ enableAutoScroll函数未找到');
+                }
+            }
+        """)
 
         # 绑定清除对话事件
-        clear_btn.click(clear_conversation, outputs=[chatbot])
+        clear_btn.click(
+            clear_conversation, 
+            outputs=[chatbot, msg]
+        )
+        
+        # JavaScript事件处理 - 单独绑定以避免干扰主要功能
+        clear_btn.click(js="""
+            function() {
+                console.log('🧹 清除对话，禁用自动滚动');
+                
+                // 禁用自动滚动
+                if (window.disableAutoScroll) {
+                    window.disableAutoScroll();
+                } else {
+                    console.log('⚠️ disableAutoScroll函数未找到');
+                }
+                
+                // 滚动到顶部（只执行一次，不再重复）
+                function scrollToTopOnce() {
+                    // 使用全局函数
+                    if (window.scrollToTop) {
+                        window.scrollToTop();
+                        console.log('✅ 使用全局函数滚动到顶部');
+                        return;
+                    }
+                    
+                    // 备用方案
+                    const chatbot = document.querySelector('.chatbot');
+                    if (chatbot) {
+                        const scrollContainer = chatbot.querySelector('div[style*="overflow"], .overflow-y-auto') || chatbot.querySelector('div');
+                        if (scrollContainer) {
+                            scrollContainer.scrollTop = 0;
+                            console.log('✅ 使用备用方案滚动到顶部');
+                        }
+                    }
+                    
+                    // 全局滚动重置
+                    document.body.scrollTop = 0;
+                    document.documentElement.scrollTop = 0;
+                    window.scrollTo(0, 0);
+                }
+                
+                // 延迟执行滚动到顶部，确保DOM更新完成
+                setTimeout(scrollToTopOnce, 100);
+                
+                console.log('🎯 清除对话完成，自动滚动已禁用');
+            }
+        """)
 
         # 绑定提供商选择事件 - 更新模型列表
         provider_dropdown.change(

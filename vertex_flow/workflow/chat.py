@@ -7,6 +7,7 @@ from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.constants import SHOW_REASONING_KEY, CONTENT_ATTR, REASONING_CONTENT_ATTR
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
 logging = LoggerUtil.get_logger()
@@ -96,7 +97,7 @@ class ChatModel(abc.ABC):
         
         # 构建API调用参数 - 过滤掉自定义参数
         filtered_option = {k: v for k, v in default_option.items() 
-                          if k not in ["show_reasoning", "enable_reasoning"]}
+                          if k not in [SHOW_REASONING_KEY, "enable_reasoning"]}
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
@@ -117,7 +118,7 @@ class ChatModel(abc.ABC):
         for chunk in completion:
             # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
             if hasattr(chunk, "choices") and len(chunk.choices) > 0 and chunk.choices[0].delta:
-                content = chunk.choices[0].delta.content
+                content = getattr(chunk.choices[0].delta, CONTENT_ATTR, None)
                 if content is not None:  # 只yield非None的内容
                     yield content
             else:
@@ -138,33 +139,56 @@ class ChatModel(abc.ABC):
             reasoning_buffer = ""
             content_buffer = ""
             is_reasoning_phase = True
+            reasoning_started = False
+            total_chunks = 0
             
             for chunk in completion:
+                total_chunks += 1
                 if chunk.choices and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
                     
+                    
                     # Check for reasoning content (DeepSeek R1 models)
-                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                        reasoning_buffer += delta.reasoning_content
-                        if option and option.get("show_reasoning", True):
-                            yield f"{delta.reasoning_content}"
+                    if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
+                        reasoning_content = getattr(delta, REASONING_CONTENT_ATTR)
+                        reasoning_buffer += reasoning_content
+                        reasoning_started = True
+                        yield reasoning_content
                         continue
                     
                     # Regular content
-                    if hasattr(delta, 'content') and delta.content:
-                        # If we were in reasoning phase and now have content, add separator
-                        if is_reasoning_phase and reasoning_buffer and option and option.get("show_reasoning", True):
-                            yield "\n\n💭 **回答：**\n"
+                    if hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR):
+                        content = getattr(delta, CONTENT_ATTR)
+                        
+                        # For DeepSeek R1, reasoning might be in regular content with special markers
+                        # Look for thinking tags or patterns
+                        if any(marker in content for marker in ['<thinking>', '<think>', '<reasoning>', '思考：', '分析：']):
+                            # This is reasoning content
+                            reasoning_buffer += content
+                            reasoning_started = True
+                            # Clean up the content for display
+                            display_content = content
+                            for tag in ['<thinking>', '</thinking>', '<think>', '</think>', '<reasoning>', '</reasoning>']:
+                                display_content = display_content.replace(tag, '')
+                            yield display_content
+                            continue
+                        
+                        # Check if this is the start of the final answer
+                        if content.strip() and is_reasoning_phase and reasoning_started:
+                            # Transition to answer phase - just mark the phase change
                             is_reasoning_phase = False
                         
-                        content_buffer += delta.content
-                        yield delta.content
+                        content_buffer += content
+                        yield content
                         
             # Log the complete reasoning and content for debugging
+            logging.info(f"Total chunks processed: {total_chunks}")
             if reasoning_buffer:
-                logging.info(f"Reasoning length: {len(reasoning_buffer)} chars")
+                logging.info(f"Reasoning content detected: {len(reasoning_buffer)} chars")
+            else:
+                logging.info("No reasoning content detected - may be regular model or different format")
             if content_buffer:
-                logging.info(f"Content length: {len(content_buffer)} chars")
+                logging.info(f"Answer content: {len(content_buffer)} chars")
                 
         except Exception as e:
             logging.error(f"Error in chat_stream_with_reasoning: {e}")
