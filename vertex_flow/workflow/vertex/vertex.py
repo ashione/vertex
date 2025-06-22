@@ -6,14 +6,9 @@ import weakref
 from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import (
-    LOCAL_VAR,
-    SOURCE_SCOPE,
-    SOURCE_VAR,
-    VERTEX_ID_KEY,
-    OUTPUT_KEY
-)
+from vertex_flow.workflow.constants import LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY
 from vertex_flow.workflow.edge import (
+    Condition,
     Edge,
     EdgeType,
 )
@@ -324,6 +319,19 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
         self._is_executed = executed
 
     def to(self, next_vertex: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS) -> "Vertex[T]":
+        """
+        Create a connection to the next vertex and return the target vertex for method chaining.
+
+        Args:
+            next_vertex: The target vertex to connect to
+            edge_type: The type of edge (default: Always)
+
+        Returns:
+            The target vertex to enable method chaining
+
+        Example:
+            vertex_a.to(vertex_b).to(vertex_c)  # Chain connections
+        """
         if not isinstance(next_vertex, Vertex):
             raise ValueError("next_vertex must be an instance of Vertex")
 
@@ -333,11 +341,56 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         return next_vertex
 
-    def __or__(self, other: "Vertex[T]", edge_type: EdgeType = Edge.ALWAYS) -> "Vertex[T]":
-        if not isinstance(other, Vertex):
-            raise ValueError("Other must be an instance of Vertex")
+    def c_to(self, next_vertex: "Vertex[T]", condition_id: str = "true") -> "Vertex[T]":
+        """
+        Create a conditional connection to the next vertex and return the target vertex for method chaining.
 
-        return self.to(other)
+        Args:
+            next_vertex: The target vertex to connect to
+            condition_id: The condition identifier (default: "true")
+
+        Returns:
+            The target vertex to enable method chaining
+
+        Example:
+            vertex_a.c_to(vertex_b, "success").c_to(vertex_c, "continue")  # Chain conditional connections
+
+            # Common patterns:
+            if_vertex.c_to(then_vertex, "true").to(end_vertex)
+            if_vertex.c_to(else_vertex, "false")
+        """
+        if not isinstance(next_vertex, Vertex):
+            raise ValueError("next_vertex must be an instance of Vertex")
+
+        # 创建条件边
+        condition_edge = Condition(id=condition_id)
+        edge = Edge(self, next_vertex, condition_edge)
+        self.workflow.add_edge(edge)
+
+        return next_vertex
+
+    def __or__(self, other: "Vertex[T]") -> "Vertex[T]":
+        """
+        Use the | operator to create edges between vertices (original method preserved).
+        This method maintains backward compatibility with existing code.
+
+        Args:
+            other: The target vertex to connect to
+
+        Returns:
+            The target vertex to enable chaining
+
+        Example:
+            vertex_a | vertex_b | vertex_c  # Chain connections using | operator
+        """
+        if not isinstance(other, Vertex):
+            raise ValueError("other must be an instance of Vertex")
+
+        # 使用 ALWAYS edge type 保持与原来的行为一致
+        edge = Edge(self, other, Edge.ALWAYS)
+        self.workflow.add_edge(edge)
+
+        return other
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         raise NotImplementedError("Subclasses should implement this method.")

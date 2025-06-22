@@ -1,6 +1,7 @@
-# 配置模板文件 - 请根据此模板创建您的实际配置文件
+# Vertex Flow 统一配置模板
+# 集成了LLM、MCP、向量存储、网络搜索等所有功能的配置
 # 通过docker env可以注入相关的配置，作为修改值
-# 例如ll.deepseek.sk，则通过llm_deepseek_sk环境变量
+# 例如llm.deepseek.sk，则通过llm_deepseek_sk环境变量
 # 在docker启动时设置-e llm_deepseek_sk=?
 #
 # 本地模型支持（Ollama）:
@@ -8,6 +9,10 @@
 # 2. 启动服务: ollama serve
 # 3. 拉取模型: ollama pull qwen:7b
 # 4. 在应用中切换到ollama提供商
+
+# ============================================================================
+# 大语言模型配置 (LLM Configuration)
+# ============================================================================
 llm:
   deepseek:
     sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
@@ -170,4 +175,236 @@ document:
 retrieval:
   top_k: 3  # 检索的文档数量
   similarity_threshold: 0.7  # 相似度阈值
-  rerank: false  # 是否启用重排序 
+  rerank: false  # 是否启用重排序
+
+# ============================================================================
+# MCP (Model Context Protocol) 配置
+# ============================================================================
+mcp:
+  # Enable MCP integration
+  enabled: true
+  
+  # MCP Clients - Connect to external MCP servers
+  clients:
+    # Filesystem server for file access
+    filesystem:
+      enabled: true
+      transport: "stdio"
+      command: "npx"
+      args:
+        - "@modelcontextprotocol/server-filesystem"
+        - "/Users/wjf/workspaces"
+    
+    # Everything server for testing tools
+    everything:
+      enabled: true
+      transport: "stdio"
+      command: "npx"
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-everything"
+    
+    # Example GitHub MCP client  
+    github:
+      enabled: false
+      transport: "stdio"
+      command: "npx"
+      args: ["@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: "your-github-token"
+      description: "Access GitHub repositories and issues"
+    
+    # Example database MCP client
+    database:
+      enabled: false
+      transport: "stdio"
+      command: "python"
+      args: ["-m", "mcp_server_database", "--connection-string", "sqlite:///example.db"]
+      description: "Access database resources"
+    
+    # Example web search MCP client (different from built-in web search)
+    mcp_web_search:
+      enabled: false
+      transport: "stdio"
+      command: "python"
+      args: ["-m", "mcp_server_web_search"]
+      env:
+        SEARCH_API_KEY: "your-search-api-key"
+      description: "MCP-based web search capabilities"
+    
+    # Example HTTP MCP client
+    http_server:
+      enabled: false
+      transport: "http"
+      base_url: "http://localhost:8080"
+      description: "Connect to HTTP MCP server"
+  
+  # MCP Server - Expose Vertex Flow resources and tools
+  server:
+    enabled: true
+    name: "VertexFlow"
+    version: "1.0.0"
+    
+    # Server transport configuration
+    transport:
+      # stdio transport (for command-line usage)
+      stdio:
+        enabled: true
+      
+      # HTTP transport (for web-based usage)
+      http:
+        enabled: false
+        host: "localhost"
+        port: 8080
+    
+    # Resources to expose
+    resources:
+      enabled: true
+      # Expose workflow configurations
+      workflows:
+        enabled: true
+        path: "vertex_flow/workflow"
+        pattern: "*.py"
+      
+      # Expose documentation
+      docs:
+        enabled: true
+        path: "docs"
+        pattern: "*.md"
+      
+      # Expose configuration files
+      configs:
+        enabled: true
+        path: "vertex_flow/config"
+        pattern: "*.yml"
+    
+    # Tools to expose
+    tools:
+      enabled: true
+      
+      # Expose function tools
+      function_tools:
+        enabled: true
+        # Auto-discover function tools
+        auto_discover: true
+        # Specific function tools to expose
+        include:
+          - "web_search"
+          - "command_line"
+          - "finance"
+      
+      # Expose workflow execution
+      workflow_execution:
+        enabled: true
+        description: "Execute Vertex Flow workflows"
+      
+      # Expose vertex operations
+      vertex_operations:
+        enabled: true
+        description: "Perform vertex-level operations"
+    
+    # Prompts to expose
+    prompts:
+      enabled: true
+      
+      # System prompts
+      system_prompts:
+        enabled: true
+        path: "vertex_flow/prompts/system"
+      
+      # Task-specific prompts
+      task_prompts:
+        enabled: true
+        path: "vertex_flow/prompts/tasks"
+      
+      # Custom prompts
+      custom_prompts:
+        - name: "code_review"
+          template: |
+            Please review the following code and provide feedback:
+            
+            Code:
+            {code}
+            
+            Focus areas: {focus_areas}
+            
+            Please provide:
+            1. Overall assessment
+            2. Potential issues
+            3. Improvement suggestions
+            4. Best practices recommendations
+          description: "Code review prompt with focus areas"
+          arguments:
+            - name: "code"
+              description: "Code to review"
+              required: true
+            - name: "focus_areas"
+              description: "Specific areas to focus on (security, performance, etc.)"
+              required: false
+        
+        - name: "workflow_design"
+          template: |
+            Design a Vertex Flow workflow for the following requirements:
+            
+            Requirements:
+            {requirements}
+            
+            Constraints:
+            {constraints}
+            
+            Please provide:
+            1. Workflow structure
+            2. Vertex configuration
+            3. Data flow design
+            4. Error handling strategy
+          description: "Workflow design assistance"
+          arguments:
+            - name: "requirements"
+              description: "Workflow requirements"
+              required: true
+            - name: "constraints"
+              description: "Technical or business constraints"
+              required: false
+
+# ============================================================================
+# MCP集成设置 (MCP Integration Settings)
+# ============================================================================
+integration:
+  # Auto-connect to MCP clients on startup
+  auto_connect: true
+  
+  # Timeout for MCP operations (seconds)
+  timeout: 30
+  
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    delay: 1.0
+    backoff_factor: 2.0
+  
+  # Logging configuration
+  logging:
+    level: "INFO"
+    log_mcp_messages: false
+    log_tool_calls: true
+  
+  # Security settings
+  security:
+    # Require explicit approval for tool calls
+    require_approval: false
+    
+    # Allowed resource patterns
+    allowed_resources:
+      - "file://*"
+      - "workflow://*"
+      - "config://*"
+    
+    # Blocked resource patterns
+    blocked_resources:
+      - "file:///etc/*"
+      - "file:///root/*"
+    
+    # Tool execution limits
+    tool_limits:
+      max_execution_time: 60  # seconds
+      max_memory_usage: 100   # MB

@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -12,6 +13,15 @@ from vertex_flow.workflow.vertex.vector_engines import DashVector
 from .vertex.embedding_providers import BCEEmbedding, DashScopeEmbedding, TextEmbeddingProvider
 
 logging = LoggerUtil.get_logger()
+
+# MCP support
+try:
+    from vertex_flow.workflow.mcp_manager import get_mcp_manager
+
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    logging.warning("MCP functionality not available")
 
 
 class EmbeddingType(Enum):
@@ -92,6 +102,9 @@ class VertexFlowService:
 
         # 标记为已初始化
         self._initialized = True
+
+        # 不在这里初始化MCP，延迟到真正需要时
+        # MCP初始化会在get_mcp_manager()中按需进行
 
     @classmethod
     def get_instance(cls, config_file=None):
@@ -808,3 +821,65 @@ class VertexFlowService:
             collection=collection,
             image_collection=image_collection,
         )
+
+    # MCP related methods
+    def get_mcp_manager(self):
+        """Get MCP manager instance"""
+        if not MCP_AVAILABLE:
+            logging.warning("MCP functionality not available")
+            return None
+
+        mcp_manager = get_mcp_manager()
+
+        # 如果MCP管理器还没有初始化，尝试同步初始化
+        if not mcp_manager._initialized:
+            try:
+                mcp_config = self._config.get("mcp", {})
+                if not mcp_config.get("enabled", False):
+                    logging.info("MCP is disabled in configuration")
+                    return mcp_manager
+
+                # 使用线程池执行异步初始化，避免事件循环冲突
+                import concurrent.futures
+                import threading
+
+                def init_mcp_sync():
+                    """在独立线程中同步初始化MCP"""
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(mcp_manager.initialize(mcp_config))
+                        logging.info("MCP Manager initialized successfully in sync mode")
+                        return True
+                    except Exception as e:
+                        logging.error(f"Failed to initialize MCP in sync mode: {e}")
+                        return False
+                    finally:
+                        loop.close()
+
+                # 在独立线程中运行初始化
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(init_mcp_sync)
+                    try:
+                        success = future.result(timeout=30)  # 30秒超时
+                        if success:
+                            logging.info("MCP initialization completed successfully")
+                        else:
+                            logging.warning("MCP initialization failed")
+                    except concurrent.futures.TimeoutError:
+                        logging.error("MCP initialization timed out after 30 seconds")
+                    except Exception as e:
+                        logging.error(f"MCP initialization error: {e}")
+
+            except Exception as e:
+                logging.error(f"Failed to initialize MCP: {e}")
+
+        return mcp_manager
+
+    def get_mcp_config(self) -> Dict[str, Any]:
+        """Get MCP configuration"""
+        return self._config.get("mcp", {})
+
+    def is_mcp_enabled(self) -> bool:
+        """Check if MCP is enabled"""
+        return MCP_AVAILABLE and self._config.get("mcp", {}).get("enabled", False)

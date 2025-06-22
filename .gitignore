@@ -28,6 +28,7 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+.python-version
 
 # 模型文件
 models/
