@@ -159,14 +159,14 @@ class MCPLLMVertex(LLMVertex):
             loop.close()
 
     async def _fetch_mcp_context(self) -> str:
-        """Fetch MCP context information"""
-        mcp_manager = get_mcp_manager()
+        """Fetch MCP context information with timeout"""
         context_parts = []
+        mcp_manager = get_mcp_manager()
 
         try:
             # Get available resources
             if self._mcp_resources_cache is None:
-                self._mcp_resources_cache = await mcp_manager.get_all_resources()
+                self._mcp_resources_cache = mcp_manager.get_all_resources()
 
             if self._mcp_resources_cache:
                 resources_info = []
@@ -176,7 +176,7 @@ class MCPLLMVertex(LLMVertex):
 
             # Get available tools
             if self._mcp_tools_cache is None:
-                self._mcp_tools_cache = await mcp_manager.get_all_tools()
+                self._mcp_tools_cache = mcp_manager.get_all_tools()
 
             if self._mcp_tools_cache:
                 tools_info = []
@@ -186,7 +186,7 @@ class MCPLLMVertex(LLMVertex):
 
             # Get available prompts
             if self._mcp_prompts_cache is None:
-                self._mcp_prompts_cache = await mcp_manager.get_all_prompts()
+                self._mcp_prompts_cache = mcp_manager.get_all_prompts()
 
             if self._mcp_prompts_cache:
                 prompts_info = []
@@ -272,6 +272,36 @@ class MCPLLMVertex(LLMVertex):
 
         return deduplicated_tools if deduplicated_tools else None
 
+    def _get_cached_mcp_llm_tools(self) -> List[Dict[str, Any]]:
+        """Get cached LLM format MCP tools, refresh only if needed"""
+        import time
+        
+        current_time = time.time()
+        
+        # Check if cache is valid
+        if (self._mcp_llm_tools_cache is not None and 
+            current_time - self._mcp_llm_tools_cache_time < self._mcp_cache_ttl):
+            logger.debug("Using cached MCP LLM tools")
+            return self._mcp_llm_tools_cache
+        
+        # Cache expired or not initialized, refresh
+        logger.debug("Refreshing MCP LLM tools cache")
+        try:
+            # Use thread pool to run async operation
+            future = self._executor.submit(self._get_mcp_tools_async)
+            fresh_tools = future.result(timeout=10.0)
+            
+            # Update cache
+            self._mcp_llm_tools_cache = fresh_tools
+            self._mcp_llm_tools_cache_time = current_time
+            
+            return fresh_tools
+            
+        except Exception as e:
+            logger.warning(f"Failed to refresh MCP tools cache: {e}")
+            # Return cached version if available, even if expired
+            return self._mcp_llm_tools_cache or []
+
     def _get_mcp_tools_sync(self) -> List[Dict[str, Any]]:
         """Get MCP tools synchronously with reasonable timeout"""
         try:
@@ -306,9 +336,7 @@ class MCPLLMVertex(LLMVertex):
                 # Check for MCP tools with reasonable timeout for Gradio environment
                 try:
                     logger.debug("Fetching MCP tools for Gradio environment")
-                    self._mcp_tools_cache = await asyncio.wait_for(
-                        mcp_manager.get_all_tools(), timeout=8.0  # 增加超时时间到8秒，适应Gradio环境
-                    )
+                    self._mcp_tools_cache = mcp_manager.get_all_tools()
 
                     if self._mcp_tools_cache:
                         logger.info(f"Successfully fetched {len(self._mcp_tools_cache)} MCP tools")
@@ -353,6 +381,38 @@ class MCPLLMVertex(LLMVertex):
         if not hasattr(choice, "message") or not hasattr(choice.message, "tool_calls"):
             return
 
+        # 首先添加assistant消息（包含tool_calls）
+        if hasattr(choice.message, "content") and choice.message.content:
+            self.messages.append({
+                "role": "assistant",
+                "content": choice.message.content,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function", 
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    } for tool_call in choice.message.tool_calls
+                ]
+            })
+        else:
+            self.messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    } for tool_call in choice.message.tool_calls
+                ]
+            })
+
         # 分离MCP工具和常规工具
         mcp_tool_calls = []
         regular_tool_calls = []
@@ -360,7 +420,7 @@ class MCPLLMVertex(LLMVertex):
         for tool_call in choice.message.tool_calls:
             if hasattr(tool_call, "function") and tool_call.function:
                 function_name = tool_call.function.name
-                if ":" in function_name:
+                if function_name.startswith("mcp_"):  # 修复：使用mcp_前缀识别MCP工具
                     mcp_tool_calls.append(tool_call)
                 else:
                     regular_tool_calls.append(tool_call)
@@ -381,18 +441,31 @@ class MCPLLMVertex(LLMVertex):
 
         # 处理常规工具调用
         if regular_tool_calls:
-            # 创建包含常规工具调用的choice对象
+            # 创建包含常规工具调用的choice对象，但不重复添加assistant消息
             class MockChoice:
                 def __init__(self, original_choice, filtered_tool_calls):
                     self.finish_reason = "tool_calls"
                     self.message = type(
                         "MockMessage",
                         (),
-                        {"tool_calls": filtered_tool_calls, "role": "assistant", "content": None},  # 添加必需的role属性
+                        {"tool_calls": filtered_tool_calls, "role": "assistant", "content": None},
                     )()
 
             mock_choice = MockChoice(choice, regular_tool_calls)
+            
+            # 临时保存当前消息长度，避免重复添加assistant消息
+            original_length = len(self.messages)
             super()._handle_tool_calls(mock_choice, context)
+            
+            # 如果父类添加了重复的assistant消息，移除它
+            if len(self.messages) > original_length:
+                # 检查是否有重复的assistant消息
+                for i in range(original_length, len(self.messages)):
+                    if (self.messages[i].get("role") == "assistant" and 
+                        "tool_calls" in self.messages[i]):
+                        # 移除重复的assistant消息
+                        self.messages.pop(i)
+                        break
 
     def _handle_mcp_tool_call(self, tool_call):
         """Handle a single MCP tool call"""
@@ -426,51 +499,44 @@ class MCPLLMVertex(LLMVertex):
             loop.close()
 
     async def _execute_mcp_tool(self, tool_call) -> str:
-        """Execute MCP tool asynchronously"""
-        if not MCP_AVAILABLE:
-            return "MCP functionality not available"
-
-        mcp_manager = get_mcp_manager()
-        if not mcp_manager:
-            return "MCP manager not available"
-
+        """Execute MCP tool call"""
         try:
-            # Parse tool name to get client and original tool name
-            function_name = tool_call.function.name
-            if "_" not in function_name or not function_name.startswith(("filesystem_", "everything_")):
-                return f"Invalid MCP tool name format: {function_name}"
+            # Parse the tool call
+            tool_name = tool_call.function.name
+            arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
 
-            # 分割客户端名称和工具名称 (使用下划线而不是冒号)
-            parts = function_name.split("_", 1)
-            if len(parts) != 2:
-                return f"Invalid MCP tool name format: {function_name}"
+            # Remove the mcp_ prefix to get the original tool name
+            if tool_name.startswith("mcp_"):
+                original_tool_name = tool_name[4:]  # Remove "mcp_" prefix
+            else:
+                original_tool_name = tool_name
 
-            client_name, original_tool_name = parts
-            arguments = tool_call.function.arguments or {}
+            logger.info(f"Executing MCP tool: {original_tool_name} with arguments: {arguments}")
 
-            # Call the tool
-            result = await mcp_manager.call_tool(function_name, arguments)
-            if result:
-                # Convert content to string
+            # Call the MCP tool
+            mcp_manager = get_mcp_manager()
+            result = mcp_manager.call_tool(original_tool_name, arguments)
+
+            if result and result.content:
                 if isinstance(result.content, list):
-                    # Extract text from content list
-                    text_parts = []
-                    for content_item in result.content:
-                        if isinstance(content_item, dict) and content_item.get("type") == "text":
-                            text_parts.append(content_item.get("text", ""))
-                        elif isinstance(content_item, str):
-                            text_parts.append(content_item)
-                    return "\n".join(text_parts) if text_parts else "Tool executed successfully"
-                elif isinstance(result.content, str):
-                    return result.content
+                    # Handle list of content items
+                    content_parts = []
+                    for item in result.content:
+                        if hasattr(item, 'text'):
+                            content_parts.append(item.text)
+                        elif isinstance(item, dict) and 'text' in item:
+                            content_parts.append(item['text'])
+                        else:
+                            content_parts.append(str(item))
+                    return "\n".join(content_parts)
                 else:
                     return str(result.content)
             else:
-                return f"Tool {function_name} returned no result"
+                return f"MCP tool {original_tool_name} executed successfully but returned no content"
 
         except Exception as e:
-            logger.error(f"Error executing MCP tool {tool_call.function.name}: {e}")
-            return f"Error executing tool: {str(e)}"
+            logger.error(f"Error executing MCP tool {tool_name}: {e}")
+            return f"Error executing MCP tool {tool_name}: {str(e)}"
 
     # === Streaming Support ===
 
@@ -540,19 +606,21 @@ class MCPLLMVertex(LLMVertex):
 
     async def read_mcp_resource(self, resource_uri: str) -> Optional[str]:
         """Read an MCP resource by URI"""
-        if not MCP_AVAILABLE:
+        try:
+            mcp_manager = get_mcp_manager()
+            return mcp_manager.read_resource(resource_uri)
+        except Exception as e:
+            logger.error(f"Error reading MCP resource {resource_uri}: {e}")
             return None
-
-        mcp_manager = get_mcp_manager()
-        return await mcp_manager.read_resource(resource_uri)
 
     async def get_mcp_prompt(self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
-        """Get an MCP prompt"""
-        if not MCP_AVAILABLE:
+        """Get an MCP prompt by name"""
+        try:
+            mcp_manager = get_mcp_manager()
+            return mcp_manager.get_prompt(prompt_name, arguments)
+        except Exception as e:
+            logger.error(f"Error getting MCP prompt {prompt_name}: {e}")
             return None
-
-        mcp_manager = get_mcp_manager()
-        return await mcp_manager.get_prompt(prompt_name, arguments)
 
     def get_mcp_status(self) -> Dict[str, Any]:
         """Get MCP status information"""
@@ -581,13 +649,16 @@ class MCPLLMVertex(LLMVertex):
             return {"available": False, "reason": str(e)}
 
     def clear_mcp_cache(self):
-        """Clear MCP cache to force refresh"""
+        """Clear all MCP caches to force refresh"""
+        logger.info("Clearing MCP caches")
         self._mcp_resources_cache = None
         self._mcp_tools_cache = None
         self._mcp_prompts_cache = None
         self._mcp_context_cache = None
         self._mcp_context_cache_time = 0
-        logger.info("MCP cache cleared")
+        # Clear LLM format tools cache as well
+        self._mcp_llm_tools_cache = None
+        self._mcp_llm_tools_cache_time = 0
 
     def set_mcp_cache_ttl(self, ttl_seconds: float):
         """Set MCP cache TTL in seconds"""

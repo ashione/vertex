@@ -94,7 +94,7 @@ class StdioTransport(MCPTransport):
         self._stdin_writer = asyncio.StreamWriter(transport, protocol, None, asyncio.get_event_loop())
 
     async def send_message(self, message: MCPMessage) -> None:
-        """Send a message via stdout"""
+        """Send a message via stdout with thread safety and event loop awareness"""
         if self._closed or not self._stdin_writer:
             raise RuntimeError("Transport is closed or not initialized")
 
@@ -102,14 +102,52 @@ class StdioTransport(MCPTransport):
             json_str = message.to_json()
             line = json_str + "\n"
 
-            self._stdin_writer.write(line.encode("utf-8"))
-            await self._stdin_writer.drain()
+            # 检查事件循环匹配性
+            current_loop = asyncio.get_running_loop()
+            transport_loop = None
+
+            # 安全地获取transport的事件循环
+            try:
+                if hasattr(self._stdin_writer, "get_extra_info"):
+                    transport = self._stdin_writer.get_extra_info("transport")
+                    if transport and hasattr(transport, "_loop"):
+                        transport_loop = transport._loop
+            except Exception:
+                # 如果无法获取transport信息，假设在同一事件循环中
+                pass
+
+            if transport_loop and transport_loop != current_loop:
+                logger.warning("Transport writer in different event loop, using thread-safe approach")
+                # 使用线程安全的方法在正确的事件循环中执行
+                if transport_loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(self._send_in_transport_loop(line), transport_loop)
+                    # 等待完成，但有超时保护
+                    future.result(timeout=5.0)
+                else:
+                    # 如果transport的事件循环已关闭，直接在当前循环中尝试
+                    logger.warning("Transport event loop not running, attempting direct send")
+                    self._stdin_writer.write(line.encode("utf-8"))
+                    await self._stdin_writer.drain()
+            else:
+                # 在同一事件循环中，直接发送
+                self._stdin_writer.write(line.encode("utf-8"))
+                await self._stdin_writer.drain()
 
             logger.debug(f"Sent message: {json_str}")
 
+        except BrokenPipeError as e:
+            logger.error(f"Broken pipe when sending message: {e}")
+            self._closed = True
+            raise RuntimeError("MCP server connection broken")
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             raise
+
+    async def _send_in_transport_loop(self, line: str) -> None:
+        """Helper method to send message in transport's event loop"""
+        if self._stdin_writer and not self._closed:
+            self._stdin_writer.write(line.encode("utf-8"))
+            await self._stdin_writer.drain()
 
     async def receive_message(self) -> MCPMessage:
         """Receive a message via stdin"""
@@ -157,32 +195,52 @@ class StdioTransport(MCPTransport):
             logger.debug(f"Stderr monitoring stopped: {e}")
 
     async def close(self) -> None:
-        """Close the transport and terminate the process"""
+        """Close the transport and terminate the process with event loop safety"""
         if self._closed:
             return
 
         self._closed = True
 
         try:
-            if self._stdin_writer:
-                self._stdin_writer.close()
-                await self._stdin_writer.wait_closed()
+            # 检查当前事件循环状态
+            try:
+                loop = asyncio.get_running_loop()
+                loop_running = not loop.is_closed()
+            except RuntimeError:
+                # 没有运行中的事件循环
+                loop_running = False
+
+            if self._stdin_writer and loop_running:
+                try:
+                    self._stdin_writer.close()
+                    await self._stdin_writer.wait_closed()
+                except Exception as e:
+                    logger.debug(f"Error closing stdin writer: {e}")
 
             if self.process:
                 # Terminate the process gracefully
-                self.process.terminate()
                 try:
-                    # Wait for process to terminate
-                    await asyncio.get_event_loop().run_in_executor(None, self.process.wait)
-                except asyncio.TimeoutError:
+                    self.process.terminate()
+                    # 只在事件循环运行时使用异步等待
+                    if loop_running:
+                        await asyncio.get_event_loop().run_in_executor(None, self.process.wait)
+                    else:
+                        # 同步等待进程结束
+                        self.process.wait()
+                except Exception as e:
+                    logger.debug(f"Error terminating process gracefully: {e}")
                     # Force kill if graceful termination fails
-                    self.process.kill()
-                    await asyncio.get_event_loop().run_in_executor(None, self.process.wait)
+                    try:
+                        self.process.kill()
+                        if loop_running:
+                            await asyncio.get_event_loop().run_in_executor(None, self.process.wait)
+                        else:
+                            self.process.wait()
+                    except Exception as kill_error:
+                        logger.debug(f"Error force killing process: {kill_error}")
 
                 # Additional cleanup for npx processes
                 try:
-                    import subprocess
-
                     import psutil
 
                     # Get all child processes

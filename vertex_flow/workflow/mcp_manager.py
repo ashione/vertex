@@ -10,7 +10,9 @@ import atexit
 import signal
 import sys
 import threading
-from typing import Any, Dict, List, Optional, Set
+import time
+import uuid
+from typing import Any, Dict, List, Optional, Set, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 
@@ -18,27 +20,193 @@ logger = LoggerUtil.get_logger(__name__)
 
 # MCP support
 try:
-    from vertex_flow.mcp.types import MCPPrompt, MCPResource, MCPTool, MCPToolResult
-    from vertex_flow.mcp.vertex_integration import MCPVertexFlowClient
-
+    from vertex_flow.mcp.client import MCPClient as MCPVertexFlowClient
+    from vertex_flow.mcp.types import MCPPrompt, MCPResource, MCPTool, MCPToolResult, MCPClientInfo
     MCP_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    logger.warning(f"MCP dependencies not available: {e}")
     MCP_AVAILABLE = False
-    logger.warning("MCP functionality not available")
+    MCPVertexFlowClient = None
+    MCPPrompt = MCPResource = MCPTool = MCPToolResult = MCPClientInfo = None
+
+
+class MCPRequest:
+    """MCP请求对象"""
+    def __init__(self, request_type: str, **kwargs):
+        self.id = str(uuid.uuid4())
+        self.request_type = request_type
+        self.kwargs = kwargs
+        self.future: asyncio.Future = asyncio.Future()
 
 
 class MCPManager:
-    """MCP Manager for handling multiple MCP clients with thread safety"""
+    """Thread-safe MCP Manager using single event loop and async queues"""
 
     def __init__(self):
         self.clients: Dict[str, MCPVertexFlowClient] = {}
         self.client_configs: Dict[str, Dict[str, Any]] = {}
-        self._lock = threading.RLock()
         self._initialized = False
-        # 为每个线程缓存客户端实例
-        self._thread_clients: Dict[int, Dict[str, MCPVertexFlowClient]] = {}
+        self._lock = threading.RLock()
+        
+        # Event loop and queue for thread-safe communication
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
+        self._request_queue: Optional[asyncio.Queue] = None
+        self._running = False
+        
+        # Start the dedicated event loop thread
+        self._start_event_loop_thread()
 
-    async def initialize(self, mcp_config: Dict[str, Any]):
+    def _start_event_loop_thread(self):
+        """启动专用的事件循环线程"""
+        def run_event_loop():
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            self._request_queue = asyncio.Queue()
+            self._running = True
+            
+            logger.info("MCP Manager event loop thread started")
+            
+            # 启动请求处理任务
+            self._event_loop.create_task(self._process_requests())
+            
+            try:
+                self._event_loop.run_forever()
+            except Exception as e:
+                logger.error(f"Event loop error: {e}")
+            finally:
+                logger.info("MCP Manager event loop thread stopped")
+
+        self._loop_thread = threading.Thread(target=run_event_loop, daemon=True)
+        self._loop_thread.start()
+        
+        # 等待事件循环启动
+        timeout = 5.0
+        start_time = time.time()
+        while self._event_loop is None and (time.time() - start_time) < timeout:
+            time.sleep(0.01)
+        
+        if self._event_loop is None:
+            raise RuntimeError("Failed to start MCP event loop thread")
+
+    async def _process_requests(self):
+        """处理来自其他线程的请求"""
+        while self._running:
+            try:
+                request = await self._request_queue.get()
+                if request is None:  # 停止信号
+                    break
+                
+                try:
+                    result = await self._handle_request(request)
+                    if not request.future.done():
+                        request.future.set_result(result)
+                except Exception as e:
+                    if not request.future.done():
+                        request.future.set_exception(e)
+                finally:
+                    self._request_queue.task_done()
+                    
+            except Exception as e:
+                logger.error(f"Error processing request: {e}")
+
+    async def _handle_request(self, request: MCPRequest):
+        """处理具体的MCP请求"""
+        request_type = request.request_type
+        kwargs = request.kwargs
+        
+        if request_type == "initialize":
+            return await self._async_initialize(kwargs.get("mcp_config", {}))
+        elif request_type == "get_all_tools":
+            return await self._async_get_all_tools()
+        elif request_type == "get_all_resources":
+            return await self._async_get_all_resources()
+        elif request_type == "get_all_prompts":
+            return await self._async_get_all_prompts()
+        elif request_type == "call_tool":
+            return await self._async_call_tool(
+                kwargs.get("tool_name"), 
+                kwargs.get("arguments", {})
+            )
+        elif request_type == "read_resource":
+            return await self._async_read_resource(kwargs.get("resource_uri"))
+        elif request_type == "get_prompt":
+            return await self._async_get_prompt(
+                kwargs.get("prompt_name"),
+                kwargs.get("arguments")
+            )
+        elif request_type == "close_all":
+            return await self._async_close_all()
+        elif request_type == "refresh_client":
+            return await self._async_refresh_client(kwargs.get("client_name"))
+        else:
+            raise ValueError(f"Unknown request type: {request_type}")
+
+    def _submit_request(self, request_type: str, **kwargs) -> Any:
+        """线程安全地提交请求到事件循环"""
+        if not self._running or not self._event_loop:
+            raise RuntimeError("MCP Manager not running")
+        
+        request = MCPRequest(request_type, **kwargs)
+        
+        # 将请求提交到事件循环
+        future = asyncio.run_coroutine_threadsafe(
+            self._request_queue.put(request), 
+            self._event_loop
+        )
+        future.result(timeout=1.0)  # 等待请求入队
+        
+        # 等待请求处理完成
+        timeout_seconds = 60.0
+        start_time = time.time()
+        
+        while not request.future.done():
+            if time.time() - start_time > timeout_seconds:
+                logger.error(f"Request {request_type} timed out after {timeout_seconds}s")
+                raise RuntimeError(f"Request {request_type} timed out")
+            time.sleep(0.01)  # 10ms polling
+        
+        return request.future.result()
+
+    # 公共接口方法 - 线程安全
+    def initialize(self, mcp_config: Dict[str, Any]):
+        """Initialize MCP clients from configuration - thread safe"""
+        return self._submit_request("initialize", mcp_config=mcp_config)
+
+    def get_all_tools(self) -> List[MCPTool]:
+        """Get all tools from all connected MCP clients - thread safe"""
+        return self._submit_request("get_all_tools")
+
+    def get_all_resources(self) -> List[MCPResource]:
+        """Get all resources from all connected MCP clients - thread safe"""
+        return self._submit_request("get_all_resources")
+
+    def get_all_prompts(self) -> List[MCPPrompt]:
+        """Get all prompts from all connected MCP clients - thread safe"""
+        return self._submit_request("get_all_prompts")
+
+    def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
+        """Call a tool from appropriate MCP client - thread safe"""
+        return self._submit_request("call_tool", tool_name=tool_name, arguments=arguments)
+
+    def read_resource(self, resource_uri: str) -> Optional[str]:
+        """Read a resource by URI - thread safe"""
+        return self._submit_request("read_resource", resource_uri=resource_uri)
+
+    def get_prompt(self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Get a prompt by name - thread safe"""
+        return self._submit_request("get_prompt", prompt_name=prompt_name, arguments=arguments)
+
+    def close_all(self):
+        """Close all MCP client connections - thread safe"""
+        return self._submit_request("close_all")
+
+    def refresh_client(self, client_name: str):
+        """Refresh a specific MCP client - thread safe"""
+        return self._submit_request("refresh_client", client_name=client_name)
+
+    # 异步实现方法 - 在专用事件循环中运行
+    async def _async_initialize(self, mcp_config: Dict[str, Any]):
         """Initialize MCP clients from configuration"""
         if not MCP_AVAILABLE:
             logger.warning("MCP dependencies not available")
@@ -57,7 +225,8 @@ class MCPManager:
     async def _create_client(self, client_name: str, client_config: Dict[str, Any]):
         """Create and initialize a single MCP client"""
         try:
-            client = MCPVertexFlowClient(client_name, "1.0.0")
+            client_info = MCPClientInfo(name=client_name, version="1.0.0")
+            client = MCPVertexFlowClient(client_info)
 
             transport = client_config.get("transport", "stdio")
             if transport == "stdio":
@@ -68,7 +237,6 @@ class MCPManager:
                 # Set environment variables
                 if env:
                     import os
-
                     for key, value in env.items():
                         os.environ[key] = value
 
@@ -79,149 +247,40 @@ class MCPManager:
             else:
                 raise ValueError(f"Unsupported transport: {transport}")
 
-            with self._lock:
-                self.clients[client_name] = client
-                self.client_configs[client_name] = client_config
+            self.clients[client_name] = client
+            self.client_configs[client_name] = client_config
 
             logger.info(f"Successfully initialized MCP client: {client_name}")
 
         except Exception as e:
             logger.error(f"Failed to initialize MCP client {client_name}: {e}")
 
-    async def _ensure_initialized(self):
-        """Ensure the manager is initialized"""
+    async def _async_get_all_tools(self) -> List[MCPTool]:
+        """Get all tools from all connected MCP clients"""
+        if not MCP_AVAILABLE:
+            return []
+
         if not self._initialized:
             logger.warning("MCP Manager not initialized")
-            return False
-        return True
-
-    async def _get_thread_client(self, client_name: str) -> Optional[MCPVertexFlowClient]:
-        """获取当前线程的客户端实例，如果不存在则创建"""
-        thread_id = threading.get_ident()
-
-        with self._lock:
-            # 检查当前线程是否有客户端缓存
-            if thread_id not in self._thread_clients:
-                self._thread_clients[thread_id] = {}
-
-            thread_clients = self._thread_clients[thread_id]
-
-            # 如果当前线程没有这个客户端，创建一个新的
-            if client_name not in thread_clients:
-                if client_name not in self.client_configs:
-                    return None
-
-                try:
-                    # 创建新的客户端实例
-                    client_config = self.client_configs[client_name]
-                    client = MCPVertexFlowClient(f"{client_name}_thread_{thread_id}", "1.0.0")
-
-                    transport = client_config.get("transport", "stdio")
-                    if transport == "stdio":
-                        command = client_config.get("command", "")
-                        args = client_config.get("args", [])
-                        await client.connect_stdio(command, *args)
-                    elif transport == "http":
-                        base_url = client_config.get("base_url", "")
-                        await client.connect_http(base_url)
-
-                    thread_clients[client_name] = client
-                    logger.debug(f"Created thread-local client {client_name} for thread {thread_id}")
-
-                except Exception as e:
-                    logger.error(f"Failed to create thread-local client {client_name}: {e}")
-                    return None
-
-            return thread_clients[client_name]
-
-    async def get_all_resources(self) -> List[MCPResource]:
-        """Get all resources from all connected MCP clients with thread-local clients"""
-        if not MCP_AVAILABLE:
-            return []
-
-        if not await self._ensure_initialized():
-            return []
-
-        all_resources = []
-
-        # 获取客户端配置副本
-        with self._lock:
-            client_names = list(self.client_configs.keys())
-
-        # 使用线程本地客户端
-        for client_name in client_names:
-            try:
-                client = await self._get_thread_client(client_name)
-                if not client or not client.is_connected:
-                    logger.debug(f"Client {client_name} not available, skipping")
-                    continue
-
-                logger.debug(f"Getting resources from thread-local client {client_name}")
-
-                # 增加超时时间，适应多线程环境
-                resources = await asyncio.wait_for(client.list_resources(), timeout=20.0)
-                logger.info(f"Got {len(resources)} resources from client {client_name}")
-
-                # Add client name prefix to avoid conflicts
-                for resource in resources:
-                    resource.name = f"{client_name}_{resource.name}"
-                    if resource.description:
-                        resource.description = f"[{client_name}] {resource.description}"
-
-                all_resources.extend(resources)
-
-                # 在客户端之间添加小延迟，减少冲突
-                if len(client_names) > 1:
-                    await asyncio.sleep(0.3)
-
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout getting resources from client {client_name}")
-                continue
-            except Exception as e:
-                logger.error(f"Error processing client {client_name}: {e}")
-                continue
-
-        logger.info(f"Total resources collected: {len(all_resources)}")
-        return all_resources
-
-    async def get_all_tools(self) -> List[MCPTool]:
-        """Get all tools from all connected MCP clients with thread-local clients"""
-        if not MCP_AVAILABLE:
-            return []
-
-        if not await self._ensure_initialized():
             return []
 
         all_tools = []
 
-        # 获取客户端配置副本
-        with self._lock:
-            client_names = list(self.client_configs.keys())
-
-        # 使用线程本地客户端
-        for client_name in client_names:
+        for client_name, client in self.clients.items():
             try:
-                client = await self._get_thread_client(client_name)
-                if not client or not client.is_connected:
-                    logger.debug(f"Client {client_name} not available, skipping")
-                    continue
+                if client.is_connected:
+                    logger.debug(f"Getting tools from client {client_name}")
+                    tools = await asyncio.wait_for(client.list_tools(), timeout=15.0)
+                    logger.info(f"Got {len(tools)} tools from client {client_name}")
 
-                logger.debug(f"Getting tools from thread-local client {client_name}")
+                    # Add client name prefix to avoid conflicts
+                    for tool in tools:
+                        tool.name = f"{client_name}_{tool.name}"
+                        tool.description = f"[{client_name}] {tool.description or ''}"
 
-                # 增加超时时间，适应多线程环境
-                tools = await asyncio.wait_for(client.list_tools(), timeout=20.0)
-                logger.info(f"Got {len(tools)} tools from client {client_name}")
-
-                # Add client name prefix to avoid conflicts
-                for tool in tools:
-                    tool.name = f"{client_name}_{tool.name}"
-                    tool.description = f"[{client_name}] {tool.description or ''}"
-
-                all_tools.extend(tools)
-
-                # 在客户端之间添加小延迟，减少冲突
-                if len(client_names) > 1:
-                    await asyncio.sleep(0.5)
+                    all_tools.extend(tools)
+                else:
+                    logger.debug(f"Client {client_name} not connected, skipping")
 
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout getting tools from client {client_name}")
@@ -233,48 +292,144 @@ class MCPManager:
         logger.info(f"Total tools collected: {len(all_tools)}")
         return all_tools
 
-    async def get_all_prompts(self) -> List[MCPPrompt]:
+    async def _async_get_all_resources(self) -> List[MCPResource]:
+        """Get all resources from all connected MCP clients"""
+        if not MCP_AVAILABLE:
+            return []
+
+        if not self._initialized:
+            return []
+
+        all_resources = []
+
+        for client_name, client in self.clients.items():
+            try:
+                if client.is_connected:
+                    resources = await asyncio.wait_for(client.list_resources(), timeout=15.0)
+                    logger.info(f"Got {len(resources)} resources from client {client_name}")
+
+                    # Add client name prefix to avoid conflicts
+                    for resource in resources:
+                        resource.name = f"{client_name}_{resource.name}"
+                        if resource.description:
+                            resource.description = f"[{client_name}] {resource.description}"
+
+                    all_resources.extend(resources)
+
+            except Exception as e:
+                logger.error(f"Error processing client {client_name}: {e}")
+                continue
+
+        logger.info(f"Total resources collected: {len(all_resources)}")
+        return all_resources
+
+    async def _async_get_all_prompts(self) -> List[MCPPrompt]:
         """Get all prompts from all connected MCP clients"""
         if not MCP_AVAILABLE:
             return []
 
-        if not await self._ensure_initialized():
+        if not self._initialized:
             return []
 
         all_prompts = []
 
-        with self._lock:
-            clients_copy = list(self.clients.items())
-
-        for client_name, client in clients_copy:
+        for client_name, client in self.clients.items():
             try:
                 if client.is_connected:
-                    prompts = await client.get_prompts()
+                    prompts = await client.list_prompts()
                     # Add client name prefix to avoid conflicts
                     for prompt in prompts:
                         prompt.name = f"{client_name}:{prompt.name}"
                         prompt.description = f"[{client_name}] {prompt.description or ''}"
                     all_prompts.extend(prompts)
 
-                    # Small delay between clients to avoid conflicts
-                    await asyncio.sleep(0.2)
             except Exception as e:
                 logger.error(f"Failed to get prompts from client {client_name}: {e}")
 
         return all_prompts
 
-    async def read_resource(self, resource_uri: str) -> Optional[str]:
+    async def _async_call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
+        """Call a tool from appropriate MCP client with retry mechanism"""
+        if not MCP_AVAILABLE:
+            return None
+
+        if not self._initialized:
+            return None
+
+        # Parse tool name to get client and original tool name
+        if "_" not in tool_name:
+            logger.error(f"Invalid tool name format: {tool_name}")
+            return None
+
+        client_name, original_tool_name = tool_name.split("_", 1)
+
+        logger.debug(f"Calling tool {original_tool_name} from client {client_name}")
+
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                client = self.clients.get(client_name)
+                if not client:
+                    logger.error(f"Client {client_name} not found")
+                    return None
+
+                if not client.is_connected:
+                    logger.warning(f"Client {client_name} not connected, attempting to refresh")
+                    await self._async_refresh_client(client_name)
+                    client = self.clients.get(client_name)
+                    if not client or not client.is_connected:
+                        logger.error(f"Failed to refresh client {client_name}")
+                        return None
+
+                logger.info(f"Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
+
+                try:
+                    result = await asyncio.wait_for(
+                        client.call_tool(original_tool_name, arguments), 
+                        timeout=30.0
+                    )
+                    
+                    if result:
+                        logger.info(f"Tool {original_tool_name} executed successfully")
+                        return result
+                    else:
+                        logger.warning(f"Tool {original_tool_name} returned empty result")
+                        return None
+
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool {original_tool_name} timed out (attempt {attempt + 1})")
+                    if attempt < max_retries:
+                        await self._async_refresh_client(client_name)
+                        await asyncio.sleep(1.0)
+                        continue
+                    else:
+                        logger.error(f"Tool {original_tool_name} failed after {max_retries + 1} attempts")
+                        return None
+
+            except Exception as e:
+                logger.error(f"Error calling tool {original_tool_name} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries:
+                    try:
+                        await self._async_refresh_client(client_name)
+                    except Exception as refresh_error:
+                        logger.error(f"Failed to refresh client {client_name}: {refresh_error}")
+                    await asyncio.sleep(1.0)
+                    continue
+                else:
+                    logger.error(f"Tool {original_tool_name} failed after {max_retries + 1} attempts")
+                    return None
+
+        return None
+
+    async def _async_read_resource(self, resource_uri: str) -> Optional[str]:
         """Read a resource by URI from appropriate MCP client"""
         if not MCP_AVAILABLE:
             return None
 
-        if not await self._ensure_initialized():
+        if not self._initialized:
             return None
 
-        with self._lock:
-            clients_copy = list(self.clients.items())
-
-        for client_name, client in clients_copy:
+        for client_name, client in self.clients.items():
             try:
                 if client.is_connected:
                     content = await client.read_resource(resource_uri)
@@ -286,161 +441,116 @@ class MCPManager:
         logger.warning(f"No client can read resource: {resource_uri}")
         return None
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
-        """Call a tool from appropriate MCP client"""
+    async def _async_get_prompt(self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Get a prompt by name from appropriate MCP client"""
         if not MCP_AVAILABLE:
             return None
 
-        if not await self._ensure_initialized():
-            return None
-
-        # Parse tool name to get client and original tool name (使用下划线分隔)
-        if "_" in tool_name and (tool_name.startswith("filesystem_") or tool_name.startswith("everything_")):
-            parts = tool_name.split("_", 1)
-            if len(parts) == 2:
-                client_name, original_tool_name = parts
-            else:
-                logger.warning(f"Invalid tool name format: {tool_name}")
-                return None
-        else:
-            # Try all clients if no prefix
-            thread_id = threading.get_ident()
-            with self._lock:
-                client_names = list(self.client_configs.keys())
-
-            for client_name in client_names:
-                try:
-                    client = await self._get_thread_client(client_name)
-                    if client and client.is_connected:
-                        result = await client.call_tool(tool_name, arguments)
-                        return result
-                except Exception as e:
-                    logger.error(f"Client {client_name} cannot call tool {tool_name}: {e}")
-                    continue
-            logger.warning(f"No client can call tool: {tool_name}")
-            return None
-
-        # Call tool from specific client using thread-local client
-        try:
-            client = await self._get_thread_client(client_name)
-            if client and client.is_connected:
-                result = await client.call_tool(original_tool_name, arguments)
-                return result
-        except Exception as e:
-            logger.error(f"Failed to call tool {tool_name}: {e}")
-
-        logger.warning(f"Client {client_name} not connected or not available")
-        return None
-
-    async def get_prompt(self, prompt_name: str, arguments: Optional[Dict[str, Any]] = None) -> Optional[str]:
-        """Get a prompt from appropriate MCP client"""
-        if not MCP_AVAILABLE:
-            return None
-
-        if not await self._ensure_initialized():
+        if not self._initialized:
             return None
 
         # Parse prompt name to get client and original prompt name
-        if ":" in prompt_name:
-            client_name, original_prompt_name = prompt_name.split(":", 1)
-        else:
-            # Try all clients if no prefix
-            with self._lock:
-                clients_copy = list(self.clients.items())
-
-            for client_name, client in clients_copy:
-                try:
-                    if client.is_connected:
-                        content = await client.get_prompt(prompt_name, arguments)
-                        return content
-                except Exception as e:
-                    logger.debug(f"Client {client_name} cannot get prompt {prompt_name}: {e}")
-                    continue
-            logger.warning(f"No client can get prompt: {prompt_name}")
+        if ":" not in prompt_name:
+            logger.error(f"Invalid prompt name format: {prompt_name}")
             return None
 
-        # Get prompt from specific client
-        with self._lock:
-            if client_name not in self.clients:
-                logger.warning(f"Client {client_name} not found")
-                return None
-            client = self.clients[client_name]
+        client_name, original_prompt_name = prompt_name.split(":", 1)
+
+        client = self.clients.get(client_name)
+        if not client or not client.is_connected:
+            logger.error(f"Client {client_name} not available")
+            return None
 
         try:
-            if client.is_connected:
-                content = await client.get_prompt(original_prompt_name, arguments)
-                return content
+            content = await client.get_prompt(original_prompt_name, arguments)
+            return content
         except Exception as e:
-            logger.error(f"Failed to get prompt {prompt_name}: {e}")
+            logger.error(f"Failed to get prompt {original_prompt_name} from client {client_name}: {e}")
+            return None
 
-        logger.warning(f"Client {client_name} not connected")
-        return None
+    async def _async_close_all(self):
+        """Close all MCP client connections"""
+        logger.info("Closing all MCP client connections")
+        
+        for client_name, client in self.clients.items():
+            try:
+                await client.close()
+                logger.debug(f"Closed client {client_name}")
+            except Exception as e:
+                logger.error(f"Error closing client {client_name}: {e}")
+
+        self.clients.clear()
+        self.client_configs.clear()
+        self._initialized = False
+
+    async def _async_refresh_client(self, client_name: str):
+        """Refresh a specific MCP client connection"""
+        if client_name not in self.client_configs:
+            logger.error(f"Client config for {client_name} not found")
+            return
+
+        # Close existing client
+        if client_name in self.clients:
+            try:
+                await self.clients[client_name].close()
+            except Exception as e:
+                logger.debug(f"Error closing client {client_name}: {e}")
+            del self.clients[client_name]
+
+        # Recreate client
+        client_config = self.client_configs[client_name]
+        await self._create_client(client_name, client_config)
+        
+        if client_name in self.clients:
+            logger.info(f"Successfully refreshed MCP client: {client_name}")
+        else:
+            logger.error(f"Failed to refresh MCP client: {client_name}")
 
     def get_connected_clients(self) -> List[str]:
         """Get list of connected client names"""
-        if not MCP_AVAILABLE:
-            return []
-
-        with self._lock:
-            return [name for name, client in self.clients.items() if client.is_connected]
+        return [name for name, client in self.clients.items() if client.is_connected]
 
     def get_client_info(self, client_name: str) -> Optional[Dict[str, Any]]:
         """Get information about a specific client"""
-        if not MCP_AVAILABLE:
+        client = self.clients.get(client_name)
+        if not client:
             return None
 
-        with self._lock:
-            if client_name not in self.clients:
-                return None
+        return {
+            "name": client_name,
+            "connected": client.is_connected,
+            "server_info": {
+                "name": client.server_info.name if client.server_info else "Unknown",
+                "version": client.server_info.version if client.server_info else "Unknown"
+            } if client.server_info else None,
+            "config": self.client_configs.get(client_name, {})
+        }
 
-            client = self.clients[client_name]
-            config = self.client_configs[client_name]
-            return {
-                "name": client_name,
-                "connected": client.is_connected,
-                "transport": config.get("transport"),
-                "description": config.get("description", ""),
-            }
-
-    async def close_all(self):
-        """Close all MCP client connections"""
-        logger.info("Closing all MCP client connections")
-
-        with self._lock:
-            clients_copy = list(self.clients.items())
-            self.clients.clear()
-            self.client_configs.clear()
-            self._initialized = False
-
-        for client_name, client in clients_copy:
-            try:
-                await client.close()
-                logger.debug(f"Closed MCP client: {client_name}")
-            except Exception as e:
-                logger.error(f"Error closing MCP client {client_name}: {e}")
-
-    async def refresh_client(self, client_name: str):
-        """Refresh a specific MCP client connection"""
-        with self._lock:
-            if client_name not in self.client_configs:
-                raise ValueError(f"Client {client_name} not configured")
-
-            # Close existing client
-            if client_name in self.clients:
+    def shutdown(self):
+        """Shutdown the MCP manager and event loop"""
+        if self._running:
+            self._running = False
+            
+            # 发送停止信号
+            if self._event_loop and self._request_queue:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._request_queue.put(None), 
+                    self._event_loop
+                )
                 try:
-                    await self.clients[client_name].close()
-                except Exception as e:
-                    logger.warning(f"Error closing client {client_name}: {e}")
-
-            client_config = self.client_configs[client_name]
-
-        # Recreate client
-        try:
-            await self._create_client(client_name, client_config)
-            logger.info(f"Successfully refreshed MCP client: {client_name}")
-        except Exception as e:
-            logger.error(f"Failed to refresh MCP client {client_name}: {e}")
-            raise
+                    future.result(timeout=1.0)
+                except Exception:
+                    pass
+            
+            # 停止事件循环
+            if self._event_loop:
+                self._event_loop.call_soon_threadsafe(self._event_loop.stop)
+            
+            # 等待线程结束
+            if self._loop_thread and self._loop_thread.is_alive():
+                self._loop_thread.join(timeout=5.0)
+            
+            logger.info("MCP Manager shutdown complete")
 
 
 # Global MCP manager instance with module-level persistence

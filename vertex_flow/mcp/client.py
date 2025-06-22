@@ -37,31 +37,27 @@ class MCPClient:
 
     def __init__(self, client_info: MCPClientInfo, capabilities: Optional[MCPCapabilities] = None):
         self.client_info = client_info
-        self.capabilities = capabilities or MCPCapabilities(roots={"listChanged": True}, sampling={})
-
+        self.capabilities = capabilities or MCPCapabilities()
+        self.protocol_version = "2024-11-05"  # Add missing protocol version
         self.transport: Optional[MCPTransport] = None
         self.server_info: Optional[MCPServerInfo] = None
         self.server_capabilities: Optional[MCPCapabilities] = None
-        self.protocol_version = "2024-11-05"
 
-        # State management
+        # Internal state
         self._initialized = False
-        self._request_id_counter = 0
-        self._pending_requests: Dict[Union[str, int], asyncio.Future] = {}
-        self._message_handlers: Dict[str, Callable] = {}
         self._running = False
+        self._pending_requests: Dict[Union[str, int], asyncio.Future] = {}
+        self._request_id_counter = 0
+        self._lock = threading.RLock()  # Use RLock for nested locking
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None  # Track event loop
 
-        # Thread safety - 使用可重入锁避免死锁
-        self._lock = threading.RLock()
-        self._request_id_lock = threading.RLock()
-        self._thread_id = threading.get_ident()  # 记录创建线程
-
-        # Resource and tool caches
+        # Caches
         self._resources: Dict[str, MCPResource] = {}
         self._tools: Dict[str, MCPTool] = {}
         self._prompts: Dict[str, MCPPrompt] = {}
 
-        # Setup default message handlers
+        # Message handlers
+        self._message_handlers: Dict[str, Callable] = {}
         self._setup_default_handlers()
 
     def _setup_default_handlers(self) -> None:
@@ -70,20 +66,24 @@ class MCPClient:
         self._message_handlers["resources/updated"] = self._handle_resources_updated
         self._message_handlers["tools/updated"] = self._handle_tools_updated
         self._message_handlers["prompts/updated"] = self._handle_prompts_updated
+        self._message_handlers["notifications/message"] = self._handle_notification_message
 
     def _get_next_request_id(self) -> str:
         """Get next request ID with thread safety - 使用字符串ID避免跨线程冲突"""
-        with self._request_id_lock:
+        with self._lock:
             self._request_id_counter += 1
             # 使用线程ID和UUID确保跨线程唯一性
             thread_id = threading.get_ident()
             return f"{thread_id}_{self._request_id_counter}_{uuid.uuid4().hex[:8]}"
 
     async def connect_stdio(self, command: str, *args: str) -> None:
-        """Connect to an MCP server via stdio"""
+        """Connect to an MCP server via stdio with event loop tracking"""
         transport = StdioTransport()
         await transport.start_server(command, *args)
         self.transport = transport
+
+        # 记录当前事件循环
+        self._event_loop = asyncio.get_running_loop()
 
         # Start message handling loop
         asyncio.create_task(self._message_loop())
@@ -92,10 +92,13 @@ class MCPClient:
         await self._initialize()
 
     async def connect_http(self, base_url: str) -> None:
-        """Connect to an MCP server via HTTP"""
+        """Connect to an MCP server via HTTP with event loop tracking"""
         transport = HTTPTransport(base_url)
         await transport.connect()
         self.transport = transport
+
+        # 记录当前事件循环
+        self._event_loop = asyncio.get_running_loop()
 
         # Start message handling loop
         asyncio.create_task(self._message_loop())
@@ -346,7 +349,8 @@ class MCPClient:
             params={"name": name, "arguments": arguments},
         )
 
-        response = await self._send_request(request)
+        # 增加超时时间到30秒，给工具足够的执行时间
+        response = await self._send_request(request, timeout=30.0)
 
         if response.error:
             raise RuntimeError(f"Failed to call tool {name}: {response.error}")
@@ -432,6 +436,11 @@ class MCPClient:
         """Handle prompt update notifications"""
         logger.debug("Prompts updated, clearing cache")
         self._prompts.clear()
+
+    async def _handle_notification_message(self, message: MCPMessage) -> None:
+        """Handle generic notification messages"""
+        logger.debug(f"Received notification: {message.params}")
+        return None
 
     # Utility methods
     def _capabilities_to_dict(self, capabilities: MCPCapabilities) -> Dict[str, Any]:
