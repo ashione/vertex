@@ -27,8 +27,10 @@ Vertex CLI提供以下主要命令：
 | `vertex` | 标准模式 | 启动Vertex聊天界面（默认） |
 | `vertex run` | 标准模式 | 同上，显式指定 |
 | `vertex workflow` | 工作流模式 | 启动VertexFlow可视化编辑器 |
+| `vertex deepresearch` | 深度研究 | 启动深度研究分析工具 |
 | `vertex config` | 配置管理 | 管理系统配置文件 |
 | `vertex rag` | RAG问答 | 基于文档的智能问答系统 |
+| `vertex mcp` | MCP协议 | Model Context Protocol 功能 |
 | `vertex --desktop` | 桌面端模式 | 使用PyWebView启动桌面应用 |
 
 ## 🎯 详细使用说明
@@ -74,11 +76,29 @@ vertex workflow --port 8999
 - ✅ 实时工作流执行
 - ✅ 工作流模板管理
 
-### 3. 配置管理 (Config Management)
+### 3. 深度研究模式 (Deep Research Mode)
+
+启动深度研究分析工具，提供高级分析功能。
+
+```bash
+# 启动深度研究工具
+vertex deepresearch
+
+# 指定端口
+vertex deepresearch --port 7865
+```
+
+**功能特性**：
+- ✅ 深度内容分析
+- ✅ 多维度研究报告
+- ✅ 数据可视化
+- ✅ 导出研究结果
+
+### 4. 配置管理 (Config Management)
 
 管理Vertex系统的配置文件，支持多种配置操作。
 
-#### 3.1 配置初始化
+#### 4.1 配置初始化
 
 ```bash
 # 快速初始化配置（使用默认模板）
@@ -88,7 +108,7 @@ vertex config init
 vertex config setup
 ```
 
-#### 3.2 配置检查
+#### 4.2 配置检查
 
 ```bash
 # 检查配置状态
@@ -107,7 +127,7 @@ vertex config check
 建议运行: vertex config init
 ```
 
-#### 3.3 配置重置
+#### 4.3 配置重置
 
 ```bash
 # 重置配置为默认模板
@@ -134,13 +154,26 @@ vector:
   local:
     enabled: true
     dimension: 384
+
+# MCP (Model Context Protocol) 配置
+mcp:
+  enabled: true
+  clients:
+    filesystem:
+      enabled: true
+      command: "npx"
+      args: ["@modelcontextprotocol/server-filesystem", "/path/to/allowed/directory"]
+    github:
+      enabled: false
+      command: "npx"
+      args: ["@modelcontextprotocol/server-github"]
 ```
 
-### 4. RAG问答系统 (RAG Mode)
+### 5. RAG问答系统 (RAG Mode)
 
 基于文档的检索增强生成系统，提供智能文档问答功能。
 
-#### 4.1 基础用法
+#### 5.1 基础用法
 
 ```bash
 # 使用内置示例文档
@@ -153,7 +186,7 @@ vertex rag -d ./documents
 vertex rag --show-stats
 ```
 
-#### 4.2 查询模式
+#### 5.2 查询模式
 
 ```bash
 # 直接查询（完整模式）
@@ -169,7 +202,7 @@ vertex rag --interactive
 vertex rag --interactive --fast
 ```
 
-#### 4.3 文档管理
+#### 5.3 文档管理
 
 ```bash
 # 强制重新索引文档
@@ -179,7 +212,7 @@ vertex rag -d ./documents --reindex
 vertex rag -d ./documents --reindex --query "文档摘要"
 ```
 
-#### 4.4 性能模式对比
+#### 5.4 性能模式对比
 
 | 模式 | 命令 | 耗时 | 功能 |
 |------|------|------|------|
@@ -188,365 +221,264 @@ vertex rag -d ./documents --reindex --query "文档摘要"
 | 仅索引 | `-d path --reindex` | 按文档量 | 仅构建索引 |
 | 统计信息 | `--show-stats` | <1秒 | 显示数据库状态 |
 
-### 5. 桌面端模式 (Desktop Mode)
+### 6. MCP协议功能 (Model Context Protocol)
+
+MCP (Model Context Protocol) 是一个开放标准，允许LLM应用程序安全地连接到数据源。
+
+#### 6.1 MCP命令概览
+
+```bash
+# 显示MCP帮助信息
+vertex mcp --help
+
+# 显示MCP功能说明和示例
+vertex mcp info
+
+# 启动MCP服务器
+vertex mcp server
+
+# 测试MCP客户端
+vertex mcp client 'vertex mcp server'
+```
+
+#### 6.2 MCP服务器功能
+
+MCP服务器提供以下功能：
+- **资源访问**: 提供文件和配置资源访问
+- **工具调用**: 支持文本处理等工具
+- **提示模板**: 提供代码分析和工作流辅助模板
+- **stdio协议**: 通过标准输入输出通信
+
+**默认资源**:
+- `config://test.yml` - 测试配置文件
+- `workflow://sample.py` - 示例工作流
+
+**可用工具**:
+- `echo_text` - 文本回显工具，支持重复参数
+
+**提示模板**:
+- `analyze_code` - 代码分析提示模板
+- `workflow_help` - 工作流创建辅助模板
+
+#### 6.3 MCP客户端测试
+
+```bash
+# 启动MCP服务器（终端1）
+vertex mcp server
+
+# 在另一个终端测试客户端（终端2）
+vertex mcp client 'vertex mcp server'
+
+# 查看详细信息和示例
+vertex mcp info
+```
+
+#### 6.4 MCP配置集成
+
+MCP配置已集成到主配置文件 `vertex_flow/config/llm.yml.template` 中：
+
+```yaml
+# MCP (Model Context Protocol) 配置
+mcp:
+  enabled: true        # 启用MCP集成
+  clients:             # MCP客户端配置
+    filesystem:        # 文件系统MCP客户端
+      enabled: true
+      command: "npx"
+      args: ["@modelcontextprotocol/server-filesystem", "/path/to/directory"]
+      transport: "stdio"
+      env:
+        NODE_ENV: "production"
+    
+    github:            # GitHub MCP客户端
+      enabled: false
+      command: "npx"
+      args: ["@modelcontextprotocol/server-github"]
+      transport: "stdio"
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: "${mcp.github.token:your-github-token}"
+    
+    database:          # 数据库MCP客户端
+      enabled: false
+      command: "npx"
+      args: ["@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+      transport: "stdio"
+  
+  server:              # MCP服务器配置
+    enabled: true      # 启用MCP服务器
+    name: "VertexFlow" # 服务器名称
+    version: "1.0.0"   # 服务器版本
+```
+
+### 7. 桌面端模式 (Desktop Mode)
 
 使用PyWebView封装Gradio应用，提供原生桌面应用体验。
 
-#### 5.1 基础用法
+#### 7.1 基础用法
 
 ```bash
 # 启动桌面端应用（标准模式）
 vertex --desktop
 
-# 启动桌面端工作流编辑器
+# 启动桌面端工作流模式
 vertex workflow --desktop
 
-# 启动桌面端RAG系统
-vertex rag --desktop
+# 启动桌面端深度研究模式
+vertex deepresearch --desktop
 ```
 
-#### 5.2 桌面端特性
+#### 7.2 桌面端特性
 
 **优势**：
-- ✅ 原生桌面窗口体验
-- ✅ 无需浏览器访问
+- ✅ 原生桌面应用体验
+- ✅ 无浏览器依赖
 - ✅ 更好的系统集成
-- ✅ 独立进程运行
-- ✅ 支持窗口管理
+- ✅ 独立窗口管理
 
-**系统要求**：
-- macOS: 10.14+ (Mojave及以上)
-- Windows: Windows 7+
-- Linux: 需要安装WebKit2GTK
+**要求**：
+- Python 3.8+
+- PyWebView 依赖包
+- 系统WebView支持
 
-#### 5.3 安装桌面端依赖
+#### 7.3 桌面端配置
 
 ```bash
-# 安装项目依赖（包含桌面端支持）
-pip install -e .
+# 检查桌面端依赖
+python -c "import webview; print('PyWebView available')"
 
-# 或使用uv安装
-uv pip install -e .
-
-# 手动安装PyWebView（如果需要）
+# 如果缺少依赖，安装：
 pip install pywebview
 ```
 
-#### 5.4 桌面端配置
+## 🔧 高级用法
+
+### 组合命令
 
 ```bash
-# 指定窗口标题
-vertex --desktop --title "Vertex AI助手"
+# 初始化配置后启动工作流
+vertex config init && vertex workflow
 
-# 指定窗口大小
-vertex --desktop --width 1200 --height 800
+# 检查配置状态并启动RAG
+vertex config check && vertex rag --interactive
 
-# 组合使用
-vertex workflow --desktop --title "工作流编辑器" --width 1400 --height 900
+# 启动MCP服务器并在桌面端运行
+vertex mcp server & vertex --desktop
 ```
 
-#### 5.5 桌面端故障排除
-
-```bash
-# 检查PyWebView安装
-python -c "import webview; print('PyWebView已安装')"
-
-# 重新安装依赖
-pip uninstall pywebview
-pip install pywebview
-
-# 查看详细错误信息
-vertex --desktop --debug
-```
-
-**常见问题**：
-1. **窗口无法启动**：确保PyWebView正确安装
-2. **界面显示异常**：检查系统WebKit支持
-3. **性能问题**：桌面端相比浏览器模式可能有轻微性能差异
-
-## 🛠️ 高级用法
-
-### 环境变量配置
-
-支持通过环境变量覆盖配置：
+### 环境变量
 
 ```bash
 # 指定配置文件
-export CONFIG_FILE=config/llm.yml.backup
+CONFIG_FILE=config/custom.yml vertex
 
-# 指定LLM API密钥
-export llm_openrouter_sk=your-api-key
+# 启用调试模式
+DEBUG=1 vertex workflow
 
-# 指定服务端口
-export VERTEX_PORT=8080
-
-# 运行系统
-vertex
+# 设置日志级别
+LOG_LEVEL=DEBUG vertex
 ```
 
-### 脚本集成
-
-Vertex CLI可以集成到自动化脚本中：
+### 批处理脚本
 
 ```bash
 #!/bin/bash
+# 自动化启动脚本
 
-# 自动化文档处理脚本
-echo "开始处理文档..."
+# 检查配置
+vertex config check
 
-# 索引新文档
-vertex rag -d ./new_documents --reindex
+# 如果配置不存在，初始化
+if [ $? -ne 0 ]; then
+    vertex config init
+fi
 
-# 批量查询并保存结果
-questions=("文档主要内容" "关键技术点" "应用场景")
-
-for question in "${questions[@]}"; do
-    echo "查询: $question"
-    vertex rag --query "$question" --fast > "result_${question// /_}.txt"
-done
-
-echo "处理完成！"
+# 启动工作流模式
+vertex workflow --port 8999
 ```
 
-### Docker部署
+## 🛠️ CLI统一化说明
 
-```dockerfile
-FROM python:3.9-slim
+### 架构改进
 
-COPY . /app
-WORKDIR /app
+本次更新将原来的多个CLI文件合并成一个统一的命令行工具：
 
-RUN pip install -e .
+- **删除**: `vertex_flow/cli_mcp.py`
+- **更新**: `vertex_flow/cli.py` - 添加了所有MCP相关功能
 
-# 暴露端口
-EXPOSE 8080
+### 统一的命令结构
 
-# 默认启动命令
-CMD ["vertex", "run", "--host", "0.0.0.0", "--port", "8080"]
-```
+所有Vertex功能现在都通过一个统一的入口点访问，提供：
 
-```bash
-# 构建镜像
-docker build -t vertex-ai .
+1. **统一性**: 所有功能通过一个入口点访问
+2. **一致性**: 命令结构和参数风格统一
+3. **易用性**: 更容易发现和使用各种功能
+4. **维护性**: 减少了重复代码和文件数量
+5. **文档性**: 集中的帮助信息和示例
 
-# 运行容器
-docker run -p 8080:8080 -v ./config:/app/config vertex-ai
+### 向后兼容性
 
-# 运行工作流模式
-docker run -p 8999:8999 vertex-ai vertex workflow --port 8999
-```
+- ✅ 所有原有的CLI命令保持不变
+- ✅ 原有的功能和参数都得到保留
+- ✅ 只是增加了新的MCP子命令
+- ✅ 配置文件格式保持兼容
 
-## 🔧 故障排除
+## 📚 相关文档
+
+- [配置管理详细指南](CONFIGURATION_UNIFICATION.md)
+- [MCP集成指南](MCP_INTEGRATION.md)
+- [Function Tools指南](FUNCTION_TOOLS.md)
+- [故障排除指南](TROUBLESHOOTING.md)
+
+## 🔍 故障排除
 
 ### 常见问题
 
-1. **模块导入错误**
+1. **命令未找到**
    ```bash
-   # 错误：ImportError: No module named 'vertex_flow'
-   # 解决：确保正确安装
+   # 确保正确安装
    pip install -e .
+   
+   # 检查PATH环境变量
+   which vertex
    ```
 
 2. **配置文件问题**
    ```bash
-   # 错误：配置文件不存在
-   # 解决：初始化配置
+   # 检查配置状态
+   vertex config check
+   
+   # 重新初始化配置
    vertex config init
    ```
 
 3. **端口占用**
    ```bash
-   # 错误：Address already in use
-   # 解决：指定其他端口
-   vertex run --port 8081
+   # 使用不同端口
+   vertex workflow --port 9000
+   
+   # 检查端口占用
+   lsof -i :8999
    ```
 
-4. **RAG依赖缺失**
+4. **MCP依赖问题**
    ```bash
-   # 错误：ImportError: No module named 'sentence_transformers'
-   # 解决：安装RAG依赖
-   pip install sentence-transformers faiss-cpu
+   # 安装MCP相关依赖
+   npm install -g @modelcontextprotocol/server-filesystem
+   
+   # 检查Node.js版本
+   node --version
    ```
 
-5. **桌面端依赖缺失**
+5. **桌面端启动失败**
    ```bash
-   # 错误：ImportError: No module named 'webview'
-   # 解决：安装项目依赖
-   pip install -e .
-   # 或
-   uv pip install -e .
+   # 安装桌面端依赖
+   pip install pywebview
+   
+   # 检查系统WebView支持
+   python -c "import webview; webview.start()"
    ```
 
-6. **桌面端窗口启动失败**
-   ```bash
-   # 错误：webview.WebViewException
-   # 解决：检查系统WebKit支持
-   # macOS: 确保系统版本 >= 10.14
-   # Linux: 安装WebKit2GTK
-   # Windows: 确保系统版本 >= Windows 7
-   ```
-
-### 调试模式
-
-```bash
-# 设置调试模式
-export VERTEX_DEBUG=1
-
-# 查看详细日志
-vertex run 2>&1 | tee vertex.log
-
-# RAG调试
-export CONFIG_FILE=config/llm.yml.backup
-vertex rag --query "test" --fast
-```
-
-### 性能优化
-
-```bash
-# 1. 使用国内镜像源（首次运行较慢）
-export HF_ENDPOINT=https://hf-mirror.com
-
-# 2. 预热模型缓存
-vertex rag --show-stats
-
-# 3. 使用快速模式进行批量查询
-vertex rag --interactive --fast
-```
-
-## 📚 实用示例
-
-### 场景1：开发环境搭建
-
-```bash
-# 1. 克隆项目
-git clone https://github.com/your-repo/localqwen.git
-cd localqwen
-
-# 2. 安装依赖
-pip install -e .
-pip install sentence-transformers faiss-cpu
-
-# 3. 初始化配置
-vertex config init
-
-# 4. 测试运行
-vertex rag --show-stats
-```
-
-### 场景2：文档知识库构建
-
-```bash
-# 1. 索引项目文档
-vertex rag -d ./docs --reindex
-
-# 2. 测试查询
-vertex rag --query "如何使用RAG功能？"
-
-# 3. 启动交互式查询
-vertex rag --interactive
-```
-
-### 场景3：批量文档处理
-
-```bash
-# 1. 处理多个目录
-for dir in docs1 docs2 docs3; do
-    vertex rag -d ./$dir --reindex
-done
-
-# 2. 批量查询
-queries=(
-    "技术概述"
-    "安装步骤"
-    "使用示例"
-)
-
-for query in "${queries[@]}"; do
-    echo "=== $query ==="
-    vertex rag --query "$query" --fast
-    echo ""
-done
-```
-
-### 场景4：CI/CD集成
-
-```yaml
-# .github/workflows/docs-qa.yml
-name: 文档问答测试
-
-on: [push, pull_request]
-
-jobs:
-  test-rag:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Setup Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.9'
-    
-    - name: Install dependencies
-      run: |
-        pip install -e .
-        pip install sentence-transformers faiss-cpu
-    
-    - name: Initialize config
-      run: vertex config init
-    
-    - name: Index documentation
-      run: vertex rag -d ./docs --reindex
-    
-    - name: Test queries
-      run: |
-        vertex rag --query "安装说明" --fast
-        vertex rag --query "使用方法" --fast
-```
-
-### 场景5：桌面端应用部署
-
-```bash
-# 1. 安装项目依赖（包含桌面端支持）
-pip install -e .
-
-# 2. 启动桌面端应用
-vertex --desktop
-
-# 3. 自定义桌面端配置
-vertex workflow --desktop --title "Vertex工作流" --width 1400 --height 900
-
-# 4. 创建桌面端快捷方式（macOS）
-cat > ~/Desktop/Vertex.desktop << EOF
-[Desktop Entry]
-Name=Vertex AI
-Exec=vertex --desktop
-Icon=terminal
-Type=Application
-Categories=Development;
-EOF
-chmod +x ~/Desktop/Vertex.desktop
-```
-
-### 场景6：多模式对比测试
-
-```bash
-# 1. 浏览器模式测试
-vertex run --port 8080 &
-sleep 5
-curl http://localhost:8080
-
-# 2. 桌面端模式测试
-vertex --desktop &
-sleep 3
-
-# 3. 工作流模式对比
-vertex workflow --port 8999 &
-vertex workflow --desktop &
-
-# 4. 性能对比
-time vertex rag --query "测试查询" --fast
-time vertex rag --desktop --query "测试查询" --fast
-```
+更多故障排除信息，请参考 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 
 ## 🔗 相关文档
 
