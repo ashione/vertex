@@ -91,7 +91,7 @@ pip3 install flake8 black isort
 - **脱敏后**: `sk: ${llm.deepseek.sk:sk-***SANITIZED***}`
 
 新格式（冒号后使用 `:-` 分隔符）：
-- **原始格式**: `sk: ${llm.deepseek.sk:-sk-1c72572257634abb90a9b17520a94847}`
+- **原始格式**: `sk: ${llm.deepseek.sk:sk-*****************}`
 - **脱敏后**: `sk: ${llm.deepseek.sk:-sk-***SANITIZED***}`
 
 **API Key 脱敏**
