@@ -150,6 +150,32 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Doubao -->
+                                <div class="row mb-4">
+                                    <div class="col-md-6">
+                                        <h6><i class="bi bi-cloud"></i> 豆包 (火山引擎)</h6>
+                                        <div class="mb-3">
+                                            <label class="form-label">API Key</label>
+                                            <input type="password" class="form-control" id="doubao-sk" placeholder="输入豆包 API Key">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">模型名称</label>
+                                            <select class="form-control" id="doubao-model">
+                                                <option value="doubao-seed-1.6">doubao-seed-1.6</option>
+                                                <option value="doubao-seed-1.6-thinking">doubao-seed-1.6-thinking</option>
+                                                <option value="doubao-seed-1.6-flash">doubao-seed-1.6-flash</option>
+                                                <option value="doubao-1.5-thinking-pro">doubao-1.5-thinking-pro</option>
+                                                <option value="doubao-1.5-pro-32k">doubao-1.5-pro-32k</option>
+                                                <option value="doubao-1.5-lite">doubao-1.5-lite</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="doubao-enabled">
+                                            <label class="form-check-label" for="doubao-enabled">启用</label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -399,6 +425,11 @@
                         enabled: $('#ollama-enabled').is(':checked'),
                         base_url: $('#ollama-base-url').val(),
                         model: $('#ollama-model').val()
+                    },
+                    doubao: {
+                        sk: $('#doubao-sk').val(),
+                        enabled: $('#doubao-enabled').is(':checked'),
+                        model: $('#doubao-model').val()
                     }
                 },
                 vector: {
@@ -626,6 +657,20 @@
                                      $('#ollama-model').val(defaultModel.name || 'qwen:7b');
                                  } else {
                                      $('#ollama-model').val(ollama.model || ollama['model-name'] || 'qwen:7b');
+                                 }
+                             }
+
+                             // 豆包配置
+                             if (config.llm.doubao) {
+                                 const doubao = config.llm.doubao;
+                                 $('#doubao-sk').val(doubao.sk || '');
+                                 $('#doubao-enabled').prop('checked', doubao.enabled || false);
+                                 // 支持多模型结构
+                                 if (doubao.models && doubao.models.length > 0) {
+                                     const defaultModel = doubao.models.find(m => m.default) || doubao.models[0];
+                                     $('#doubao-model').val(defaultModel.name || 'doubao-seed-1.6');
+                                 } else {
+                                     $('#doubao-model').val(doubao.model || doubao['model-name'] || 'doubao-seed-1.6');
                                  }
                              }
                          }

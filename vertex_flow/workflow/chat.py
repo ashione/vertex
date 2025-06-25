@@ -227,26 +227,26 @@ class ChatModel(abc.ABC):
 
 
 class DeepSeek(ChatModel):
-    def __init__(self, name="deepseek-chat", sk=""):
-        super().__init__(name=name, sk=sk, base_url="https://api.deepseek.com", provider="deepseek")
+    def __init__(self, name="deepseek-chat", sk="", base_url="https://api.deepseek.com"):
+        super().__init__(name=name, sk=sk, base_url=base_url, provider="deepseek")
 
 
 class Tongyi(ChatModel):
-    def __init__(self, name="qwen-max", sk=""):
+    def __init__(self, name="qwen-max", sk="", base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"):
         super().__init__(
             name=name,
             sk=sk,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            base_url=base_url,
             provider="tongyi",
         )
 
 
 class OpenRouter(ChatModel):
-    def __init__(self, name="openrouter-chat", sk=""):
+    def __init__(self, name="google/gemini-2.5-pro", sk="", base_url="https://openrouter.ai/api/v1"):
         super().__init__(
             name=name,
             sk=sk,
-            base_url="https://openrouter.ai/api/v1",
+            base_url=base_url,
             provider="openrouter",
         )
 
@@ -259,6 +259,37 @@ class Ollama(ChatModel):
             sk=sk,
             base_url=f"{base_url}/v1",
             provider="ollama",
+        )
+    
+    def model_name(self) -> str:
+        return self.name
+
+
+class Doubao(ChatModel):
+    def __init__(self, name="doubao-seed-1.6", sk="", base_url="https://ark.cn-beijing.volces.com/api/v3"):
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=base_url,
+            provider="doubao",
+        )
+    
+    def model_name(self) -> str:
+        return self.name
+
+
+class Other(ChatModel):
+    """
+    其他自定义LLM提供商类
+    支持每个模型单独配置provider、model name和base_url
+    适用于自定义API端点、私有部署模型等场景
+    """
+    def __init__(self, name="custom-model", sk="", base_url="", provider="other"):
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=base_url,
+            provider=provider,
         )
     
     def model_name(self) -> str:

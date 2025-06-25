@@ -127,6 +127,7 @@ class VertexFlowService:
         如果实例已经包含一个模型属性，则直接返回该模型。
         否则，根据配置信息初始化并返回一个聊天模型。
         支持多模型结构，选择第一个enabled的provider中的第一个enabled的model。
+        对于other类型，支持每个模型单独配置provider、base_url和sk。
         """
         if hasattr(self, "model"):
             return self.model
@@ -167,16 +168,52 @@ class VertexFlowService:
 
             # 创建模型实例
             create_params = {
-                "sk": provider_config["sk"],
                 "name": model_name,
             }
 
-            # 对于Ollama，需要额外传递base_url参数
-            if provider_name.lower() == "ollama":
-                base_url = provider_config.get("base-url", "http://localhost:11434")
-                create_params["base_url"] = base_url
+            # 对于other类型，支持每个模型单独配置provider、base_url和sk
+            if provider_name.lower() == "other" and "models" in provider_config:
+                # 从选中的模型配置中获取参数
+                if "provider" in selected_model:
+                    create_params["provider"] = selected_model["provider"]
+                else:
+                    create_params["provider"] = "other"
 
-            self.model = create_instance(class_name=provider_name, **create_params)
+                if "base_url" in selected_model:
+                    create_params["base_url"] = selected_model["base_url"]
+                elif "base-url" in selected_model:
+                    create_params["base_url"] = selected_model["base-url"]
+                else:
+                    create_params["base_url"] = ""
+
+                if "sk" in selected_model:
+                    create_params["sk"] = selected_model["sk"]
+                else:
+                    create_params["sk"] = ""
+
+                # 使用Other类创建实例
+                self.model = create_instance(class_name="other", **create_params)
+            else:
+                # 其他provider使用原有逻辑
+                create_params["sk"] = provider_config["sk"]
+
+                # 为所有provider支持从配置中获取base_url
+                if "base_url" in provider_config:
+                    create_params["base_url"] = provider_config["base_url"]
+                elif "base-url" in provider_config:
+                    create_params["base_url"] = provider_config["base-url"]
+
+                # 对于Ollama，如果没有配置base_url，使用默认值
+                if provider_name.lower() == "ollama" and "base_url" not in create_params:
+                    base_url = provider_config.get("base-url", "http://localhost:11434")
+                    create_params["base_url"] = base_url
+
+                # 对于豆包，不需要额外参数，使用默认配置
+                if provider_name.lower() == "doubao":
+                    # 豆包使用火山引擎API，不需要额外配置
+                    pass
+
+                self.model = create_instance(class_name=provider_name, **create_params)
 
         # 记录选定的模型信息
         if self.model is not None:
@@ -191,6 +228,7 @@ class VertexFlowService:
 
         根据给定的提供商和可选的名称，从配置中选择并创建聊天模型实例。
         支持多模型结构，可以指定具体的model名称。
+        对于other类型，支持每个模型单独配置provider、base_url和sk。
 
         参数:
         - provider (str): 用于选择聊天模型提供商的标识符。
@@ -233,8 +271,8 @@ class VertexFlowService:
                     enabled_models = list(filter(lambda m: m.get("enabled", False), models))
 
                     if enabled_models:
-                        selected_model_config = enabled_models[0]
-                        model_name = selected_model_config["name"]
+                        target_model = enabled_models[0]
+                        model_name = target_model["name"]
                         logging.info("Using first enabled model %s from provider %s", model_name, provider)
                     else:
                         logging.warning("No enabled models found in provider %s", provider)
@@ -246,20 +284,57 @@ class VertexFlowService:
                     logging.warning("No model-name found in provider %s", provider)
                     return None
                 logging.info("Using legacy model-name %s from provider %s", model_name, provider)
+                target_model = None
 
             # 构建创建模型实例的参数
             create_params = {
-                "sk": provider_config["sk"],
                 "name": model_name,
             }
 
-            # 对于Ollama，需要额外传递base_url参数
-            if provider.lower() == "ollama":
-                base_url = provider_config.get("base-url", "http://localhost:11434")
-                create_params["base_url"] = base_url
+            # 对于other类型，支持每个模型单独配置provider、base_url和sk
+            if provider.lower() == "other" and target_model:
+                # 从模型配置中获取参数
+                if "provider" in target_model:
+                    create_params["provider"] = target_model["provider"]
+                else:
+                    create_params["provider"] = "other"
 
-            # 使用匹配的模型配置创建聊天模型实例
-            model = create_instance(class_name=provider, **create_params)
+                if "base_url" in target_model:
+                    create_params["base_url"] = target_model["base_url"]
+                elif "base-url" in target_model:
+                    create_params["base_url"] = target_model["base-url"]
+                else:
+                    create_params["base_url"] = ""
+
+                if "sk" in target_model:
+                    create_params["sk"] = target_model["sk"]
+                else:
+                    create_params["sk"] = ""
+
+                # 使用Other类创建实例
+                model = create_instance(class_name="other", **create_params)
+            else:
+                # 其他provider使用原有逻辑
+                create_params["sk"] = provider_config["sk"]
+
+                # 为所有provider支持从配置中获取base_url
+                if "base_url" in provider_config:
+                    create_params["base_url"] = provider_config["base_url"]
+                elif "base-url" in provider_config:
+                    create_params["base_url"] = provider_config["base-url"]
+
+                # 对于Ollama，如果没有配置base_url，使用默认值
+                if provider.lower() == "ollama" and "base_url" not in create_params:
+                    base_url = provider_config.get("base-url", "http://localhost:11434")
+                    create_params["base_url"] = base_url
+
+                # 对于豆包，不需要额外参数，使用默认配置
+                if provider.lower() == "doubao":
+                    # 豆包使用火山引擎API，不需要额外配置
+                    pass
+
+                # 使用匹配的模型配置创建聊天模型实例
+                model = create_instance(class_name=provider, **create_params)
 
         # 记录选定的模型信息
         if model is not None:
@@ -390,6 +465,8 @@ class VertexFlowService:
         default_model_name,
         env_endpoint,
         default_endpoint,
+        env_dimension=None,
+        default_dimension=None,
     ):
         """
         通用方法，用于从配置中提取嵌入配置信息。
@@ -401,9 +478,11 @@ class VertexFlowService:
         - default_model_name (str): 默认的模型名称。
         - env_endpoint (str): 环境变量中的endpoint名称。
         - default_endpoint (str): 默认的endpoint。
+        - env_dimension (str): 环境变量中的维度名称。
+        - default_dimension (int): 默认的维度。
 
         返回:
-        - dict: 包含API key、模型名称和endpoint的嵌入配置。
+        - dict: 包含API key、模型名称、endpoint和维度的嵌入配置。
 
         抛出:
         - ValueError: 如果配置中缺少API key、模型名称或endpoint信息。
@@ -425,8 +504,18 @@ class VertexFlowService:
         if not endpoint:
             raise ValueError(f"Endpoint for {env_endpoint} is missing in the configuration and environment variables.")
 
+        # 获取维度，如果未配置，则尝试从环境变量中获取
+        dimension = config_section.get("dimension")
+        if dimension is None and env_dimension:
+            dimension = os.getenv(env_dimension, default_dimension)
+        if dimension is None:
+            dimension = default_dimension
+
         # 使用获取的配置信息创建并返回嵌入配置
-        return {"api_key": api_key, "model_name": model_name, "endpoint": endpoint}
+        config = {"api_key": api_key, "model_name": model_name, "endpoint": endpoint}
+        if dimension is not None:
+            config["dimension"] = dimension
+        return config
 
     def get_embedding_config(self, embedding_type=EmbeddingType.DASHSCOPE):
         """
@@ -469,46 +558,75 @@ class VertexFlowService:
                 "BCE_MODEL_NAME",
                 "netease-youdao/bce-embedding-base_v1",
                 "BCE_ENDPOINT",
-                "https://api.bce.com",
+                "https://api.siliconflow.cn/v1/embeddings",
+                "BCE_DIMENSION",
+                768,
             )
 
         else:
             raise ValueError(f"Unsupported embedding type: {embedding_type}")
 
-    def get_embedding(self, embedding_type=EmbeddingType.DASHSCOPE) -> TextEmbeddingProvider:
+    def get_embedding(self, embedding_type: Optional[EmbeddingType] = None) -> TextEmbeddingProvider:
         """
         根据配置信息创建并返回一个文本嵌入提供者的实例。
 
-        本函数从配置中提取嵌入的相关设置，包括API key、模型名称和endpoint，
-        并使用这些信息来创建一个 `TextEmbeddingProvider` 的具体实例。如果配置中缺少必需的信息，
-        则会抛出异常。
-
-        参数:
-        - embedding_type (EmbeddingType): 嵌入提供者的类型，默认为 EmbeddingType.DASHSCOPE。
+        - embedding_type=None 时，自动按优先级智能选择启用的嵌入服务。
+        - embedding_type=EmbeddingType.XXX 时，返回指定类型的嵌入服务。
 
         返回:
-        - TextEmbeddingProvider: 一个文本嵌入提供者的实例。
+            TextEmbeddingProvider: 一个文本嵌入提供者的实例。
 
         抛出:
-        - ValueError: 如果配置中缺少API key、模型名称或endpoint信息。
+            ValueError: 如果没有可用的嵌入提供者。
         """
-        embedding_config = self.get_embedding_config(embedding_type)
+        embedding_config = self._config.get("embedding", {})
 
-        if embedding_type == EmbeddingType.DASHSCOPE:
-            # 使用 DashScope 嵌入提供者
-            return DashScopeEmbedding(
-                api_key=embedding_config["api_key"],
-                model_name=embedding_config["model_name"],
-            )
-        elif embedding_type == EmbeddingType.BCE:
-            # 使用 BCE 嵌入提供者
-            return BCEEmbedding(
-                api_key=embedding_config["api_key"],
-                model_name=embedding_config["model_name"],
-                endpoint=embedding_config["endpoint"],
-            )
+        # 智能优先级选择
+        if embedding_type is None:
+            if embedding_config.get("dashscope", {}).get("enabled", False):
+                try:
+                    return self.get_embedding(EmbeddingType.DASHSCOPE)
+                except Exception as e:
+                    logging.warning(f"无法创建DashScope嵌入提供者: {e}")
+            if embedding_config.get("bce", {}).get("enabled", False):
+                try:
+                    return self.get_embedding(EmbeddingType.BCE)
+                except Exception as e:
+                    logging.warning(f"无法创建BCE嵌入提供者: {e}")
+            if embedding_config.get("local", {}).get("enabled", True):
+                try:
+                    from .vertex.embedding_providers import LocalEmbeddingProvider
+
+                    local_config = embedding_config.get("local", {})
+                    return LocalEmbeddingProvider(
+                        model_name=local_config.get("model_name", "all-MiniLM-L6-v2"),
+                        use_mirror=local_config.get("use_mirror", True),
+                        mirror_url=local_config.get("mirror_url", "https://hf-mirror.com"),
+                    )
+                except Exception as e:
+                    logging.warning(f"无法创建本地嵌入提供者: {e}")
+            raise ValueError("没有可用的嵌入提供者，请检查配置")
+        # 按类型返回
         else:
-            raise ValueError(f"Unsupported embedding type: {embedding_type}")
+            embedding_config_dict = self.get_embedding_config(embedding_type)
+            if embedding_type == EmbeddingType.DASHSCOPE:
+                from .vertex.embedding_providers import DashScopeEmbedding
+
+                return DashScopeEmbedding(
+                    api_key=embedding_config_dict["api_key"],
+                    model_name=embedding_config_dict["model_name"],
+                )
+            elif embedding_type == EmbeddingType.BCE:
+                from .vertex.embedding_providers import BCEEmbedding
+
+                return BCEEmbedding(
+                    api_key=embedding_config_dict["api_key"],
+                    model_name=embedding_config_dict["model_name"],
+                    endpoint=embedding_config_dict["endpoint"],
+                    dimension=embedding_config_dict.get("dimension", 768),
+                )
+            else:
+                raise ValueError(f"Unsupported embedding type: {embedding_type}")
 
     def get_web_search_config(self, provider: str = "bocha") -> Dict[str, Any]:
         """获取Web搜索配置
@@ -883,3 +1001,61 @@ class VertexFlowService:
     def is_mcp_enabled(self) -> bool:
         """Check if MCP is enabled"""
         return MCP_AVAILABLE and self._config.get("mcp", {}).get("enabled", False)
+
+    def get_smart_vector_engine(self):
+        """
+        智能选择向量引擎，根据配置优先级自动选择启用的向量服务
+        并根据当前使用的嵌入提供者自动调整维度
+
+        Returns:
+            VectorEngine: 选中的向量引擎实例
+
+        Raises:
+            ValueError: 如果没有任何启用的向量引擎
+        """
+        vector_config = self._config.get("vector", {})
+
+        # 优先使用云端向量引擎
+        if vector_config.get("dashvector", {}).get("enabled", False):
+            try:
+                return self.get_vector_engine()
+            except Exception as e:
+                logging.warning(f"无法创建DashVector引擎: {e}")
+
+        # 如果云端服务不可用，使用本地向量引擎
+        if vector_config.get("local", {}).get("enabled", True):
+            try:
+                from .vertex.vector_engines import LocalVectorEngine
+
+                local_config = vector_config.get("local", {})
+
+                # 智能选择维度：根据当前使用的嵌入提供者
+                dimension = local_config.get("dimension", 384)  # 默认维度
+
+                # 检查当前启用的嵌入提供者，获取其维度
+                embedding_config = self._config.get("embedding", {})
+                if embedding_config.get("bce", {}).get("enabled", False):
+                    # 如果使用 BCE 嵌入，使用其配置的维度
+                    bce_dimension = embedding_config.get("bce", {}).get("dimension", 768)
+                    dimension = bce_dimension
+                    logging.info(f"使用 BCE 嵌入维度: {dimension}")
+                elif embedding_config.get("dashscope", {}).get("enabled", False):
+                    # DashScope 通常是 1536 维
+                    dimension = 1536
+                    logging.info(f"使用 DashScope 嵌入维度: {dimension}")
+                elif embedding_config.get("local", {}).get("enabled", True):
+                    # 本地嵌入使用配置的维度
+                    local_embedding_dimension = embedding_config.get("local", {}).get("dimension", 384)
+                    dimension = local_embedding_dimension
+                    logging.info(f"使用本地嵌入维度: {dimension}")
+
+                return LocalVectorEngine(
+                    dimension=dimension,
+                    index_name=local_config.get("index_name", "default"),
+                    persist_dir=local_config.get("persist_dir", None),
+                )
+            except Exception as e:
+                logging.warning(f"无法创建本地向量引擎: {e}")
+
+        # 如果所有向量引擎都不可用，抛出异常
+        raise ValueError("没有可用的向量引擎，请检查配置")

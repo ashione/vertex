@@ -2,6 +2,11 @@ import os
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from typing import List, Optional
+import abc
+import base64
+import requests
+from typing import Any, Dict, Union
+import re
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.utils import factory_creator
@@ -75,21 +80,63 @@ class DashScopeEmbedding(TextEmbeddingProvider):
 
 # 定义 BCEEmbedding 类
 class BCEEmbedding(TextEmbeddingProvider):
-    def __init__(self, api_key: str, model_name: str, endpoint: str):
+    def __init__(self, api_key: str, model_name: str, endpoint: str, dimension: int = 768):
         """
-        初始化 BCEEmbedding 实例，配置 BCE API key、模型名称和 endpoint。
+        初始化 BCEEmbedding 实例，配置 BCE API key、模型名称、endpoint 和维度。
 
         @param api_key: 从 BCE 平台获取的 API key。
         @param model_name: 要使用的 BCE 文本嵌入模型名称。
         @param endpoint: BCE 服务的 endpoint。
+        @param dimension: 嵌入向量的维度，默认为 768。
         """
         self.api_key = api_key
         self.model_name = model_name
         self.endpoint = endpoint
+        self.dimension = dimension
         self._headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
+
+    def _truncate_text_to_tokens(self, text: str, max_tokens: int = 512) -> str:
+        """
+        将文本截断到指定的 token 数量
+        
+        Args:
+            text: 输入文本
+            max_tokens: 最大 token 数量，默认为 512
+            
+        Returns:
+            截断后的文本
+        """
+        # 简单的 token 估算：按空格和标点符号分割
+        # 这是一个粗略的估算，实际 token 数量可能不同
+        tokens = re.findall(r'\b\w+\b|[^\w\s]', text)
+        
+        if len(tokens) <= max_tokens:
+            return text
+        
+        # 如果 token 数量超过限制，截断文本
+        logging.warning(f"文本 token 数量 ({len(tokens)}) 超过限制 ({max_tokens})，将进行截断")
+        
+        # 按字符截断，但尽量在词边界处截断
+        char_count = 0
+        for i, token in enumerate(tokens[:max_tokens]):
+            char_count += len(token)
+            if i < max_tokens - 1:
+                char_count += 1  # 添加分隔符
+        
+        truncated_text = text[:char_count].strip()
+        
+        # 确保截断后的文本不以不完整的词结尾
+        if truncated_text and not truncated_text.endswith((' ', '.', '!', '?', ',', ';', ':')):
+            # 找到最后一个完整的词
+            last_space = truncated_text.rfind(' ')
+            if last_space > 0:
+                truncated_text = truncated_text[:last_space].strip()
+        
+        logging.info(f"文本已截断: {len(text)} -> {len(truncated_text)} 字符")
+        return truncated_text
 
     @lru_cache(maxsize=100)
     def embedding(self, text: str) -> Optional[List[float]]:
@@ -100,7 +147,10 @@ class BCEEmbedding(TextEmbeddingProvider):
         @return: 对应于文本的嵌入向量（以浮点数列表形式），如果请求失败或发生异常则返回 None。
         """
         try:
-            import requests
+            # 检查文本长度
+            if len(text) > 512:
+                logging.warning("文本长度超过512个字符，将进行截断")
+                text = self._truncate_text_to_tokens(text)
 
             payload = {
                 "model": self.model_name,
@@ -111,7 +161,7 @@ class BCEEmbedding(TextEmbeddingProvider):
             response = requests.request("POST", self.endpoint, json=payload, headers=self._headers)
             if response.status_code == 200:
                 response_data = response.json()
-                logging.info(response_data)
+                logging.info(f"BCEEmbedding response_data: {response_data}")
                 return response_data["data"][0]["embedding"]
             else:
                 # 记录请求失败的错误信息
