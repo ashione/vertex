@@ -393,6 +393,21 @@ def save_config():
                     ],
                 }
 
+            # 豆包配置
+            if "doubao" in llm_config:
+                doubao = llm_config["doubao"]
+                config_data["llm"]["doubao"] = {
+                    "sk": f"${{llm.doubao.sk:{doubao.get('sk', '-')}}}",
+                    "enabled": doubao.get("enabled", False),
+                    "models": [
+                        {
+                            "name": doubao.get("model", "doubao-seed-1.6"),
+                            "enabled": doubao.get("enabled", False),
+                            "default": True,
+                        }
+                    ],
+                }
+
         # 处理向量数据库配置
         if "vector" in data:
             vector_config = data["vector"]

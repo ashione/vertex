@@ -17,6 +17,7 @@ llm:
   deepseek:
     sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
     enabled: false
+    base_url: ${llm.deepseek.base_url:https://api.deepseek.com}
     models:
       - name: deepseek-chat
         enabled: true
@@ -25,6 +26,7 @@ llm:
   tongyi:
     sk: ${llm.tongyi.sk:-YOUR_TONGYI_API_KEY}
     enabled: false
+    base_url: ${llm.tongyi.base_url:https://dashscope.aliyuncs.com/compatible-mode/v1}
     models:
       - name: qwen-max
         enabled: true
@@ -35,6 +37,7 @@ llm:
   openrouter:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
     enabled: false
+    base_url: ${llm.openrouter.base_url:https://openrouter.ai/api/v1}
     models:
       - name: deepseek/deepseek-chat-v3-0324:free
         enabled: false
@@ -49,13 +52,24 @@ llm:
   ollama:
     sk: ${llm.ollama.sk:-ollama-local}          # 本地模型不需要真实API key，使用占位符
     enabled: false                               # 默认不启用，需要手动切换
-    base-url: ${llm.ollama.base_url:-http://localhost:11434}  # Ollama服务地址
+    base-url: ${llm.ollama.base_url:http://localhost:11434}  # Ollama服务地址
     models:
       - name: qwen:7b
         enabled: true
       - name: llama3:8b
         enabled: false
       - name: mistral:7b
+        enabled: false
+  doubao:
+    sk: ${llm.doubao.sk:-YOUR_DOUBAO_API_KEY}
+    enabled: false
+    base_url: ${llm.doubao.base_url:https://ark.cn-beijing.volces.com/api/v3}
+    models:
+      - name: doubao-seed-1.6-250615
+        enabled: true
+      - name: doubao-seed-1.6-thinking-250615
+        enabled: false
+      - name: doubao-seed-1.6-flash-250615
         enabled: false
 
 web-search:

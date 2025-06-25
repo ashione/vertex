@@ -171,10 +171,21 @@ class VertexFlowService:
                 "name": model_name,
             }
 
-            # 对于Ollama，需要额外传递base_url参数
-            if provider_name.lower() == "ollama":
+            # 为所有provider支持从配置中获取base_url
+            if "base_url" in provider_config:
+                create_params["base_url"] = provider_config["base_url"]
+            elif "base-url" in provider_config:
+                create_params["base_url"] = provider_config["base-url"]
+
+            # 对于Ollama，如果没有配置base_url，使用默认值
+            if provider_name.lower() == "ollama" and "base_url" not in create_params:
                 base_url = provider_config.get("base-url", "http://localhost:11434")
                 create_params["base_url"] = base_url
+
+            # 对于豆包，不需要额外参数，使用默认配置
+            if provider_name.lower() == "doubao":
+                # 豆包使用火山引擎API，不需要额外配置
+                pass
 
             self.model = create_instance(class_name=provider_name, **create_params)
 
@@ -253,10 +264,21 @@ class VertexFlowService:
                 "name": model_name,
             }
 
-            # 对于Ollama，需要额外传递base_url参数
-            if provider.lower() == "ollama":
+            # 为所有provider支持从配置中获取base_url
+            if "base_url" in provider_config:
+                create_params["base_url"] = provider_config["base_url"]
+            elif "base-url" in provider_config:
+                create_params["base_url"] = provider_config["base-url"]
+
+            # 对于Ollama，如果没有配置base_url，使用默认值
+            if provider.lower() == "ollama" and "base_url" not in create_params:
                 base_url = provider_config.get("base-url", "http://localhost:11434")
                 create_params["base_url"] = base_url
+
+            # 对于豆包，不需要额外参数，使用默认配置
+            if provider.lower() == "doubao":
+                # 豆包使用火山引擎API，不需要额外配置
+                pass
 
             # 使用匹配的模型配置创建聊天模型实例
             model = create_instance(class_name=provider, **create_params)
