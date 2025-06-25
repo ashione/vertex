@@ -276,3 +276,21 @@ class Doubao(ChatModel):
     
     def model_name(self) -> str:
         return self.name
+
+
+class Other(ChatModel):
+    """
+    其他自定义LLM提供商类
+    支持每个模型单独配置provider、model name和base_url
+    适用于自定义API端点、私有部署模型等场景
+    """
+    def __init__(self, name="custom-model", sk="", base_url="", provider="other"):
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=base_url,
+            provider=provider,
+        )
+    
+    def model_name(self) -> str:
+        return self.name

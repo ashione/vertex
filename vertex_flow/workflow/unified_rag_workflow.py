@@ -29,8 +29,8 @@ from .vertex import (
     VectorQueryVertex,
     VectorStoreVertex,
 )
-from .vertex.embedding_providers import LocalEmbeddingProvider, TextEmbeddingProvider
-from .vertex.vector_engines import Doc, LocalVectorEngine, VectorEngine
+from .vertex.embedding_providers import TextEmbeddingProvider
+from .vertex.vector_engines import Doc, VectorEngine
 from .workflow import Workflow, WorkflowContext
 
 logging = LoggerUtil.get_logger()
@@ -507,73 +507,30 @@ class UnifiedRAGWorkflowBuilder:
     def _initialize_components(self):
         """
         初始化RAG组件（嵌入提供者、向量引擎、LLM模型）
+        复用 VertexService 的智能组件选择逻辑
         """
         # 确保配置是字典类型
         if not isinstance(self.config, dict):
             self.config = self._get_default_config()
 
-            # 初始化嵌入提供者
-            embedding_config = self.config.get("embedding", {})
-
-        # 优先使用启用的嵌入提供者
-        if embedding_config.get("dashscope", {}).get("enabled", False):
-            try:
-                self.embedding_provider = self.service.get_embedding(EmbeddingType.DASHSCOPE)
-                logging.info("使用DashScope嵌入提供者")
-            except Exception as e:
-                logging.warning(f"无法创建DashScope嵌入提供者: {e}")
-                self._fallback_to_local_embedding()
-        elif embedding_config.get("bce", {}).get("enabled", False):
-            try:
-                self.embedding_provider = self.service.get_embedding(EmbeddingType.BCE)
-                logging.info("使用BCE嵌入提供者")
-            except Exception as e:
-                logging.warning(f"无法创建BCE嵌入提供者: {e}")
-                self._fallback_to_local_embedding()
-        elif embedding_config.get("local", {}).get("enabled", True):
-            # 使用本地嵌入
-            local_config = embedding_config.get("local", {})
-            model_name = local_config.get("model_name", "all-MiniLM-L6-v2")
-            use_mirror = local_config.get("use_mirror", True)
-            mirror_url = local_config.get("mirror_url", "https://hf-mirror.com")
-
-            self.embedding_provider = LocalEmbeddingProvider(
-                model_name=model_name, use_mirror=use_mirror, mirror_url=mirror_url
-            )
-            logging.info("使用本地嵌入提供者")
-        else:
-            # 没有配置任何嵌入提供者，使用本地嵌入作为默认
-            self._fallback_to_local_embedding()
-
-        # 初始化向量引擎
-        vector_config = self.config.get("vector", {})
-
-        # 优先使用启用的向量引擎
-        if vector_config.get("dashvector", {}).get("enabled", False):
-            try:
-                self.vector_engine = self.service.get_vector_engine()
-                logging.info("使用DashVector引擎")
-            except Exception as e:
-                logging.warning(f"无法创建DashVector引擎: {e}")
-                self._fallback_to_local_vector_engine()
-        elif vector_config.get("local", {}).get("enabled", True):
-            # 使用本地向量引擎
-            local_config = vector_config.get("local", {})
-            persist_dir = local_config.get("persist_dir", None)
-
-            self.vector_engine = LocalVectorEngine(
-                dimension=local_config.get("dimension", 384),
-                index_name=local_config.get("index_name", "default"),
-                persist_dir=persist_dir,
-            )
-            logging.info("使用本地向量引擎")
-        else:
-            # 没有配置任何向量引擎，使用本地向量引擎作为默认
-            self._fallback_to_local_vector_engine()
-
-        # 初始化LLM模型
+        # 初始化嵌入提供者 - 使用 VertexService 的智能选择
         try:
-            # 直接使用service的get_chatmodel方法，它会自动处理配置和选择启用的模型
+            self.embedding_provider = self.service.get_embedding()
+            logging.info(f"使用嵌入提供者: {self.embedding_provider.__class__.__name__}")
+        except Exception as e:
+            logging.error(f"无法初始化嵌入提供者: {e}")
+            raise ValueError("无法初始化嵌入提供者，请检查配置")
+
+        # 初始化向量引擎 - 使用 VertexService 的智能选择
+        try:
+            self.vector_engine = self.service.get_smart_vector_engine()
+            logging.info(f"使用向量引擎: {self.vector_engine.__class__.__name__}")
+        except Exception as e:
+            logging.error(f"无法初始化向量引擎: {e}")
+            raise ValueError("无法初始化向量引擎，请检查配置")
+
+        # 初始化LLM模型 - 使用 VertexService 的智能选择
+        try:
             self.llm_model = self.service.get_chatmodel()
             llm_config = self.config.get("llm", {})
             logging.info(f"llm config : {llm_config}")
@@ -583,19 +540,6 @@ class UnifiedRAGWorkflowBuilder:
         except Exception as e:
             logging.error(f"无法创建LLM模型: {e}")
             raise ValueError("无法初始化LLM模型，请检查配置")
-
-    def _fallback_to_local_embedding(self):
-        """回退到本地嵌入提供者"""
-        # 使用默认配置回退
-        self.embedding_provider = LocalEmbeddingProvider(
-            model_name="all-MiniLM-L6-v2", use_mirror=True, mirror_url="https://hf-mirror.com"
-        )
-        logging.info("回退到本地嵌入提供者")
-
-    def _fallback_to_local_vector_engine(self):
-        """回退到本地向量引擎"""
-        self.vector_engine = LocalVectorEngine()
-        logging.info("回退到本地向量引擎")
 
     def build_smart_indexing_workflow(self) -> Workflow:
         """构建智能索引工作流，在构建索引前先检查重复"""
@@ -1210,6 +1154,20 @@ class UnifiedRAGSystem:
                     print(f"更新完成：新增了 {added_docs} 个文档")
                 else:
                     print("更新完成：没有新增文档（可能都是重复内容）")
+        
+        # 重要：索引完成后，重置初始化状态，确保后续查询可以正常使用LLM
+        # 但保持已初始化的组件（embedding_provider, vector_engine等）
+        if self._indexing_only_mode:
+            logging.info("索引完成，重置为完整模式以支持LLM查询")
+            self._indexing_only_mode = False
+            # 重新构建查询工作流
+            try:
+                self.query_workflow = self.builder.build_query_workflow()
+                self._query_workflow_instance = self.builder.build_query_workflow()
+                logging.info("查询工作流重新构建完成")
+            except Exception as e:
+                logging.warning(f"查询工作流重新构建失败: {e}")
+                self._indexing_only_mode = True
 
     def query(self, question: str, use_cache: bool = True) -> str:
         """

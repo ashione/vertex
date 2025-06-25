@@ -51,6 +51,8 @@ def read_yaml_config_env_placeholder(filepath):
     def resolve_placeholders(data, env=os.environ):
         if isinstance(data, dict):
             return {k: resolve_placeholders(v, env) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [resolve_placeholders(item, env) for item in data]
         elif isinstance(data, str):
             import re
 

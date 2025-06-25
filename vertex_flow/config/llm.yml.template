@@ -71,6 +71,47 @@ llm:
         enabled: false
       - name: doubao-seed-1.6-flash-250615
         enabled: false
+  
+  # 其他自定义LLM提供商配置
+  # 支持每个模型单独配置provider、model name和base_url
+  # 适用于自定义API端点、私有部署模型等场景
+  other:
+    enabled: false  # 默认不启用
+    models:
+      # 示例：SiliconFlow Qwen/QwQ-32B模型
+      - name: Qwen/QwQ-32B
+        enabled: false
+        provider: "siliconflow"
+        base_url: ${llm.other.qwen_qwq_32b.base_url:-https://api.siliconflow.cn/v1}
+        sk: ${llm.other.qwen_qwq_32b.sk:-YOUR_SILICONFLOW_API_KEY}
+      
+      # 示例：自定义OpenAI兼容API
+      - name: custom-model-1
+        enabled: false
+        provider: "custom-openai"
+        base_url: ${llm.other.custom_model_1.base_url:-https://your-custom-api.com/v1}
+        sk: ${llm.other.custom_model_1.sk:-YOUR_CUSTOM_API_KEY}
+      
+      # 示例：私有部署的模型
+      - name: private-llama
+        enabled: false
+        provider: "private-deployment"
+        base_url: ${llm.other.private_llama.base_url:-http://localhost:8000/v1}
+        sk: ${llm.other.private_llama.sk:-your-private-key}
+      
+      # 示例：第三方API服务
+      - name: third-party-model
+        enabled: false
+        provider: "third-party"
+        base_url: ${llm.other.third_party_model.base_url:-https://api.thirdparty.com/v1}
+        sk: ${llm.other.third_party_model.sk:-YOUR_THIRD_PARTY_API_KEY}
+      
+      # 示例：本地部署的模型服务
+      - name: local-model
+        enabled: false
+        provider: "local"
+        base_url: ${llm.other.local_model.base_url:-http://127.0.0.1:8080/v1}
+        sk: ${llm.other.local_model.sk:-local-key}
 
 web-search:
   # Bocha AI搜索服务 - 高质量AI总结，支持日期过滤
@@ -164,6 +205,7 @@ embedding:
     api-key: ${embedding.bce.api_key:-YOUR_BCE_API_KEY}
     endpoint: ${embedding.bce.endpoint:-https://api.siliconflow.cn/v1/embeddings}
     model-name: ${embedding.bce.model_name:-netease-youdao/bce-embedding-base_v1}
+    dimension: 768  # BCE 嵌入模型维度
 
 # 重排序配置
 rerank:
@@ -181,8 +223,8 @@ rerank:
 
 # 文档处理配置
 document:
-  chunk_size: 1000  # 文档分块大小
-  chunk_overlap: 200  # 分块重叠大小
+  chunk_size: 512  # 文档分块大小，与 BCE 嵌入 API 的 token 限制一致
+  chunk_overlap: 128  # 分块重叠大小
   supported_formats: ["txt", "md", "pdf", "docx"]  # 支持的文档格式
 
 # 检索配置
