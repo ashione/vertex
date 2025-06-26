@@ -322,6 +322,11 @@ class LocalVectorEngine(VectorEngine):
         self.dimension = dimension
         self.persist_dir = persist_dir or os.path.join(os.getcwd(), "vector_db")
 
+        logger.info(f"初始化本地向量引擎:")
+        logger.info(f"  - 索引名称: {index_name}")
+        logger.info(f"  - 向量维度: {dimension}")
+        logger.info(f"  - 持久化目录: {self.persist_dir}")
+
         try:
             import hashlib
 
@@ -337,6 +342,8 @@ class LocalVectorEngine(VectorEngine):
             # 尝试加载现有索引
             if self._load_index():
                 logger.info(f"加载现有索引: {index_name}, 包含 {len(self.documents)} 个文档")
+                logger.info(f"  - 索引维度: {self.index.d}")
+                logger.info(f"  - 索引文档数: {self.index.ntotal}")
             else:
                 # 创建新索引
                 self.index = faiss.IndexFlatIP(dimension)  # 使用内积相似度
@@ -401,6 +408,24 @@ class LocalVectorEngine(VectorEngine):
             if os.path.exists(self.index_file) and os.path.exists(self.meta_file):
                 # 加载FAISS索引
                 self.index = faiss.read_index(self.index_file)
+                
+                # 检查索引维度是否与配置一致
+                if hasattr(self.index, 'd') and self.index.d != self.dimension:
+                    error_msg = (
+                        f"索引维度与配置不匹配！\n"
+                        f"  配置维度: {self.dimension}\n"
+                        f"  索引维度: {self.index.d}\n"
+                        f"  索引文件: {self.index_file}\n"
+                        f"  索引类型: {type(self.index)}\n"
+                        f"  索引文档数: {self.index.ntotal}\n"
+                        f"  解决方案:\n"
+                        f"    1. 删除索引文件: {self.index_file}\n"
+                        f"    2. 删除元数据文件: {self.meta_file}\n"
+                        f"    3. 重新运行以创建新索引"
+                    )
+                    logger.error(error_msg)
+                    # 不抛出异常，而是返回 False 让系统创建新索引
+                    return False
 
                 # 加载元数据
                 with open(self.meta_file, "rb") as f:
@@ -652,6 +677,29 @@ class LocalVectorEngine(VectorEngine):
 
             if vectors:
                 vectors_array = np.array(vectors, dtype=np.float32)
+                
+                # 检查向量维度是否匹配
+                if vectors_array.shape[1] != self.dimension:
+                    error_msg = (
+                        f"向量维度不匹配！\n"
+                        f"  期望维度: {self.dimension}\n"
+                        f"  实际维度: {vectors_array.shape[1]}\n"
+                        f"  向量数量: {vectors_array.shape[0]}\n"
+                        f"  索引维度: {self.index.d if hasattr(self.index, 'd') else '未知'}\n"
+                        f"  索引类型: {type(self.index)}\n"
+                        f"  索引文档数: {self.index.ntotal if hasattr(self.index, 'ntotal') else '未知'}\n"
+                        f"  配置信息:\n"
+                        f"    - 向量存储维度: {self.dimension}\n"
+                        f"    - 索引名称: {self.index_name}\n"
+                        f"    - 持久化目录: {self.persist_dir}\n"
+                        f"  可能的解决方案:\n"
+                        f"    1. 删除现有索引文件重新创建\n"
+                        f"    2. 检查 embedding 配置中的 dimension 设置\n"
+                        f"    3. 确保 embedding provider 和 vector engine 使用相同的维度"
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
                 self.index.add(vectors_array)
             self._save_index()
 
