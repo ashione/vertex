@@ -732,7 +732,7 @@ class LocalVectorEngine(VectorEngine):
         if isinstance(query, str):
             # 如果是字符串，需要先转换为向量
             raise ValueError("查询必须是向量，请先使用EmbeddingVertex处理")
-
+        logger.debug(f"query: {query}")
         query_vector = np.array([query], dtype=np.float32)
         scores, indices = self.index.search(query_vector, top_k)
 

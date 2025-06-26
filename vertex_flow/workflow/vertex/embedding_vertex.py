@@ -106,18 +106,26 @@ class EmbeddingVertex(Vertex[T]):
             # 处理单个文本
             try:
                 safe_text = self._safe_encode_content(text)
-                embeddings = self.embedding_provider.embedding(safe_text)
+                embedding = self.embedding_provider.embedding(safe_text)
                 
                 # 检查单个文本的嵌入维度
-                if embeddings:
-                    logging.info(f"单个文本嵌入维度: {len(embeddings)}")
+                if embedding:
+                    logging.info(f"单个文本嵌入维度: {len(embedding)}")
                     if hasattr(self.embedding_provider, 'dimension'):
                         expected_dim = self.embedding_provider.dimension
-                        actual_dim = len(embeddings)
+                        actual_dim = len(embedding)
                         if expected_dim != actual_dim:
                             logging.warning(f"嵌入维度不匹配: 期望 {expected_dim}, 实际 {actual_dim}")
                 
-                self.output = {"embeddings": embeddings}
+                # 使用与批量处理相同的格式
+                self.output = {
+                    "embeddings": [{
+                        "id": "text_0",
+                        "content": safe_text,
+                        "embedding": embedding,
+                        "metadata": {}
+                    }]
+                }
                 logging.debug("单个文本嵌入生成完成")
             except Exception as ex:
                 logging.error(f"嵌入生成异常: {ex}")

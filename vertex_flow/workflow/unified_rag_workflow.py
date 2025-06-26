@@ -31,6 +31,7 @@ from .vertex import (
 )
 from .vertex.embedding_providers import TextEmbeddingProvider
 from .vertex.vector_engines import Doc, VectorEngine
+from .vertex.vertex_group import VertexGroup
 from .workflow import Workflow, WorkflowContext
 
 logging = LoggerUtil.get_logger()
@@ -65,6 +66,7 @@ class ResultFormatterVertex(FunctionVertex):
             格式化后的结果
         """
         results = inputs.get("results", [])
+        logging.info(f"results: {results}")
 
         if not results:
             return {"formatted_results": "未找到相关文档。"}
@@ -468,6 +470,7 @@ class UnifiedRAGWorkflowBuilder:
         self.embedding_provider = None
         self.vector_engine = None
         self.llm_model = None
+        self.web_search_service = None
         self._initialize_components()
 
     def _format_search_results(self, results):
@@ -505,23 +508,11 @@ class UnifiedRAGWorkflowBuilder:
         }
 
     def _initialize_components(self):
-        """
-        初始化RAG组件（嵌入提供者、向量引擎、LLM模型）
-        复用 VertexService 的智能组件选择逻辑
-        """
-        # 确保配置是字典类型
-        if not isinstance(self.config, dict):
-            self.config = self._get_default_config()
+        """初始化各个组件"""
+        # 初始化服务
+        self.service = VertexFlowService()
 
-        # 初始化嵌入提供者 - 使用 VertexService 的智能选择
-        try:
-            self.embedding_provider = self.service.get_embedding()
-            logging.info(f"使用嵌入提供者: {self.embedding_provider.__class__.__name__}")
-        except Exception as e:
-            logging.error(f"无法初始化嵌入提供者: {e}")
-            raise ValueError("无法初始化嵌入提供者，请检查配置")
-
-        # 初始化向量引擎 - 使用 VertexService 的智能选择
+        # 初始化向量引擎
         try:
             self.vector_engine = self.service.get_smart_vector_engine()
             logging.info(f"使用向量引擎: {self.vector_engine.__class__.__name__}")
@@ -529,17 +520,30 @@ class UnifiedRAGWorkflowBuilder:
             logging.error(f"无法初始化向量引擎: {e}")
             raise ValueError("无法初始化向量引擎，请检查配置")
 
-        # 初始化LLM模型 - 使用 VertexService 的智能选择
+        # 初始化嵌入提供者
+        try:
+            self.embedding_provider = self.service.get_embedding()
+            logging.info(f"使用嵌入提供者: {self.embedding_provider.__class__.__name__}")
+        except Exception as e:
+            logging.error(f"无法初始化嵌入提供者: {e}")
+            raise ValueError("无法初始化嵌入提供者，请检查配置")
+
+        # 初始化LLM模型
         try:
             self.llm_model = self.service.get_chatmodel()
-            llm_config = self.config.get("llm", {})
-            logging.info(f"llm config : {llm_config}")
-            logging.info(
-                f"使用LLM模型: {self.llm_model.model_name() if hasattr(self.llm_model, 'model_name') else 'default'}"
-            )
+            logging.info(f"使用LLM模型: {self.llm_model.__class__.__name__}")
         except Exception as e:
-            logging.error(f"无法创建LLM模型: {e}")
+            logging.error(f"无法初始化LLM模型: {e}")
             raise ValueError("无法初始化LLM模型，请检查配置")
+
+        # 初始化网络搜索服务
+        try:
+            self.web_search_service = self.service.get_web_search_tool()
+            logging.info(f"使用网络搜索服务: {self.web_search_service.name}")
+        except Exception as e:
+            logging.warning(f"无法初始化网络搜索服务: {e}")
+            logging.info("查询改写功能将仅使用LLM，不包含网络搜索")
+            self.web_search_service = None
 
     def build_smart_indexing_workflow(self) -> Workflow:
         """构建智能索引工作流，在构建索引前先检查重复"""
@@ -835,71 +839,6 @@ class UnifiedRAGWorkflowBuilder:
         cleaned_content = self._clean_pdf_text(content).lower()
         return hashlib.md5(cleaned_content.encode("utf-8")).hexdigest()
 
-    def build_indexing_workflow(self) -> Workflow:
-        """构建索引工作流"""
-        document_config = self.config.get("document", {})
-
-        # 创建工作流上下文
-        context = WorkflowContext()
-
-        # 创建顶点
-        source_vertex = SourceVertex(id="SOURCE", name="文档输入", task=lambda inputs, context: inputs)
-
-        doc_processor = DocumentProcessorVertex(
-            id="DOC_PROCESSOR",
-            name="文档处理",
-            params=document_config if isinstance(document_config, dict) else {},
-            variables=[
-                {
-                    "source_scope": "SOURCE",
-                    "source_var": "docs",
-                    "local_var": "docs",
-                }
-            ],
-            vector_engine=self.vector_engine,
-        )
-
-        embedding_vertex = EmbeddingVertex(
-            id="EMBEDDING",
-            name="文档向量化",
-            embedding_provider=self.embedding_provider,
-            variables=[
-                {
-                    "source_scope": "DOC_PROCESSOR",
-                    "source_var": "docs",
-                    "local_var": "docs",
-                }
-            ],
-        )
-
-        vector_store = VectorStoreVertex(
-            id="VECTOR_STORE",
-            name="向量存储",
-            vector_engine=self.vector_engine,
-            variables=[
-                {
-                    "source_scope": "EMBEDDING",
-                    "source_var": "embeddings",
-                    "local_var": "docs",
-                }
-            ],
-        )
-
-        sink_vertex = SinkVertex(id="SINK", name="完成", task=lambda inputs, context: logging.info("索引构建完成"))
-
-        # 创建工作流
-        workflow = Workflow(context=context)
-        workflow.add_vertex(source_vertex)
-        workflow.add_vertex(doc_processor)
-        workflow.add_vertex(embedding_vertex)
-        workflow.add_vertex(vector_store)
-        workflow.add_vertex(sink_vertex)
-
-        # 构建工作流图
-        source_vertex | doc_processor | embedding_vertex | vector_store | sink_vertex
-
-        return workflow
-
     def build_query_workflow(self) -> Workflow:
         """构建查询工作流"""
         retrieval_config = self.config.get("retrieval", {})
@@ -911,26 +850,93 @@ class UnifiedRAGWorkflowBuilder:
         # 创建顶点
         source_vertex = SourceVertex(id="QUERY_SOURCE", name="查询输入", task=lambda inputs, context: inputs)
 
+        # 创建查询改写的LLM顶点
+        query_rewrite_llm = LLMVertex(
+            id="QUERY_REWRITE_LLM",
+            name="查询改写LLM",
+            model=self.llm_model,
+            params={
+                SYSTEM: "你是一个查询改写和问题扩展专家。你可以使用网络搜索工具来帮助理解用户的问题，发现相关的热点讨论和扩展问题。\n\n你的任务是：\n1. 分析用户的原始问题\n2. 使用网络搜索了解这个问题的最新讨论和相关方面\n3. 基于搜索结果，生成多个不同角度的查询\n4. 提出一些值得探讨的扩展问题\n\n你必须以JSON格式返回结果。",
+                USER: [
+                    "请分析以下问题，并使用网络搜索来帮助扩展和改写查询。\n\n原始查询：{{original_query}}\n\n请以下面的JSON格式返回结果：\n{\n  \"original_query\": \"原始查询文本\",\n  \"intent_queries\": [\n    \"意图查询1（理解用户真正想问什么）\",\n    \"意图查询2（从不同角度理解）\",\n    \"意图查询3（考虑潜在需求）\"\n  ],\n  \"search_queries\": [\n    \"搜索查询1（关键信息检索）\",\n    \"搜索查询2（扩展信息检索）\"\n  ],\n  \"extended_questions\": [\n    \"扩展问题1（基于网络搜索发现的相关话题）\",\n    \"扩展问题2（值得深入探讨的方面）\",\n    \"扩展问题3（最新的相关讨论）\"\n  ]\n}\n\n确保返回的是合法的JSON格式。"
+                ],
+            },
+            variables=[
+                {
+                    "source_scope": "QUERY_SOURCE",
+                    "source_var": "query",
+                    "local_var": "original_query",
+                }
+            ],
+            tools=[self.web_search_service] if self.web_search_service else [],  # 添加web search工具
+        )
+
+        # 创建查询结果加工顶点
+        query_processor = FunctionVertex(
+            id="QUERY_PROCESSOR",
+            name="查询结果加工",
+            task=self._process_query_results,
+            params={},
+            variables=[
+                {
+                    "source_scope": "QUERY_REWRITE_LLM",
+                    "source_var": None,
+                    "local_var": "llm_output",
+                }
+            ],
+        )
+
+        # 创建查询改写的VertexGroup
+        query_rewrite_group = VertexGroup(
+            id="QUERY_REWRITE_GROUP",
+            name="查询改写组",
+            subgraph_vertices=[query_rewrite_llm, query_processor],
+            subgraph_edges=[],
+            variables=[
+                {
+                    "source_scope": None,
+                    "source_var": "query",
+                    "local_var": "original_query",
+                },
+                {
+                    "source_scope": "QUERY_PROCESSOR",
+                    "source_var": "processed_queries",
+                    "local_var": "processed_queries",
+                }
+            ],
+        )
+
+        # 添加子图边：查询改写LLM -> 查询结果加工
+        from .edge import Edge, EdgeType
+        rewrite_to_processor_edge = Edge(
+            source_vertex=query_rewrite_llm,
+            target_vertex=query_processor,
+            edge_type=Edge.ALWAYS,
+        )
+        query_rewrite_group.add_subgraph_edge(rewrite_to_processor_edge)
+
+        # 创建查询向量化顶点（处理三种query）
         query_embedding = EmbeddingVertex(
             id="QUERY_EMBEDDING",
             name="查询向量化",
             embedding_provider=self.embedding_provider,
             variables=[
                 {
-                    "source_scope": "QUERY_SOURCE",
-                    "source_var": "query",
-                    "local_var": "text",
+                    "source_scope": "QUERY_REWRITE_GROUP",
+                    "source_var": "processed_queries",
+                    "local_var": "docs",
                 }
             ],
         )
 
+        # 创建向量查询顶点
         vector_query = VectorQueryVertex(
             id="VECTOR_QUERY",
-            name="向量检索",
+            name="向量查询",
             vector_engine=self.vector_engine,
             params={
                 "top_k": retrieval_config.get("top_k", 3),
-                "similarity_threshold": retrieval_config.get("similarity_threshold", 0.3),
+                "similarity_threshold": retrieval_config.get("similarity_threshold", 0.3)
             },
             variables=[
                 {
@@ -954,16 +960,18 @@ class UnifiedRAGWorkflowBuilder:
             ],
         )
 
+        # 创建最终LLM生成顶点
         llm_vertex = LLMVertex(
-            id="LLM",
+            id="LLM_GENERATE",
             name="生成回答",
             model=self.llm_model,
             params={
-                SYSTEM: prompts.get("system", "你是一个有用的AI助手。"),
+                SYSTEM: prompts.get("system", "你是一个有用的AI助手。你可以使用网络搜索工具来获取最新信息。当你需要查找实时或最新的信息时，请使用网络搜索工具。"),
                 USER: [
-                    "基于以下上下文信息回答问题：\n\n上下文：{{formatted_results}}\n\n问题：{{user_question}}\n\n请提供准确、有用的回答。"
+                    "基于以下上下文信息回答问题：\n\n上下文：{{formatted_results}}\n\n问题：{{user_question}}\n\n扩展问题：{{extended_questions}}\n\n请提供准确、有用的回答。如果需要查找最新信息，可以使用网络搜索工具。"
                 ],
             },
+            tools=[self.web_search_service] if self.web_search_service else [],
             variables=[
                 {
                     "source_scope": "RESULT_FORMATTER",
@@ -975,18 +983,31 @@ class UnifiedRAGWorkflowBuilder:
                     "source_var": "query",
                     "local_var": "user_question",
                 },
+                {
+                    "source_scope": "QUERY_REWRITE_GROUP",
+                    "source_var": "processed_queries",
+                    "local_var": "extended_questions",
+                },
             ],
         )
 
         sink_vertex = SinkVertex(
             id="ANSWER_SINK",
             name="输出答案",
-            task=lambda inputs, context: logging.info(f"生成答案: {inputs.get('LLM', '')}"),
+            task=lambda inputs, context: logging.info(f"生成答案: {inputs.get('answer', '')}"),
+            variables=[
+                {
+                    "source_scope": "LLM_GENERATE",
+                    "source_var": None,
+                    "local_var": "answer",
+                }
+            ],
         )
 
         # 创建工作流
         workflow = Workflow(context=context)
         workflow.add_vertex(source_vertex)
+        workflow.add_vertex(query_rewrite_group)
         workflow.add_vertex(query_embedding)
         workflow.add_vertex(vector_query)
         workflow.add_vertex(result_formatter)
@@ -994,9 +1015,130 @@ class UnifiedRAGWorkflowBuilder:
         workflow.add_vertex(sink_vertex)
 
         # 构建工作流图
-        source_vertex | query_embedding | vector_query | result_formatter | llm_vertex | sink_vertex
+        source_vertex | query_rewrite_group | query_embedding | vector_query | result_formatter | llm_vertex | sink_vertex
 
         return workflow
+
+    def _process_query_results(self, inputs: Dict[str, Any], context=None):
+        """
+        处理LLM查询改写的结果，提取三种类型的查询
+        
+        Args:
+            inputs: 包含LLM输出的输入
+            
+        Returns:
+            包含原始查询、意图查询、搜索查询和扩展问题的结果
+        """
+        llm_output = inputs.get("llm_output", "")
+        original_input_query = inputs.get("original_query", "")
+        
+        # 如果没有LLM输出，使用原始查询
+        if not llm_output:
+            return {
+                "original_query": original_input_query or "未识别查询",
+                "intent_queries": [],
+                "search_queries": [],
+                "extended_questions": [],  # 添加空的扩展问题列表
+                "processed_queries": [original_input_query] if original_input_query else ["未识别查询"]
+            }
+        
+        try:
+            # 清理markdown代码块标记
+            import re
+            json_str = llm_output
+            # 移除```json和```标记
+            json_match = re.search(r'```(?:json)?\s*(.*?)```', json_str, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+            
+            # 尝试解析JSON输出
+            import json
+            result = json.loads(json_str)
+            
+            # 提取查询，使用原始输入作为后备
+            original_query = result.get("original_query", "") or original_input_query or "未识别查询"
+            intent_queries = [q for q in result.get("intent_queries", []) if q and isinstance(q, str)]
+            search_queries = [q for q in result.get("search_queries", []) if q and isinstance(q, str)]
+            extended_questions = [q for q in result.get("extended_questions", []) if q and isinstance(q, str)]  # 提取扩展问题
+            
+            # 合并所有查询用于向量化，确保至少包含原始查询
+            all_queries = [q for q in ([original_query] + intent_queries + search_queries) if q and isinstance(q, str)]
+            if not all_queries:
+                all_queries = [original_input_query] if original_input_query else ["未识别查询"]
+            
+            return {
+                "original_query": original_query,
+                "intent_queries": intent_queries,
+                "search_queries": search_queries,
+                "extended_questions": extended_questions,  # 添加扩展问题到输出
+                "processed_queries": all_queries
+            }
+            
+        except (json.JSONDecodeError, AttributeError) as e:
+            logging.error(f"解析LLM输出的JSON失败: {e}")
+            logging.error(f"原始输出: {llm_output}")
+            # 如果JSON解析失败，使用原始查询
+            fallback_query = original_input_query or "未识别查询"
+            return {
+                "original_query": fallback_query,
+                "intent_queries": [],
+                "search_queries": [],
+                "extended_questions": [],  # 添加空的扩展问题列表
+                "processed_queries": [fallback_query]
+            }
+
+    def _merge_query_results(self, inputs: Dict[str, Any], context=None):
+        """
+        对每个查询向量进行检索并合并结果
+        
+        Args:
+            inputs: 包含多个embedding的输入
+            
+        Returns:
+            合并后的检索结果
+        """
+        embeddings = inputs.get("embeddings", [])
+        if not embeddings:
+            raise ValueError("No embeddings provided for search")
+            
+        # 获取检索参数
+        top_k = self.config.get("retrieval", {}).get("top_k", 3)
+        similarity_threshold = self.config.get("retrieval", {}).get("similarity_threshold", 0.3)
+        
+        all_results = []
+        seen_docs = set()  # 用于去重
+        
+        # 对每个embedding进行检索
+        for embedding in embeddings:
+            try:
+                results = self.vector_engine.search(
+                    embedding, 
+                    top_k=top_k
+                )
+                
+                # 过滤低于阈值的结果并去重
+                for result in results:
+                    doc_id = result.get("id")
+                    score = result.get("score", 0)
+                    if score >= similarity_threshold and doc_id not in seen_docs:
+                        seen_docs.add(doc_id)
+                        all_results.append(result)
+                        
+            except Exception as e:
+                logging.error(f"单个查询检索失败: {e}")
+                continue
+        
+        # 按相似度分数排序
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        # 只返回top_k个结果
+        final_results = all_results[:top_k]
+        
+        if not final_results:
+            logging.warning("所有查询都未返回结果")
+            return {"results": []}
+            
+        return {"results": final_results}
 
 
 class UnifiedRAGSystem:
@@ -1215,7 +1357,7 @@ class UnifiedRAGSystem:
             )
 
             # 获取LLM的输出
-            llm_vertex = self._query_workflow_instance.get_vertice_by_id("LLM")
+            llm_vertex = self._query_workflow_instance.get_vertice_by_id("LLM_GENERATE")
             if llm_vertex and hasattr(llm_vertex, "output"):
                 return llm_vertex.output if llm_vertex.output else "无法生成答案"
             else:
@@ -1242,7 +1384,7 @@ class UnifiedRAGSystem:
                     }
                 )
 
-                llm_vertex = workflow_instance.get_vertice_by_id("LLM")
+                llm_vertex = workflow_instance.get_vertice_by_id("LLM_GENERATE")
                 if llm_vertex and hasattr(llm_vertex, "output"):
                     return llm_vertex.output if llm_vertex.output else "无法生成答案"
                 else:

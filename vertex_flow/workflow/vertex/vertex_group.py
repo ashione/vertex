@@ -76,16 +76,14 @@ class VertexGroup(Vertex[T]):
             variables=variables,
         )
 
-        self.subgraph_vertices = {v.id: v for v in (subgraph_vertices or [])}
+        # 用add_subgraph_vertex方法注册所有子图顶点，保证依赖查找优先在子图内
+        self.subgraph_vertices = {}
+        for v in (subgraph_vertices or []):
+            self.add_subgraph_vertex(v)
         self.subgraph_edges = set(subgraph_edges or [])
         self.subgraph_context = SubgraphContext()
 
-        # 为子图中的顶点设置引用
-        for vertex in self.subgraph_vertices.values():
-            vertex._vertex_group_ref = self
-            # 如果VertexGroup已经有workflow引用，则传递给子图vertex
-            if hasattr(self, "workflow") and self.workflow:
-                vertex.workflow = self.workflow
+        # 为子图中的顶点设置引用（已在add_subgraph_vertex中处理，无需重复）
 
         self._validate_subgraph()
 
@@ -216,9 +214,9 @@ class VertexGroup(Vertex[T]):
         resolved_values = {}
 
         for variable in vertex.variables:
-            source_scope = variable["source_scope"]
-            source_var = variable["source_var"]
-            local_var = variable["local_var"]
+            source_scope = variable[SOURCE_SCOPE]
+            source_var = variable[SOURCE_VAR]
+            local_var = variable[LOCAL_VAR]
 
             if source_scope == "source":
                 # 从输入中获取变量
@@ -239,28 +237,27 @@ class VertexGroup(Vertex[T]):
     def resolve_dependencies(
         self, vertex: Vertex[T], inputs: Dict[str, Any] = None, context: WorkflowContext[T] = None
     ) -> Dict[str, Any]:
-        """解析依赖关系，支持同时访问全局context和subgraph数据，subgraph数据优先级更高"""
-
-        logging.info(f"Resolving dependencies for vertex {vertex.id}, {inputs}, {vertex.variables}")
-        # 如果顶点没有变量定义，直接返回原始输入
-        if not vertex.variables:
-            return inputs or {}
-
+        """解析顶点的依赖关系，包括外部输入和子图内部变量"""
         resolved_values = {}
 
-        for variable in vertex.variables:
+        # 获取顶点的变量定义
+        vertex_variables = getattr(vertex, "variables", []) or []
+
+        for variable in vertex_variables:
             source_scope = variable[SOURCE_SCOPE]
             source_var = variable[SOURCE_VAR]
             local_var = variable[LOCAL_VAR]
 
             source_value = None
 
-            if source_scope == "source":
-                # 从输入中获取变量
+            # 首先检查是否是外部输入（通过VertexGroup传递）
+            if source_scope in ["source", None]:
                 if inputs and source_var in inputs:
                     source_value = inputs[source_var]
+                logging.info(f"Source value for {local_var} is {source_value}, {inputs}")
+
+            # 如果外部输入中没有找到，尝试从子图内部获取
             if source_value is None:
-                # 优先从子图内其他顶点的输出中获取变量（subgraph数据优先级最高）
                 source_vertex = self.get_subgraph_vertex(source_scope)
                 if source_vertex and hasattr(source_vertex, "output") and source_vertex.output:
                     if isinstance(source_vertex.output, dict) and source_var in source_vertex.output:
@@ -269,7 +266,7 @@ class VertexGroup(Vertex[T]):
                         source_value = source_vertex.output
                 elif source_vertex is None:
                     # 如果在子图中找不到source_vertex，记录错误但继续尝试从全局获取
-                    logging.warning(f"Source vertex '{source_scope}' not found in subgraph {self.id}")
+                    logging.warning(f"Source vertex '{source_var}' in '{source_scope}' to {local_var} not found in subgraph {self.id}")
 
                 # 如果子图中没有找到，再从全局workflow中获取
                 if source_value is None and hasattr(self, "workflow") and self.workflow:
@@ -313,6 +310,29 @@ class VertexGroup(Vertex[T]):
             # 设置当前context供子图vertex使用
             self._current_context = context
 
+            # 处理外部输入，将VertexGroup的variables中定义的外部输入传递给子图
+            external_inputs = {}
+            for var_def in self.variables:
+                source_scope = var_def.get(SOURCE_SCOPE)
+                source_var = var_def.get(SOURCE_VAR)
+                local_var = var_def.get(LOCAL_VAR)
+                # 如果source_scope不在子图中，说明是外部输入
+                if source_scope not in self.subgraph_vertices:
+                    value = None
+                    if context:
+                        # 从context中获取外部顶点的输出
+                        external_output = context.get_output(source_scope)
+                        if external_output and isinstance(external_output, dict) and source_var in external_output:
+                            value = external_output[source_var]
+                        elif external_output and source_var is None:
+                            value = external_output
+                    # 支持变量名映射：将外部变量赋值到local_var
+                    if value is not None:
+                        external_inputs[local_var] = value
+
+            # 合并外部输入和原始输入
+            all_inputs = {**(inputs or {}), **external_inputs}
+
             # 获取拓扑排序
             execution_order = self.topological_sort_subgraph()
             logging.info(f"Subgraph execution order: {[v.id for v in execution_order]}")
@@ -323,7 +343,7 @@ class VertexGroup(Vertex[T]):
 
                 try:
                     # 解析顶点的依赖关系
-                    vertex_inputs = self.resolve_dependencies(vertex, inputs or {}, context)
+                    vertex_inputs = self.resolve_dependencies(vertex, all_inputs, context)
 
                     # 执行顶点
                     vertex.execute(inputs=vertex_inputs, context=context)
