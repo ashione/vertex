@@ -2,6 +2,8 @@
 
 本项目包含一个 `precommit.sh` 脚本，用于在代码提交前自动执行代码质量检查和配置文件脱敏。
 
+**重要说明**: 本项目使用统一的 `scripts/precommit.sh` 脚本进行代码质量检查，确保本地开发和GitHub Actions CI/CD环境的一致性。
+
 ## 功能特性
 
 - 🎨 **代码格式化**: 使用 `black` 自动格式化 Python 代码

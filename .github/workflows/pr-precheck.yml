@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.9, 3.12]
+        python-version: [3.9, 3.11, 3.12]
     
     steps:
     - name: Checkout code
@@ -25,8 +25,30 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8>=7.2.0 black>=25.1.0 isort>=6.0.1 autopep8>=2.3.2
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # 安装uv（如果可用）
+        if ! command -v uv &> /dev/null; then
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+        fi
+        
+        # 使用uv安装项目依赖（推荐）
+        if command -v uv &> /dev/null; then
+          uv pip install -e .
+          uv pip install -e ".[dev]"
+        else
+          # 回退到pip安装
+          pip install -r requirements.txt
+          pip install -e .
+        fi
+    
+    - name: Check Python code formatting
+      run: |
+        bash scripts/precommit.sh
+        # 检查是否有格式化后的diff
+        if ! git diff --exit-code -- '*.py'; then
+          echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
+          exit 1
+        fi
     
     - name: 配置文件脱敏检查
       run: |
@@ -121,15 +143,6 @@ jobs:
           exit 1
         else
           echo "✅ 未发现敏感信息泄露。"
-        fi
-    
-    - name: Check Python code formatting
-      run: |
-        bash scripts/precommit.sh
-        # 检查是否有格式化后的diff
-        if ! git diff --exit-code -- '*.py'; then
-          echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
-          exit 1
         fi
     
     - name: Run Unit Tests

@@ -61,11 +61,29 @@ check_package() {
     fi
 }
 
-# 安装必需的包
+# 检查项目依赖是否已安装
+check_project_dependencies() {
+    print_status "Checking project dependencies..."
+    
+    # 检查项目是否已安装
+    if ! python3 -c "import vertex_flow" &> /dev/null; then
+        print_warning "Project not installed. Installing in development mode..."
+        if command -v uv &> /dev/null; then
+            uv pip install -e .
+        else
+            pip3 install -e .
+        fi
+    fi
+}
+
+# 安装必需的包（与pyproject.toml保持一致）
 check_package "flake8"
 check_package "black"
 check_package "isort"
 check_package "autopep8"
+
+# 检查项目依赖
+check_project_dependencies
 
 # 获取要检查的 Python 文件列表（暂存的文件，排除 pipeline 目录）
 PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep -v '^\.github/' || true)
