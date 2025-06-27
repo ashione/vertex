@@ -12,10 +12,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SYSTEM, USER
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
 from vertex_flow.workflow.vertex.vertex import SinkVertex, SourceVertex, Vertex
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
 
 
 @pytest.fixture

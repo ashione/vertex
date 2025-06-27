@@ -160,7 +160,8 @@ finance_tool = service.get_finance_tool()       # Financial data retrieval
 ### Basic Workflow
 ```python
 from vertex_flow.workflow.vertex.vertex import SourceVertex
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.context import WorkflowContext
 
 def source_func(inputs, context):
     return {"text": "Hello, Vertex Flow!"}

@@ -44,7 +44,8 @@ from vertex_flow.workflow.constants import (
     SYSTEM,
     USER,
 )
-from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
+from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow
 
 logger = LoggerUtil.get_logger()
 

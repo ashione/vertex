@@ -84,7 +84,8 @@ class WhileCondition:
 
 ```python
 from vertex_flow.workflow.vertex import WhileVertex
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.context import WorkflowContext
 
 # 创建工作流
 workflow = Workflow("counter_workflow")

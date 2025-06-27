@@ -28,7 +28,8 @@ from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.functions import FunctionTool
 from vertex_flow.workflow.utils import default_config_path
-from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
 # MCP相关导入

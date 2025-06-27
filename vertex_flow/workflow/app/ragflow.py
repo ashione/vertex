@@ -6,7 +6,7 @@ import requests
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.vertex import FunctionVertex
-from vertex_flow.workflow.workflow import WorkflowContext
+from vertex_flow.workflow.context import WorkflowContext
 
 logging = LoggerUtil.get_logger()
 

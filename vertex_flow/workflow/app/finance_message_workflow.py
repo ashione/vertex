@@ -12,7 +12,8 @@ from vertex_flow.workflow.constants import (
     USER,
 )
 from vertex_flow.workflow.tools.finance import create_finance_tool
-from vertex_flow.workflow.workflow import LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import LLMVertex, SinkVertex, SourceVertex, Workflow
+from vertex_flow.workflow.context import WorkflowContext
 
 logger = LoggerUtil.get_logger()
 

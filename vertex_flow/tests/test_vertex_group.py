@@ -2,9 +2,9 @@ from unittest.mock import Mock
 
 import pytest
 
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, SubgraphContext, VertexGroup
-from vertex_flow.workflow.workflow import WorkflowContext
 
 
 class TestSubgraphContext:

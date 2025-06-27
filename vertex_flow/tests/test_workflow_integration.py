@@ -2,9 +2,10 @@ import pytest
 
 from vertex_flow.utils.logger import logging
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, SinkVertex, SourceVertex, VertexGroup
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
 
 logger = logging.getLogger()
 

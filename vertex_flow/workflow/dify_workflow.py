@@ -6,7 +6,8 @@ from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.vertex import CodeVertex, IfCase, IfElseVertex, LLMVertex, SinkVertex, SourceVertex
 from vertex_flow.workflow.workflow import Any, Dict
 from vertex_flow.workflow.workflow import Edge as WorkflowEdge
-from vertex_flow.workflow.workflow import List, Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import List, Workflow
+from vertex_flow.workflow.context import WorkflowContext
 
 logger = LoggerUtil.get_logger()
 

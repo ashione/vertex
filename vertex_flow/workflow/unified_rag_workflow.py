@@ -5,21 +5,14 @@
 基于vertex flow接口和统一配置实现的本地检索增强生成系统
 """
 
-import json
 import os
-import re
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vertex_flow.workflow.utils import default_config_path
-
 from ..utils.logger import LoggerUtil
-from .chat import ChatModel
 from .constants import SYSTEM, USER
-from .rag_config import read_yaml_config_env_placeholder
-from .service import EmbeddingType, VertexFlowService
+from .service import VertexFlowService
 from .vertex import (
     EmbeddingVertex,
     FunctionVertex,
@@ -83,6 +76,206 @@ class ResultFormatterVertex(FunctionVertex):
 
         formatted_text = "\n".join(formatted_results)
         return {"formatted_results": formatted_text}
+
+
+class EnhancedResultFormatterVertex(FunctionVertex):
+    """增强的结果格式化顶点，支持Web搜索结果的URL和summary信息"""
+
+    def __init__(
+        self,
+        id: str,
+        name: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        variables: Optional[List[Dict[str, Any]]] = None,
+    ):
+        super().__init__(
+            id=id,
+            name=name or "增强结果格式化",
+            task=self.format_results_with_web_search,
+            params=params or {},
+            variables=variables or [],
+        )
+
+    def format_results_with_web_search(self, inputs: Dict[str, Any], context=None):
+        """
+        格式化向量检索结果，并整合Web搜索结果的URL和summary信息
+
+        Args:
+            inputs: 包含检索结果和可能的Web搜索结果的输入
+
+        Returns:
+            格式化后的结果，包含参考链接和总结信息
+        """
+        results = inputs.get("results", [])
+        web_search_results = inputs.get("web_search_results", [])
+        web_search_summary = inputs.get("web_search_summary", "")
+        
+        logging.info(f"Vector results: {len(results)}, Web search results: {len(web_search_results)}")
+
+        formatted_sections = []
+        
+        # 格式化向量检索结果
+        if results:
+            vector_results = []
+            for i, result in enumerate(results, 1):
+                content = result.get("content", "")
+                score = result.get("score", 0)
+                doc_id = result.get("id", f"文档{i}")
+                
+                formatted_result = f"文档{i} (ID: {doc_id}, 相似度: {score:.3f}):\n{content}\n"
+                vector_results.append(formatted_result)
+            
+            formatted_sections.append("## 本地知识库检索结果\n" + "\n".join(vector_results))
+        
+        # 格式化Web搜索结果
+        if web_search_results:
+            web_results = []
+            reference_links = []
+            
+            for i, result in enumerate(web_search_results, 1):
+                title = result.get("title", f"网络结果{i}")
+                url = result.get("url", "")
+                snippet = result.get("snippet", "")
+                source = result.get("source", "Web")
+                
+                # 格式化Web搜索结果
+                web_result = f"网络结果{i} ({source}):\n标题: {title}\n内容: {snippet}\n"
+                if url:
+                    web_result += f"链接: {url}\n"
+                    reference_links.append(f"[{i}] {title}: {url}")
+                
+                web_results.append(web_result)
+            
+            formatted_sections.append("## 网络搜索结果\n" + "\n".join(web_results))
+            
+            # 添加参考链接部分
+            if reference_links:
+                formatted_sections.append("## 参考链接\n" + "\n".join(reference_links))
+        
+        # 添加Web搜索总结
+        if web_search_summary:
+            formatted_sections.append(f"## 网络搜索总结\n{web_search_summary}")
+        
+        # 如果没有任何结果
+        if not formatted_sections:
+            return {"formatted_results": "未找到相关文档或网络信息。"}
+        
+        formatted_text = "\n\n".join(formatted_sections)
+        return {"formatted_results": formatted_text}
+
+
+class WebSearchIntegrationVertex(FunctionVertex):
+    """Web搜索集成顶点，用于在RAG流程中执行Web搜索"""
+
+    def __init__(
+        self,
+        id: str,
+        name: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        variables: Optional[List[Dict[str, Any]]] = None,
+        web_search_service=None,
+    ):
+        super().__init__(
+            id=id,
+            name=name or "Web搜索集成",
+            task=self.perform_web_search,
+            params=params or {},
+            variables=variables or [],
+        )
+        self.web_search_service = web_search_service
+        self.search_count = params.get("search_count", 3) if params else 3
+        self.enable_summary = params.get("enable_summary", True) if params else True
+
+    def perform_web_search(self, inputs: Dict[str, Any], context=None):
+        """
+        执行Web搜索并提取结果
+
+        Args:
+            inputs: 包含搜索查询的输入
+
+        Returns:
+            Web搜索结果，包含URL和summary信息
+        """
+        # 获取搜索查询
+        search_queries = inputs.get("search_queries", [])
+        original_query = inputs.get("original_query", "")
+        
+        # 如果没有专门的搜索查询，使用原始查询
+        if not search_queries and original_query:
+            search_queries = [original_query]
+        
+        if not search_queries:
+            logging.warning("没有提供搜索查询，跳过Web搜索")
+            return {
+                "web_search_results": [],
+                "web_search_summary": "",
+                "search_performed": False
+            }
+        
+        # 如果没有Web搜索服务，跳过搜索
+        if not self.web_search_service:
+            logging.info("Web搜索服务未配置，跳过网络搜索")
+            return {
+                "web_search_results": [],
+                "web_search_summary": "",
+                "search_performed": False
+            }
+        
+        all_results = []
+        all_summaries = []
+        
+        # 对每个搜索查询执行搜索
+        for query in search_queries[:2]:  # 限制最多2个查询以避免过多请求
+            try:
+                logging.info(f"执行Web搜索: {query}")
+                
+                # 调用Web搜索工具
+                search_inputs = {
+                    "query": query,
+                    "count": self.search_count,
+                    "summary": self.enable_summary
+                }
+                
+                search_result = self.web_search_service.func(search_inputs)
+                
+                if search_result.get("success", False):
+                    results = search_result.get("results", [])
+                    summary = search_result.get("summary", "")
+                    
+                    all_results.extend(results)
+                    if summary:
+                        all_summaries.append(f"查询'{query}': {summary}")
+                    
+                    logging.info(f"Web搜索成功，查询: {query}, 结果数: {len(results)}")
+                else:
+                    error = search_result.get("error", "未知错误")
+                    logging.warning(f"Web搜索失败，查询: {query}, 错误: {error}")
+                    
+            except Exception as e:
+                logging.error(f"Web搜索异常，查询: {query}, 错误: {str(e)}")
+                continue
+        
+        # 去重结果（基于URL）
+        seen_urls = set()
+        unique_results = []
+        for result in all_results:
+            url = result.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(result)
+            elif not url:  # 没有URL的结果也保留
+                unique_results.append(result)
+        
+        # 合并总结
+        combined_summary = "\n".join(all_summaries) if all_summaries else ""
+        
+        logging.info(f"Web搜索完成，总结果数: {len(unique_results)}, 有总结: {bool(combined_summary)}")
+        
+        return {
+            "web_search_results": unique_results,
+            "web_search_summary": combined_summary,
+            "search_performed": len(unique_results) > 0
+        }
 
 
 class DocumentProcessorVertex(FunctionVertex):
@@ -947,7 +1140,31 @@ class UnifiedRAGWorkflowBuilder:
             ],
         )
 
-        result_formatter = ResultFormatterVertex(
+        # 创建Web搜索集成顶点
+        web_search_vertex = WebSearchIntegrationVertex(
+            id="WEB_SEARCH",
+            name="Web搜索集成",
+            params={
+                "search_count": retrieval_config.get("web_search_count", 3),
+                "enable_summary": retrieval_config.get("enable_web_summary", True)
+            },
+            web_search_service=self.web_search_service,
+            variables=[
+                {
+                    "source_scope": "QUERY_REWRITE_GROUP",
+                    "source_var": "processed_queries",
+                    "local_var": "search_queries",
+                },
+                {
+                    "source_scope": "QUERY_SOURCE",
+                    "source_var": "query",
+                    "local_var": "original_query",
+                }
+            ],
+        )
+
+        # 使用增强的结果格式化器，能够处理Web搜索结果
+        result_formatter = EnhancedResultFormatterVertex(
             id="RESULT_FORMATTER",
             name="结果格式化",
             params={},
@@ -956,6 +1173,21 @@ class UnifiedRAGWorkflowBuilder:
                     "source_scope": "VECTOR_QUERY",
                     "source_var": "results",
                     "local_var": "results",
+                },
+                {
+                    "source_scope": "WEB_SEARCH",
+                    "source_var": "web_search_results",
+                    "local_var": "web_search_results",
+                },
+                {
+                    "source_scope": "WEB_SEARCH",
+                    "source_var": "web_search_summary",
+                    "local_var": "web_search_summary",
+                },
+                {
+                    "source_scope": "WEB_SEARCH",
+                    "source_var": "search_performed",
+                    "local_var": "search_performed",
                 }
             ],
         )
@@ -1010,12 +1242,19 @@ class UnifiedRAGWorkflowBuilder:
         workflow.add_vertex(query_rewrite_group)
         workflow.add_vertex(query_embedding)
         workflow.add_vertex(vector_query)
+        workflow.add_vertex(web_search_vertex)
         workflow.add_vertex(result_formatter)
         workflow.add_vertex(llm_vertex)
         workflow.add_vertex(sink_vertex)
 
-        # 构建工作流图
-        source_vertex | query_rewrite_group | query_embedding | vector_query | result_formatter | llm_vertex | sink_vertex
+        # 构建工作流图 - 并行执行向量查询和Web搜索
+        source_vertex | query_rewrite_group
+        query_rewrite_group | query_embedding | vector_query
+        query_rewrite_group | web_search_vertex
+        # 向量查询和Web搜索的结果都汇聚到结果格式化器
+        vector_query | result_formatter
+        web_search_vertex | result_formatter
+        result_formatter | llm_vertex | sink_vertex
 
         return workflow
 

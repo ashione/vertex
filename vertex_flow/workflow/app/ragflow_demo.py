@@ -3,7 +3,8 @@ import os
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.app.ragflow import DownloadFileVertex
 from vertex_flow.workflow.vertex import FunctionVertex, SinkVertex, SourceVertex
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.workflow_manager import WorkflowSerializer
 
 logging = LoggerUtil.get_logger()

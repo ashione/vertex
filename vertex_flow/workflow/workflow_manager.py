@@ -17,7 +17,8 @@ from vertex_flow.workflow.vertex import (
     SourceVertex,
     Vertex,
 )
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
 logger = LoggerUtil.get_logger()

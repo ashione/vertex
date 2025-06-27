@@ -12,9 +12,9 @@ import sys
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, VertexGroup
-from vertex_flow.workflow.workflow import WorkflowContext
 
 
 def example_1_simple_calculation_subgraph():

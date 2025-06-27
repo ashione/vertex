@@ -12,6 +12,10 @@ from vertex_flow.workflow.tools.functions import FunctionTool
 
 logging = LoggerUtil.get_logger()
 
+# 全局配置缓存
+_web_search_config_cache = None
+_config_loaded = False
+
 
 def _is_valid_date_format(freshness: str) -> bool:
     """验证日期格式是否有效
@@ -28,6 +32,45 @@ def _is_valid_date_format(freshness: str) -> bool:
     date_range_pattern = r"^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$"
 
     return bool(re.match(single_date_pattern, freshness) or re.match(date_range_pattern, freshness))
+
+
+def _get_web_search_config():
+    """获取Web搜索配置（带缓存）
+
+    Returns:
+        Web搜索配置字典
+    """
+    global _web_search_config_cache, _config_loaded
+
+    if not _config_loaded:
+        try:
+            from vertex_flow.workflow.service import VertexFlowService
+
+            service = VertexFlowService.get_instance()
+            _web_search_config_cache = {
+                "bocha": service.get_web_search_config("bocha"),
+                "duckduckgo": service.get_web_search_config("duckduckgo"),
+                "serpapi": service.get_web_search_config("serpapi"),
+                "searchapi": service.get_web_search_config("searchapi"),
+            }
+            _config_loaded = True
+            logging.info("Web搜索配置已加载并缓存")
+        except Exception as e:
+            logging.error(f"获取Web搜索配置失败: {str(e)}")
+            _web_search_config_cache = {}
+
+    return _web_search_config_cache
+
+
+def reset_web_search_config_cache():
+    """重置Web搜索配置缓存
+
+    当配置文件更新时，可以调用此函数重新加载配置。
+    """
+    global _web_search_config_cache, _config_loaded
+    _web_search_config_cache = None
+    _config_loaded = False
+    logging.info("Web搜索配置缓存已重置")
 
 
 class BochaWebSearch:
@@ -146,13 +189,15 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
     if not isinstance(count, int) or count <= 0:
         count = 5
 
-    # 获取搜索服务配置
+    # 尝试不同的搜索服务，按优先级排序
     try:
         from vertex_flow.workflow.service import VertexFlowService
 
         service = VertexFlowService.get_instance()
 
-        # 尝试不同的搜索服务，按优先级排序
+        # 预加载配置缓存
+        _get_web_search_config()
+
         search_services = [
             ("bocha", _search_with_bocha),
             ("duckduckgo", _search_with_duckduckgo),
@@ -201,7 +246,10 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
 def _search_with_bocha(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
     """使用Bocha AI搜索"""
     try:
-        config = service.get_web_search_config("bocha")
+        # 使用缓存的配置
+        configs = _get_web_search_config()
+        config = configs.get("bocha", {})
+
         if not config.get("enabled", False):
             return {"success": False, "error": "Bocha搜索服务未启用"}
 
@@ -311,7 +359,10 @@ def _search_with_duckduckgo(service, query: str, count: int, freshness: str, sum
     logging.info(f"DuckDuckGo搜索: {query}, {count}, {freshness}, {summary}")
 
     try:
-        config = service.get_web_search_config("duckduckgo")
+        # 使用缓存的配置
+        configs = _get_web_search_config()
+        config = configs.get("duckduckgo", {})
+
         if not config.get("enabled", False):
             return {"success": False, "error": "DuckDuckGo搜索服务未启用"}
 
@@ -389,7 +440,10 @@ def _search_with_duckduckgo(service, query: str, count: int, freshness: str, sum
 def _search_with_serpapi(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
     """使用SerpAPI搜索"""
     try:
-        config = service.get_web_search_config("serpapi")
+        # 使用缓存的配置
+        configs = _get_web_search_config()
+        config = configs.get("serpapi", {})
+
         if not config.get("enabled", False):
             return {"success": False, "error": "SerpAPI搜索服务未启用"}
 
@@ -440,7 +494,10 @@ def _search_with_serpapi(service, query: str, count: int, freshness: str, summar
 def _search_with_searchapi(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
     """使用SearchAPI搜索"""
     try:
-        config = service.get_web_search_config("searchapi")
+        # 使用缓存的配置
+        configs = _get_web_search_config()
+        config = configs.get("searchapi", {})
+
         if not config.get("enabled", False):
             return {"success": False, "error": "SearchAPI搜索服务未启用"}
 
