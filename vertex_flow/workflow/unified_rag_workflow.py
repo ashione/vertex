@@ -109,12 +109,12 @@ class EnhancedResultFormatterVertex(FunctionVertex):
         results = inputs.get("results", [])
         web_search_results = inputs.get("web_search_results", [])
         web_search_summary = inputs.get("web_search_summary", "")
-        
+
         logging.info(f"Vector results: {len(results)}, Web search results: {len(web_search_results)}")
 
         formatted_sections = []
         all_references = []  # 收集所有参考文档
-        
+
         # 格式化向量检索结果
         if results:
             vector_results = []
@@ -122,64 +122,59 @@ class EnhancedResultFormatterVertex(FunctionVertex):
                 content = result.get("content", "")
                 score = result.get("score", 0)
                 doc_id = result.get("id", f"文档{i}")
-                
+
                 formatted_result = f"文档{i} (ID: {doc_id}, 相似度: {score:.3f}):\n{content}\n"
                 vector_results.append(formatted_result)
-                
+
                 # 收集向量检索的参考信息
                 metadata = result.get("metadata", {})
                 source = metadata.get("source", f"本地文档{i}")
-                all_references.append({
-                    "type": "本地知识库",
-                    "title": f"文档{i} (ID: {doc_id})",
-                    "source": source,
-                    "url": source if source.startswith("http") else None,
-                    "score": score
-                })
-            
+                all_references.append(
+                    {
+                        "type": "本地知识库",
+                        "title": f"文档{i} (ID: {doc_id})",
+                        "source": source,
+                        "url": source if source.startswith("http") else None,
+                        "score": score,
+                    }
+                )
+
             formatted_sections.append("## 本地知识库检索结果\n" + "\n".join(vector_results))
-        
+
         # 格式化Web搜索结果
         if web_search_results:
             web_results = []
-            
+
             for i, result in enumerate(web_search_results, 1):
                 title = result.get("title", f"网络结果{i}")
                 url = result.get("url", "")
                 snippet = result.get("snippet", "")
                 source = result.get("source", "Web")
-                
+
                 # 格式化Web搜索结果
                 web_result = f"网络结果{i} ({source}):\n标题: {title}\n内容: {snippet}\n"
                 if url:
                     web_result += f"链接: {url}\n"
-                
+
                 web_results.append(web_result)
-                
+
                 # 收集Web搜索的参考信息
-                all_references.append({
-                    "type": "网络搜索",
-                    "title": title,
-                    "source": source,
-                    "url": url,
-                    "snippet": snippet
-                })
-            
+                all_references.append(
+                    {"type": "网络搜索", "title": title, "source": source, "url": url, "snippet": snippet}
+                )
+
             formatted_sections.append("## 网络搜索结果\n" + "\n".join(web_results))
-        
+
         # 添加Web搜索总结
         if web_search_summary:
             formatted_sections.append(f"## 网络搜索总结\n{web_search_summary}")
-        
+
         # 如果没有任何结果
         if not formatted_sections:
-            return {
-                "formatted_results": "未找到相关文档或网络信息。",
-                "all_references": "无参考文档"
-            }
-        
+            return {"formatted_results": "未找到相关文档或网络信息。", "all_references": "无参考文档"}
+
         formatted_text = "\n\n".join(formatted_sections)
-        
+
         # 格式化参考文档列表
         references_text = "## 参考文档列表\n\n"
         if all_references:
@@ -188,7 +183,7 @@ class EnhancedResultFormatterVertex(FunctionVertex):
                 title = ref.get("title", "无标题")
                 source = ref.get("source", "未知来源")
                 url = ref.get("url", "")
-                
+
                 references_text += f"{i}. **{title}** ({ref_type})\n"
                 references_text += f"   来源: {source}\n"
                 if url:
@@ -200,11 +195,8 @@ class EnhancedResultFormatterVertex(FunctionVertex):
                 references_text += "\n"
         else:
             references_text += "无参考文档\n"
-        
-        return {
-            "formatted_results": formatted_text,
-            "all_references": references_text
-        }
+
+        return {"formatted_results": formatted_text, "all_references": references_text}
 
 
 class WebSearchIntegrationVertex(FunctionVertex):
@@ -242,62 +234,50 @@ class WebSearchIntegrationVertex(FunctionVertex):
         # 获取搜索查询
         search_queries = inputs.get("search_queries", [])
         original_query = inputs.get("original_query", "")
-        
+
         # 如果没有专门的搜索查询，使用原始查询
         if not search_queries and original_query:
             search_queries = [original_query]
-        
+
         if not search_queries:
             logging.warning("没有提供搜索查询，跳过Web搜索")
-            return {
-                "web_search_results": [],
-                "web_search_summary": "",
-                "search_performed": False
-            }
-        
+            return {"web_search_results": [], "web_search_summary": "", "search_performed": False}
+
         # 如果没有Web搜索服务，跳过搜索
         if not self.web_search_service:
             logging.info("Web搜索服务未配置，跳过网络搜索")
-            return {
-                "web_search_results": [],
-                "web_search_summary": "",
-                "search_performed": False
-            }
-        
+            return {"web_search_results": [], "web_search_summary": "", "search_performed": False}
+
         all_results = []
         all_summaries = []
-        
+
         # 对每个搜索查询执行搜索
         for query in search_queries[:2]:  # 限制最多2个查询以避免过多请求
             try:
                 logging.info(f"执行Web搜索: {query}")
-                
+
                 # 调用Web搜索工具
-                search_inputs = {
-                    "query": query,
-                    "count": self.search_count,
-                    "summary": self.enable_summary
-                }
-                
+                search_inputs = {"query": query, "count": self.search_count, "summary": self.enable_summary}
+
                 search_result = self.web_search_service.func(search_inputs)
-                
+
                 if search_result.get("success", False):
                     results = search_result.get("results", [])
                     summary = search_result.get("summary", "")
-                    
+
                     all_results.extend(results)
                     if summary:
                         all_summaries.append(f"查询'{query}': {summary}")
-                    
+
                     logging.info(f"Web搜索成功，查询: {query}, 结果数: {len(results)}")
                 else:
                     error = search_result.get("error", "未知错误")
                     logging.warning(f"Web搜索失败，查询: {query}, 错误: {error}")
-                    
+
             except Exception as e:
                 logging.error(f"Web搜索异常，查询: {query}, 错误: {str(e)}")
                 continue
-        
+
         # 去重结果（基于URL）
         seen_urls = set()
         unique_results = []
@@ -308,16 +288,16 @@ class WebSearchIntegrationVertex(FunctionVertex):
                 unique_results.append(result)
             elif not url:  # 没有URL的结果也保留
                 unique_results.append(result)
-        
+
         # 合并总结
         combined_summary = "\n".join(all_summaries) if all_summaries else ""
-        
+
         logging.info(f"Web搜索完成，总结果数: {len(unique_results)}, 有总结: {bool(combined_summary)}")
-        
+
         return {
             "web_search_results": unique_results,
             "web_search_summary": combined_summary,
-            "search_performed": len(unique_results) > 0
+            "search_performed": len(unique_results) > 0,
         }
 
 
@@ -776,6 +756,7 @@ class UnifiedRAGWorkflowBuilder:
         try:
             # 尝试获取web search tool，不指定provider让系统自动选择
             from vertex_flow.workflow.tools.web_search import create_web_search_tool
+
             self.web_search_service = create_web_search_tool()
             logging.info(f"使用网络搜索服务: {self.web_search_service.name}")
         except Exception as e:
@@ -1096,7 +1077,7 @@ class UnifiedRAGWorkflowBuilder:
             params={
                 SYSTEM: "你是一个查询改写和问题扩展专家。你可以使用网络搜索工具来帮助理解用户的问题，发现相关的热点讨论和扩展问题。\n\n你的任务是：\n1. 分析用户的原始问题\n2. 使用网络搜索了解这个问题的最新讨论和相关方面\n3. 基于搜索结果，生成多个不同角度的查询\n4. 提出一些值得探讨的扩展问题\n\n你必须以JSON格式返回结果。",
                 USER: [
-                    "请分析以下问题，并使用网络搜索来帮助扩展和改写查询。\n\n原始查询：{{original_query}}\n\n请以下面的JSON格式返回结果：\n{\n  \"original_query\": \"原始查询文本\",\n  \"intent_queries\": [\n    \"意图查询1（理解用户真正想问什么）\",\n    \"意图查询2（从不同角度理解）\",\n    \"意图查询3（考虑潜在需求）\"\n  ],\n  \"search_queries\": [\n    \"搜索查询1（关键信息检索）\",\n    \"搜索查询2（扩展信息检索）\"\n  ],\n  \"extended_questions\": [\n    \"扩展问题1（基于网络搜索发现的相关话题）\",\n    \"扩展问题2（值得深入探讨的方面）\",\n    \"扩展问题3（最新的相关讨论）\"\n  ]\n}\n\n确保返回的是合法的JSON格式。"
+                    '请分析以下问题，并使用网络搜索来帮助扩展和改写查询。\n\n原始查询：{{original_query}}\n\n请以下面的JSON格式返回结果：\n{\n  "original_query": "原始查询文本",\n  "intent_queries": [\n    "意图查询1（理解用户真正想问什么）",\n    "意图查询2（从不同角度理解）",\n    "意图查询3（考虑潜在需求）"\n  ],\n  "search_queries": [\n    "搜索查询1（关键信息检索）",\n    "搜索查询2（扩展信息检索）"\n  ],\n  "extended_questions": [\n    "扩展问题1（基于网络搜索发现的相关话题）",\n    "扩展问题2（值得深入探讨的方面）",\n    "扩展问题3（最新的相关讨论）"\n  ]\n}\n\n确保返回的是合法的JSON格式。'
                 ],
                 ENABLE_STREAM: True,  # 开启stream模式
             },
@@ -1141,12 +1122,13 @@ class UnifiedRAGWorkflowBuilder:
                     "source_scope": "QUERY_PROCESSOR",
                     "source_var": "processed_queries",
                     "local_var": "processed_queries",
-                }
+                },
             ],
         )
 
         # 添加子图边：查询改写LLM -> 查询结果加工
         from .edge import Edge, EdgeType
+
         rewrite_to_processor_edge = Edge(
             source_vertex=query_rewrite_llm,
             target_vertex=query_processor,
@@ -1175,7 +1157,7 @@ class UnifiedRAGWorkflowBuilder:
             vector_engine=self.vector_engine,
             params={
                 "top_k": retrieval_config.get("top_k", 3),
-                "similarity_threshold": retrieval_config.get("similarity_threshold", 0.3)
+                "similarity_threshold": retrieval_config.get("similarity_threshold", 0.3),
             },
             variables=[
                 {
@@ -1192,7 +1174,7 @@ class UnifiedRAGWorkflowBuilder:
             name="Web搜索集成",
             params={
                 "search_count": retrieval_config.get("web_search_count", 3),
-                "enable_summary": retrieval_config.get("enable_web_summary", True)
+                "enable_summary": retrieval_config.get("enable_web_summary", True),
             },
             web_search_service=self.web_search_service,
             variables=[
@@ -1205,7 +1187,7 @@ class UnifiedRAGWorkflowBuilder:
                     "source_scope": "QUERY_SOURCE",
                     "source_var": "query",
                     "local_var": "original_query",
-                }
+                },
             ],
         )
 
@@ -1234,7 +1216,7 @@ class UnifiedRAGWorkflowBuilder:
                     "source_scope": "WEB_SEARCH",
                     "source_var": "search_performed",
                     "local_var": "search_performed",
-                }
+                },
             ],
         )
 
@@ -1244,7 +1226,10 @@ class UnifiedRAGWorkflowBuilder:
             name="生成回答",
             model=self.llm_model,
             params={
-                SYSTEM: prompts.get("system", "你是一个有用的AI助手。你可以使用网络搜索工具来获取最新信息。当你需要查找实时或最新的信息时，请使用网络搜索工具。"),
+                SYSTEM: prompts.get(
+                    "system",
+                    "你是一个有用的AI助手。你可以使用网络搜索工具来获取最新信息。当你需要查找实时或最新的信息时，请使用网络搜索工具。",
+                ),
                 USER: [
                     "基于以下上下文信息回答问题：\n\n上下文：{{formatted_results}}\n\n问题：{{user_question}}\n\n扩展问题：{{extended_questions}}\n\n参考文档：{{all_references}}\n\n请提供准确、有用的回答。在回答的最后，请列出所有参考的文档和URL。如果需要查找最新信息，可以使用网络搜索工具。"
                 ],
@@ -1313,16 +1298,16 @@ class UnifiedRAGWorkflowBuilder:
     def _process_query_results(self, inputs: Dict[str, Any], context=None):
         """
         处理LLM查询改写的结果，提取三种类型的查询
-        
+
         Args:
             inputs: 包含LLM输出的输入
-            
+
         Returns:
             包含原始查询、意图查询、搜索查询和扩展问题的结果
         """
         llm_output = inputs.get("llm_output", "")
         original_input_query = inputs.get("original_query", "")
-        
+
         # 如果没有LLM输出，使用原始查询
         if not llm_output:
             return {
@@ -1330,41 +1315,45 @@ class UnifiedRAGWorkflowBuilder:
                 "intent_queries": [],
                 "search_queries": [],
                 "extended_questions": [],  # 添加空的扩展问题列表
-                "processed_queries": [original_input_query] if original_input_query else ["未识别查询"]
+                "processed_queries": [original_input_query] if original_input_query else ["未识别查询"],
             }
-        
+
         try:
             # 清理markdown代码块标记
             import re
+
             json_str = llm_output
             # 移除```json和```标记
-            json_match = re.search(r'```(?:json)?\s*(.*?)```', json_str, re.DOTALL)
+            json_match = re.search(r"```(?:json)?\s*(.*?)```", json_str, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1).strip()
-            
+
             # 尝试解析JSON输出
             import json
+
             result = json.loads(json_str)
-            
+
             # 提取查询，使用原始输入作为后备
             original_query = result.get("original_query", "") or original_input_query or "未识别查询"
             intent_queries = [q for q in result.get("intent_queries", []) if q and isinstance(q, str)]
             search_queries = [q for q in result.get("search_queries", []) if q and isinstance(q, str)]
-            extended_questions = [q for q in result.get("extended_questions", []) if q and isinstance(q, str)]  # 提取扩展问题
-            
+            extended_questions = [
+                q for q in result.get("extended_questions", []) if q and isinstance(q, str)
+            ]  # 提取扩展问题
+
             # 合并所有查询用于向量化，确保至少包含原始查询
             all_queries = [q for q in ([original_query] + intent_queries + search_queries) if q and isinstance(q, str)]
             if not all_queries:
                 all_queries = [original_input_query] if original_input_query else ["未识别查询"]
-            
+
             return {
                 "original_query": original_query,
                 "intent_queries": intent_queries,
                 "search_queries": search_queries,
                 "extended_questions": extended_questions,  # 添加扩展问题到输出
-                "processed_queries": all_queries
+                "processed_queries": all_queries,
             }
-            
+
         except (json.JSONDecodeError, AttributeError) as e:
             logging.error(f"解析LLM输出的JSON失败: {e}")
             logging.error(f"原始输出: {llm_output}")
@@ -1375,38 +1364,35 @@ class UnifiedRAGWorkflowBuilder:
                 "intent_queries": [],
                 "search_queries": [],
                 "extended_questions": [],  # 添加空的扩展问题列表
-                "processed_queries": [fallback_query]
+                "processed_queries": [fallback_query],
             }
 
     def _merge_query_results(self, inputs: Dict[str, Any], context=None):
         """
         对每个查询向量进行检索并合并结果
-        
+
         Args:
             inputs: 包含多个embedding的输入
-            
+
         Returns:
             合并后的检索结果
         """
         embeddings = inputs.get("embeddings", [])
         if not embeddings:
             raise ValueError("No embeddings provided for search")
-            
+
         # 获取检索参数
         top_k = self.config.get("retrieval", {}).get("top_k", 3)
         similarity_threshold = self.config.get("retrieval", {}).get("similarity_threshold", 0.3)
-        
+
         all_results = []
         seen_docs = set()  # 用于去重
-        
+
         # 对每个embedding进行检索
         for embedding in embeddings:
             try:
-                results = self.vector_engine.search(
-                    embedding, 
-                    top_k=top_k
-                )
-                
+                results = self.vector_engine.search(embedding, top_k=top_k)
+
                 # 过滤低于阈值的结果并去重
                 for result in results:
                     doc_id = result.get("id")
@@ -1414,21 +1400,21 @@ class UnifiedRAGWorkflowBuilder:
                     if score >= similarity_threshold and doc_id not in seen_docs:
                         seen_docs.add(doc_id)
                         all_results.append(result)
-                        
+
             except Exception as e:
                 logging.error(f"单个查询检索失败: {e}")
                 continue
-        
+
         # 按相似度分数排序
         all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-        
+
         # 只返回top_k个结果
         final_results = all_results[:top_k]
-        
+
         if not final_results:
             logging.warning("所有查询都未返回结果")
             return {"results": []}
-            
+
         return {"results": final_results}
 
 
@@ -1587,7 +1573,7 @@ class UnifiedRAGSystem:
                     logging.info(f"更新完成：新增了 {added_docs} 个文档")
                 else:
                     logging.info("更新完成：没有新增文档（可能都是重复内容）")
-        
+
         # 重要：索引完成后，重置初始化状态，确保后续查询可以正常使用LLM
         # 但保持已初始化的组件（embedding_provider, vector_engine等）
         if self._indexing_only_mode:
@@ -1762,31 +1748,31 @@ class UnifiedRAGSystem:
 
         # 创建新的工作流实例用于流式执行
         workflow_instance = self.builder.build_query_workflow()
-        
+
         # 收集流式输出
         full_response = ""
         llm_vertex_id = "LLM_GENERATE"
-        
+
         def on_stream_message(event_data):
             """处理流式消息事件"""
             nonlocal full_response
-            from vertex_flow.workflow.constants import VERTEX_ID_KEY, CONTENT_KEY, MESSAGE_KEY
-            
+            from vertex_flow.workflow.constants import CONTENT_KEY, MESSAGE_KEY, VERTEX_ID_KEY
+
             vertex_id = event_data.get(VERTEX_ID_KEY)
             content = event_data.get(CONTENT_KEY) or event_data.get(MESSAGE_KEY, "")
             message_type = event_data.get("type", "regular")
-            
+
             if vertex_id == llm_vertex_id and content:
                 full_response += content
                 # 实时打印流式输出
                 print(content, end="", flush=True)
-        
+
         # 订阅流式消息事件
         workflow_instance.subscribe("messages", on_stream_message)
-        
+
         try:
             retrieval_config = self.builder.config.get("retrieval", {}) if isinstance(self.builder.config, dict) else {}
-            
+
             # 执行工作流，启用流式模式
             workflow_instance.execute_workflow(
                 source_inputs={
@@ -1796,12 +1782,12 @@ class UnifiedRAGSystem:
                         retrieval_config.get("similarity_threshold", 0.3) if isinstance(retrieval_config, dict) else 0.3
                     ),
                 },
-                stream=True  # 启用流式模式
+                stream=True,  # 启用流式模式
             )
-            
+
             print()  # 换行
             return full_response if full_response else "无法生成答案"
-            
+
         except Exception as e:
             logging.error(f"流式查询执行失败: {e}")
             return f"查询失败: {e}"

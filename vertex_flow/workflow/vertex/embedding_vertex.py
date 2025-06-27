@@ -1,6 +1,6 @@
-from typing import Any, Callable, Dict, List, Optional, TypeVar
 import asyncio
 import math
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.vertex.embedding_providers import TextEmbeddingProvider
@@ -11,6 +11,7 @@ from .vertex import Vertex, WorkflowContext
 logging = LoggerUtil.get_logger()
 
 T = TypeVar("T")  # 泛型类型变量
+
 
 class EmbeddingVertex(Vertex[T]):
     """嵌入顶点，有一个输入和一个输出"""
@@ -56,22 +57,22 @@ class EmbeddingVertex(Vertex[T]):
 
         # 记录嵌入提供者信息
         logging.info(f"使用嵌入提供者: {self.embedding_provider.__class__.__name__}")
-        if hasattr(self.embedding_provider, 'dimension'):
+        if hasattr(self.embedding_provider, "dimension"):
             logging.info(f"嵌入维度: {self.embedding_provider.dimension}")
 
         # 如果没有 workflow 引用，直接使用输入参数
-        if not hasattr(self, 'workflow') or self.workflow is None:
+        if not hasattr(self, "workflow") or self.workflow is None:
             local_inputs = inputs or {}
         else:
             local_inputs = self.resolve_dependencies(inputs=inputs)
-        
+
         if not local_inputs:
             raise ValueError("Inputs are required for embedding.")
 
         # 获取输入文本或文档
         text = local_inputs.get("text")
         docs = local_inputs.get("docs")
-        
+
         # 减少日志输出，只记录关键信息
         if docs and isinstance(docs, list):
             logging.info(f"开始处理 {len(docs)} 个文档的嵌入生成")
@@ -88,18 +89,18 @@ class EmbeddingVertex(Vertex[T]):
 
             # 使用异步并发处理文档列表
             embeddings_list = asyncio.run(self._process_docs_async(docs))
-            
+
             # 检查生成的嵌入维度
             if embeddings_list and len(embeddings_list) > 0:
                 first_embedding = embeddings_list[0].get("embedding", [])
                 if first_embedding:
                     logging.info(f"生成的嵌入维度: {len(first_embedding)}")
-                    if hasattr(self.embedding_provider, 'dimension'):
+                    if hasattr(self.embedding_provider, "dimension"):
                         expected_dim = self.embedding_provider.dimension
                         actual_dim = len(first_embedding)
                         if expected_dim != actual_dim:
                             logging.warning(f"嵌入维度不匹配: 期望 {expected_dim}, 实际 {actual_dim}")
-            
+
             self.output = {"embeddings": embeddings_list}
 
         elif text:
@@ -107,24 +108,19 @@ class EmbeddingVertex(Vertex[T]):
             try:
                 safe_text = self._safe_encode_content(text)
                 embedding = self.embedding_provider.embedding(safe_text)
-                
+
                 # 检查单个文本的嵌入维度
                 if embedding:
                     logging.info(f"单个文本嵌入维度: {len(embedding)}")
-                    if hasattr(self.embedding_provider, 'dimension'):
+                    if hasattr(self.embedding_provider, "dimension"):
                         expected_dim = self.embedding_provider.dimension
                         actual_dim = len(embedding)
                         if expected_dim != actual_dim:
                             logging.warning(f"嵌入维度不匹配: 期望 {expected_dim}, 实际 {actual_dim}")
-                
+
                 # 使用与批量处理相同的格式
                 self.output = {
-                    "embeddings": [{
-                        "id": "text_0",
-                        "content": safe_text,
-                        "embedding": embedding,
-                        "metadata": {}
-                    }]
+                    "embeddings": [{"id": "text_0", "content": safe_text, "embedding": embedding, "metadata": {}}]
                 }
                 logging.debug("单个文本嵌入生成完成")
             except Exception as ex:
@@ -136,70 +132,70 @@ class EmbeddingVertex(Vertex[T]):
     async def _process_docs_async(self, docs: List[Any]) -> List[Dict[str, Any]]:
         """
         异步处理文档列表，按批次顺序处理
-        
+
         Args:
             docs: 文档列表
-            
+
         Returns:
             处理后的嵌入列表
         """
         if not self.embedding_provider or not self.embedding_provider.supports_batch():
             # 不支持批量，回退到顺序处理
             return self._process_docs_sequential(docs)
-        
+
         # 获取 provider 的 batch_size
         batch_size = self.embedding_provider.get_batch_size()
         total_docs = len(docs)
-        
+
         # 计算批次数量
         num_batches = math.ceil(total_docs / batch_size)
         logging.info(f"将 {total_docs} 个文档按 batch_size={batch_size} 分为 {num_batches} 个批次，顺序处理")
-        
+
         # 分割文档为批次
         batches = []
         for i in range(0, total_docs, batch_size):
-            batch = docs[i:i + batch_size]
+            batch = docs[i : i + batch_size]
             batches.append((i // batch_size, batch))
-        
+
         # 顺序处理每个批次
         embeddings_list = []
         processed_count = 0
         error_count = 0
-        
+
         try:
             for batch_idx, batch_docs in batches:
                 logging.info(f"开始处理批次 {batch_idx + 1}/{num_batches}，包含 {len(batch_docs)} 个文档")
-                
+
                 # 处理当前批次
                 batch_results = await self._process_batch_async(batch_docs, batch_idx)
-                
+
                 # 添加批次结果
                 embeddings_list.extend(batch_results)
                 processed_count += len(batch_results)
-                
+
                 logging.info(f"批次 {batch_idx + 1} 处理完成，成功 {len(batch_results)} 个文档")
-                
+
         except Exception as e:
             logging.error(f"批次处理失败: {e}")
             # 回退到顺序处理
             return self._process_docs_sequential(docs)
-        
+
         logging.info(f"所有批次处理完成: 成功 {processed_count} 个，失败 {error_count} 个")
         return embeddings_list
 
     async def _process_batch_async(self, batch_docs: List[Any], batch_idx: int) -> List[Dict[str, Any]]:
         """
         异步处理单个批次的文档
-        
+
         Args:
             batch_docs: 批次文档列表
             batch_idx: 批次索引
-            
+
         Returns:
             批次的嵌入结果列表
         """
         batch_results = []
-        
+
         for doc_idx, doc in enumerate(batch_docs):
             if isinstance(doc, dict) and "content" in doc:
                 # 文档对象格式
@@ -218,26 +214,28 @@ class EmbeddingVertex(Vertex[T]):
             try:
                 safe_content = self._safe_encode_content(content)
                 embedding = await self._embed_async(safe_content)
-                
-                batch_results.append({
-                    "id": doc_id,
-                    "content": safe_content,
-                    "embedding": embedding,
-                    "metadata": metadata,
-                })
+
+                batch_results.append(
+                    {
+                        "id": doc_id,
+                        "content": safe_content,
+                        "embedding": embedding,
+                        "metadata": metadata,
+                    }
+                )
             except Exception as e:
                 logging.error(f"批次 {batch_idx} 文档 {doc_idx} 嵌入失败: {e}")
                 continue
-        
+
         return batch_results
 
     async def _embed_async(self, text: str) -> List[float]:
         """
         异步执行嵌入操作
-        
+
         Args:
             text: 输入文本
-            
+
         Returns:
             嵌入向量
         """
@@ -248,10 +246,10 @@ class EmbeddingVertex(Vertex[T]):
     def _process_docs_sequential(self, docs: List[Any]) -> List[Dict[str, Any]]:
         """
         顺序处理文档列表（原有逻辑）
-        
+
         Args:
             docs: 文档列表
-            
+
         Returns:
             处理后的嵌入列表
         """

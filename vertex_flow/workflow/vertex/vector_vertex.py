@@ -150,23 +150,19 @@ class VectorQueryVertex(VectorVertex):
                     # 空列表，返回空结果
                     self.output = {"results": [], STATUS: SUCCESS}
                     return
-                
+
                 # 处理多个嵌入向量
                 all_results = []
                 seen_docs = set()  # 用于去重
-                
+
                 for emb_data in embeddings_data:
                     if isinstance(emb_data, dict) and "embedding" in emb_data:
                         embedding = emb_data["embedding"]
                         if not embedding:  # 跳过空向量
                             continue
                         # 执行向量搜索
-                        results = self.vector_engine.search(
-                            embedding,
-                            top_k=top_k,
-                            filter=filter
-                        )
-                        
+                        results = self.vector_engine.search(embedding, top_k=top_k, filter=filter)
+
                         # 过滤低于阈值的结果并去重
                         for result in results:
                             doc_id = result.get("id")
@@ -174,20 +170,16 @@ class VectorQueryVertex(VectorVertex):
                             if score >= similarity_threshold and doc_id not in seen_docs:
                                 seen_docs.add(doc_id)
                                 all_results.append(result)
-                
+
                 # 按相似度分数排序
                 all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-                
+
                 # 只返回top_k个结果
                 filtered_results = all_results[:top_k]
 
             else:
                 # 直接使用向量
-                results = self.vector_engine.search(
-                    query,
-                    top_k=top_k,
-                    filter=filter
-                )
+                results = self.vector_engine.search(query, top_k=top_k, filter=filter)
                 # 过滤低于阈值的结果
                 filtered_results = [r for r in results if r.get("score", 0) >= similarity_threshold]
 

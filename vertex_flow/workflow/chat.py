@@ -1,13 +1,13 @@
 import abc
 import base64
-import requests
 from typing import Any, Dict, List, Optional, Union
 
+import requests
 from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import SHOW_REASONING_KEY, CONTENT_ATTR, REASONING_CONTENT_ATTR
+from vertex_flow.workflow.constants import CONTENT_ATTR, REASONING_CONTENT_ATTR, SHOW_REASONING_KEY
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
 logging = LoggerUtil.get_logger()
@@ -45,14 +45,14 @@ class ChatModel(abc.ABC):
         处理多模态消息，将文本和图片URL转换为OpenAI兼容的格式
         """
         processed_messages = []
-        
+
         for message in messages:
             logging.debug(f"Processing message: {message}")
-            
+
             # 根据消息角色和内容类型来处理
             role = message.get("role", "")
             content = message.get("content")
-            
+
             # 助手消息且包含工具调用
             if role == "assistant" and "tool_calls" in message:
                 # 工具调用消息，保持原格式
@@ -75,10 +75,7 @@ class ChatModel(abc.ABC):
                         else:
                             # 对于网络URL，保持原格式
                             processed_content.append(content_item)
-                processed_messages.append({
-                    "role": role,
-                    "content": processed_content
-                })
+                processed_messages.append({"role": role, "content": processed_content})
             elif isinstance(content, str) or content is None:
                 # 纯文本消息或空内容，保持原格式
                 processed_messages.append(message)
@@ -86,7 +83,7 @@ class ChatModel(abc.ABC):
                 # 其他格式，尝试转换为文本
                 logging.warning(f"Unknown message format: {message}")
                 processed_messages.append(message)
-        
+
         logging.debug(f"Processed messages: {processed_messages}")
         return processed_messages
 
@@ -103,17 +100,16 @@ class ChatModel(abc.ABC):
         }
         if option:
             default_option.update(option)
-        
+
         # 处理多模态消息
         processed_messages = self._process_multimodal_messages(messages)
-        
+
         # 构建API调用参数 - 过滤掉自定义参数
-        filtered_option = {k: v for k, v in default_option.items() 
-                          if k not in [SHOW_REASONING_KEY, "enable_reasoning"]}
+        filtered_option = {k: v for k, v in default_option.items() if k not in [SHOW_REASONING_KEY, "enable_reasoning"]}
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
-        
+
         try:
             completion = self.client.chat.completions.create(**api_params)
             return completion
@@ -139,7 +135,7 @@ class ChatModel(abc.ABC):
     def chat_stream_with_reasoning(self, messages, option: Optional[Dict[str, Any]] = None):
         """
         Enhanced chat stream method with reasoning support
-        
+
         For DeepSeek R1 models, reasoning content is automatically returned in the response
         without needing special parameters in the request.
         """
@@ -147,19 +143,18 @@ class ChatModel(abc.ABC):
             # Create completion without reasoning parameter
             tools = option.get("tools") if option else None
             completion = self._create_completion(messages, option, stream=True, tools=tools)
-            
+
             reasoning_buffer = ""
             content_buffer = ""
             is_reasoning_phase = True
             reasoning_started = False
             total_chunks = 0
-            
+
             for chunk in completion:
                 total_chunks += 1
                 if chunk.choices and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    
-                    
+
                     # Check for reasoning content (DeepSeek R1 models)
                     if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
                         reasoning_content = getattr(delta, REASONING_CONTENT_ATTR)
@@ -167,32 +162,41 @@ class ChatModel(abc.ABC):
                         reasoning_started = True
                         yield reasoning_content
                         continue
-                    
+
                     # Regular content
                     if hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR):
                         content = getattr(delta, CONTENT_ATTR)
-                        
+
                         # For DeepSeek R1, reasoning might be in regular content with special markers
                         # Look for thinking tags or patterns
-                        if any(marker in content for marker in ['<thinking>', '<think>', '<reasoning>', '思考：', '分析：']):
+                        if any(
+                            marker in content for marker in ["<thinking>", "<think>", "<reasoning>", "思考：", "分析："]
+                        ):
                             # This is reasoning content
                             reasoning_buffer += content
                             reasoning_started = True
                             # Clean up the content for display
                             display_content = content
-                            for tag in ['<thinking>', '</thinking>', '<think>', '</think>', '<reasoning>', '</reasoning>']:
-                                display_content = display_content.replace(tag, '')
+                            for tag in [
+                                "<thinking>",
+                                "</thinking>",
+                                "<think>",
+                                "</think>",
+                                "<reasoning>",
+                                "</reasoning>",
+                            ]:
+                                display_content = display_content.replace(tag, "")
                             yield display_content
                             continue
-                        
+
                         # Check if this is the start of the final answer
                         if content.strip() and is_reasoning_phase and reasoning_started:
                             # Transition to answer phase - just mark the phase change
                             is_reasoning_phase = False
-                        
+
                         content_buffer += content
                         yield content
-                        
+
             # Log the complete reasoning and content for debugging
             logging.info(f"Total chunks processed: {total_chunks}")
             if reasoning_buffer:
@@ -201,7 +205,7 @@ class ChatModel(abc.ABC):
                 logging.info("No reasoning content detected - may be regular model or different format")
             if content_buffer:
                 logging.info(f"Answer content: {len(content_buffer)} chars")
-                
+
         except Exception as e:
             logging.error(f"Error in chat_stream_with_reasoning: {e}")
             # Fallback to regular streaming
@@ -260,7 +264,7 @@ class Ollama(ChatModel):
             base_url=f"{base_url}/v1",
             provider="ollama",
         )
-    
+
     def model_name(self) -> str:
         return self.name
 
@@ -273,7 +277,7 @@ class Doubao(ChatModel):
             base_url=base_url,
             provider="doubao",
         )
-    
+
     def model_name(self) -> str:
         return self.name
 
@@ -284,6 +288,7 @@ class Other(ChatModel):
     支持每个模型单独配置provider、model name和base_url
     适用于自定义API端点、私有部署模型等场景
     """
+
     def __init__(self, name="custom-model", sk="", base_url="", provider="other"):
         super().__init__(
             name=name,
@@ -291,6 +296,6 @@ class Other(ChatModel):
             base_url=base_url,
             provider=provider,
         )
-    
+
     def model_name(self) -> str:
         return self.name

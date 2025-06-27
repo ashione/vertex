@@ -5,12 +5,7 @@ from threading import Event, Lock
 from typing import Any, Dict, Generic, List, Optional, Set, TypeVar, cast
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import (
-    WORKFLOW_COMPLETE,
-    WORKFLOW_ERROR,
-    WORKFLOW_FAILED,
-    MESSAGE_KEY
-)
+from vertex_flow.workflow.constants import MESSAGE_KEY, WORKFLOW_COMPLETE, WORKFLOW_ERROR, WORKFLOW_FAILED
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.event_channel import EventChannel, EventType

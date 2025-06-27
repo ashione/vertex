@@ -78,7 +78,7 @@ class VertexGroup(Vertex[T]):
 
         # 用add_subgraph_vertex方法注册所有子图顶点，保证依赖查找优先在子图内
         self.subgraph_vertices = {}
-        for v in (subgraph_vertices or []):
+        for v in subgraph_vertices or []:
             self.add_subgraph_vertex(v)
         self.subgraph_edges = set(subgraph_edges or [])
         self.subgraph_context = SubgraphContext()
@@ -266,7 +266,9 @@ class VertexGroup(Vertex[T]):
                         source_value = source_vertex.output
                 elif source_vertex is None:
                     # 如果在子图中找不到source_vertex，记录错误但继续尝试从全局获取
-                    logging.warning(f"Source vertex '{source_var}' in '{source_scope}' to {local_var} not found in subgraph {self.id}")
+                    logging.warning(
+                        f"Source vertex '{source_var}' in '{source_scope}' to {local_var} not found in subgraph {self.id}"
+                    )
 
                 # 如果子图中没有找到，再从全局workflow中获取
                 if source_value is None and hasattr(self, "workflow") and self.workflow:

@@ -21,7 +21,8 @@ logger = LoggerUtil.get_logger(__name__)
 # MCP support
 try:
     from vertex_flow.mcp.client import MCPClient as MCPVertexFlowClient
-    from vertex_flow.mcp.types import MCPPrompt, MCPResource, MCPTool, MCPToolResult, MCPClientInfo
+    from vertex_flow.mcp.types import MCPClientInfo, MCPPrompt, MCPResource, MCPTool, MCPToolResult
+
     MCP_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"MCP dependencies not available: {e}")
@@ -32,6 +33,7 @@ except ImportError as e:
 
 class MCPRequest:
     """MCP请求对象"""
+
     def __init__(self, request_type: str, **kwargs):
         self.id = str(uuid.uuid4())
         self.request_type = request_type
@@ -47,29 +49,30 @@ class MCPManager:
         self.client_configs: Dict[str, Dict[str, Any]] = {}
         self._initialized = False
         self._lock = threading.RLock()
-        
+
         # Event loop and queue for thread-safe communication
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
         self._request_queue: Optional[asyncio.Queue] = None
         self._running = False
-        
+
         # Start the dedicated event loop thread
         self._start_event_loop_thread()
 
     def _start_event_loop_thread(self):
         """启动专用的事件循环线程"""
+
         def run_event_loop():
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
             self._request_queue = asyncio.Queue()
             self._running = True
-            
+
             logger.info("MCP Manager event loop thread started")
-            
+
             # 启动请求处理任务
             self._event_loop.create_task(self._process_requests())
-            
+
             try:
                 self._event_loop.run_forever()
             except Exception as e:
@@ -79,13 +82,13 @@ class MCPManager:
 
         self._loop_thread = threading.Thread(target=run_event_loop, daemon=True)
         self._loop_thread.start()
-        
+
         # 等待事件循环启动
         timeout = 5.0
         start_time = time.time()
         while self._event_loop is None and (time.time() - start_time) < timeout:
             time.sleep(0.01)
-        
+
         if self._event_loop is None:
             raise RuntimeError("Failed to start MCP event loop thread")
 
@@ -96,7 +99,7 @@ class MCPManager:
                 request = await self._request_queue.get()
                 if request is None:  # 停止信号
                     break
-                
+
                 try:
                     result = await self._handle_request(request)
                     if not request.future.done():
@@ -106,7 +109,7 @@ class MCPManager:
                         request.future.set_exception(e)
                 finally:
                     self._request_queue.task_done()
-                    
+
             except Exception as e:
                 logger.error(f"Error processing request: {e}")
 
@@ -114,7 +117,7 @@ class MCPManager:
         """处理具体的MCP请求"""
         request_type = request.request_type
         kwargs = request.kwargs
-        
+
         if request_type == "initialize":
             return await self._async_initialize(kwargs.get("mcp_config", {}))
         elif request_type == "get_all_tools":
@@ -124,17 +127,11 @@ class MCPManager:
         elif request_type == "get_all_prompts":
             return await self._async_get_all_prompts()
         elif request_type == "call_tool":
-            return await self._async_call_tool(
-                kwargs.get("tool_name"), 
-                kwargs.get("arguments", {})
-            )
+            return await self._async_call_tool(kwargs.get("tool_name"), kwargs.get("arguments", {}))
         elif request_type == "read_resource":
             return await self._async_read_resource(kwargs.get("resource_uri"))
         elif request_type == "get_prompt":
-            return await self._async_get_prompt(
-                kwargs.get("prompt_name"),
-                kwargs.get("arguments")
-            )
+            return await self._async_get_prompt(kwargs.get("prompt_name"), kwargs.get("arguments"))
         elif request_type == "close_all":
             return await self._async_close_all()
         elif request_type == "refresh_client":
@@ -146,26 +143,23 @@ class MCPManager:
         """线程安全地提交请求到事件循环"""
         if not self._running or not self._event_loop:
             raise RuntimeError("MCP Manager not running")
-        
+
         request = MCPRequest(request_type, **kwargs)
-        
+
         # 将请求提交到事件循环
-        future = asyncio.run_coroutine_threadsafe(
-            self._request_queue.put(request), 
-            self._event_loop
-        )
+        future = asyncio.run_coroutine_threadsafe(self._request_queue.put(request), self._event_loop)
         future.result(timeout=1.0)  # 等待请求入队
-        
+
         # 等待请求处理完成
         timeout_seconds = 60.0
         start_time = time.time()
-        
+
         while not request.future.done():
             if time.time() - start_time > timeout_seconds:
                 logger.error(f"Request {request_type} timed out after {timeout_seconds}s")
                 raise RuntimeError(f"Request {request_type} timed out")
             time.sleep(0.01)  # 10ms polling
-        
+
         return request.future.result()
 
     # 公共接口方法 - 线程安全
@@ -237,6 +231,7 @@ class MCPManager:
                 # Set environment variables
                 if env:
                     import os
+
                     for key, value in env.items():
                         os.environ[key] = value
 
@@ -384,11 +379,8 @@ class MCPManager:
                 logger.info(f"Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
 
                 try:
-                    result = await asyncio.wait_for(
-                        client.call_tool(original_tool_name, arguments), 
-                        timeout=30.0
-                    )
-                    
+                    result = await asyncio.wait_for(client.call_tool(original_tool_name, arguments), timeout=30.0)
+
                     if result:
                         logger.info(f"Tool {original_tool_name} executed successfully")
                         return result
@@ -471,7 +463,7 @@ class MCPManager:
     async def _async_close_all(self):
         """Close all MCP client connections"""
         logger.info("Closing all MCP client connections")
-        
+
         for client_name, client in self.clients.items():
             try:
                 await client.close()
@@ -500,7 +492,7 @@ class MCPManager:
         # Recreate client
         client_config = self.client_configs[client_name]
         await self._create_client(client_name, client_config)
-        
+
         if client_name in self.clients:
             logger.info(f"Successfully refreshed MCP client: {client_name}")
         else:
@@ -519,37 +511,38 @@ class MCPManager:
         return {
             "name": client_name,
             "connected": client.is_connected,
-            "server_info": {
-                "name": client.server_info.name if client.server_info else "Unknown",
-                "version": client.server_info.version if client.server_info else "Unknown"
-            } if client.server_info else None,
-            "config": self.client_configs.get(client_name, {})
+            "server_info": (
+                {
+                    "name": client.server_info.name if client.server_info else "Unknown",
+                    "version": client.server_info.version if client.server_info else "Unknown",
+                }
+                if client.server_info
+                else None
+            ),
+            "config": self.client_configs.get(client_name, {}),
         }
 
     def shutdown(self):
         """Shutdown the MCP manager and event loop"""
         if self._running:
             self._running = False
-            
+
             # 发送停止信号
             if self._event_loop and self._request_queue:
-                future = asyncio.run_coroutine_threadsafe(
-                    self._request_queue.put(None), 
-                    self._event_loop
-                )
+                future = asyncio.run_coroutine_threadsafe(self._request_queue.put(None), self._event_loop)
                 try:
                     future.result(timeout=1.0)
                 except Exception:
                     pass
-            
+
             # 停止事件循环
             if self._event_loop:
                 self._event_loop.call_soon_threadsafe(self._event_loop.stop)
-            
+
             # 等待线程结束
             if self._loop_thread and self._loop_thread.is_alive():
                 self._loop_thread.join(timeout=5.0)
-            
+
             logger.info("MCP Manager shutdown complete")
 
 

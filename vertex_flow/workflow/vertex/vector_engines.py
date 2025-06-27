@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 # 将dashvector设为可选依赖，避免grpcio编译问题
 try:
     import dashvector
+
     HAS_DASHVECTOR = True
 except ImportError:
     HAS_DASHVECTOR = False
@@ -408,9 +409,9 @@ class LocalVectorEngine(VectorEngine):
             if os.path.exists(self.index_file) and os.path.exists(self.meta_file):
                 # 加载FAISS索引
                 self.index = faiss.read_index(self.index_file)
-                
+
                 # 检查索引维度是否与配置一致
-                if hasattr(self.index, 'd') and self.index.d != self.dimension:
+                if hasattr(self.index, "d") and self.index.d != self.dimension:
                     error_msg = (
                         f"索引维度与配置不匹配！\n"
                         f"  配置维度: {self.dimension}\n"
@@ -677,7 +678,7 @@ class LocalVectorEngine(VectorEngine):
 
             if vectors:
                 vectors_array = np.array(vectors, dtype=np.float32)
-                
+
                 # 检查向量维度是否匹配
                 if vectors_array.shape[1] != self.dimension:
                     error_msg = (
@@ -699,7 +700,7 @@ class LocalVectorEngine(VectorEngine):
                     )
                     logger.error(error_msg)
                     raise ValueError(error_msg)
-                
+
                 self.index.add(vectors_array)
             self._save_index()
 

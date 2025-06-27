@@ -5,6 +5,37 @@
 
 set -e
 
+# 设置系统编码和换行符，确保Ubuntu和macOS一致
+export PYTHONIOENCODING=utf-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+# 配置git换行符处理
+git config --global core.autocrlf false
+git config --global core.eol lf
+
+# 检测操作系统类型
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "🐧 Running on Linux (Ubuntu)"
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "🍎 Running on macOS"
+else
+    echo "🖥️ Running on other OS: $OSTYPE"
+fi
+
+# 检测是否为CI环境
+if [ "$CI" = "true" ]; then
+    echo "🔧 Running in CI environment"
+    # CI环境优先使用pip
+    PIP_CMD="pip"
+    UV_CMD="uv"
+else
+    echo "💻 Running in local environment"
+    # 本地环境优先使用uv
+    PIP_CMD="uv pip"
+    UV_CMD="uv"
+fi
+
 echo "🔍 Running pre-commit checks..."
 
 # 显示当前工作目录和脚本位置

@@ -1,14 +1,14 @@
-import os
-from abc import ABC, abstractmethod
-from functools import lru_cache
-from typing import List, Optional, Union, Any
 import abc
 import base64
-import requests
-from typing import Dict
+import os
 import re
 import threading
 import time
+from abc import ABC, abstractmethod
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Union
+
+import requests
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.utils import factory_creator, retryable
@@ -71,7 +71,7 @@ class DashScopeEmbedding(TextEmbeddingProvider):
         backoff_factor=2.0,
         exceptions=(requests.exceptions.RequestException,),
         retry_on_status_codes=[429, 500, 502, 503, 504],
-        log_prefix="[DashScope] "
+        log_prefix="[DashScope] ",
     )
     def embedding(self, text: str) -> Optional[List[float]]:
         """
@@ -85,7 +85,7 @@ class DashScopeEmbedding(TextEmbeddingProvider):
 
             dashscope.api_key = self.api_key
             response = dashscope.TextEmbedding.call(model=self.model_name, input=text)
-            
+
             if response["status_code"] == 200:
                 logging.debug(response)
                 return response["output"]["embeddings"][0]["embedding"]
@@ -93,9 +93,9 @@ class DashScopeEmbedding(TextEmbeddingProvider):
                 # 记录请求失败的错误信息
                 logging.error(f"请求失败。错误代码: {response['status_code']}，错误信息: {response['message']}")
                 # 创建一个模拟的 response 对象，包含 status_code 属性
-                mock_response = type('MockResponse', (), {'status_code': response['status_code']})()
+                mock_response = type("MockResponse", (), {"status_code": response["status_code"]})()
                 return mock_response
-                
+
         except ImportError:
             logging.error("请安装dashscope: pip install dashscope")
             return None
@@ -109,7 +109,13 @@ class DashScopeEmbedding(TextEmbeddingProvider):
 class BCEEmbedding(TextEmbeddingProvider):
     """BCE 嵌入提供者"""
 
-    def __init__(self, api_key: str, endpoint: str = "https://api.siliconflow.cn/v1/embeddings", model_name: str = "netease-youdao/bce-embedding-base_v1", dimension: int = 768):
+    def __init__(
+        self,
+        api_key: str,
+        endpoint: str = "https://api.siliconflow.cn/v1/embeddings",
+        model_name: str = "netease-youdao/bce-embedding-base_v1",
+        dimension: int = 768,
+    ):
         self.api_key = api_key
         self.endpoint = endpoint
         self.model_name = model_name
@@ -130,40 +136,40 @@ class BCEEmbedding(TextEmbeddingProvider):
     def _truncate_text_to_tokens(self, text: str, max_tokens: int = 512) -> str:
         """
         将文本截断到指定的 token 数量
-        
+
         Args:
             text: 输入文本
             max_tokens: 最大 token 数量，默认为 512
-            
+
         Returns:
             截断后的文本
         """
         # 简单的 token 估算：按空格和标点符号分割
         # 这是一个粗略的估算，实际 token 数量可能不同
-        tokens = re.findall(r'\b\w+\b|[^\w\s]', text)
-        
+        tokens = re.findall(r"\b\w+\b|[^\w\s]", text)
+
         if len(tokens) <= max_tokens:
             return text
-        
+
         # 如果 token 数量超过限制，截断文本
         logging.warning(f"文本 token 数量 ({len(tokens)}) 超过限制 ({max_tokens})，将进行截断")
-        
+
         # 按字符截断，但尽量在词边界处截断
         char_count = 0
         for i, token in enumerate(tokens[:max_tokens]):
             char_count += len(token)
             if i < max_tokens - 1:
                 char_count += 1  # 添加分隔符
-        
+
         truncated_text = text[:char_count].strip()
-        
+
         # 确保截断后的文本不以不完整的词结尾
-        if truncated_text and not truncated_text.endswith((' ', '.', '!', '?', ',', ';', ':')):
+        if truncated_text and not truncated_text.endswith((" ", ".", "!", "?", ",", ";", ":")):
             # 找到最后一个完整的词
-            last_space = truncated_text.rfind(' ')
+            last_space = truncated_text.rfind(" ")
             if last_space > 0:
                 truncated_text = truncated_text[:last_space].strip()
-        
+
         logging.info(f"文本已截断: {len(text)} -> {len(truncated_text)} 字符")
         return truncated_text
 
@@ -174,31 +180,28 @@ class BCEEmbedding(TextEmbeddingProvider):
         backoff_factor=2.0,
         exceptions=(requests.exceptions.RequestException,),
         retry_on_status_codes=[429, 500, 502, 503, 504],
-        log_prefix="[BCE] "
+        log_prefix="[BCE] ",
     )
     def embedding(self, text: str) -> Optional[List[float]]:
         """
         使用 BCE API 生成文本嵌入
-        
+
         Args:
             text: 要嵌入的文本
-            
+
         Returns:
             嵌入向量列表，失败时返回 None
         """
         # 截断文本到最大 token 数
         truncated_text = self._truncate_text_to_tokens(text, self.max_tokens)
-        
-        payload = {
-            "model": self.model_name,
-            "input": truncated_text
-        }
-        
+
+        payload = {"model": self.model_name, "input": truncated_text}
+
         response = requests.request("POST", self.endpoint, json=payload, headers=self._headers)
-        
+
         if response.status_code == 200:
             result = response.json()
-            
+
             if "data" in result and len(result["data"]) > 0:
                 embedding = result["data"][0]["embedding"]
                 return embedding
@@ -223,14 +226,20 @@ class BCEEmbedding(TextEmbeddingProvider):
 class LocalEmbeddingProvider(TextEmbeddingProvider):
     """本地嵌入提供者，使用 sentence-transformers"""
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384, use_mirror: bool = True, mirror_url: str = "https://hf-mirror.com"):
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        dimension: int = 384,
+        use_mirror: bool = True,
+        mirror_url: str = "https://hf-mirror.com",
+    ):
         self.model_name = model_name
         self.dimension = dimension
         self.use_mirror = use_mirror
         self.mirror_url = mirror_url
         self._model = None
         self._lock = threading.Lock()
-        
+
         # 初始化模型
         self._initialize_model()
 
@@ -238,7 +247,7 @@ class LocalEmbeddingProvider(TextEmbeddingProvider):
         """初始化 sentence-transformers 模型"""
         try:
             import os
-            
+
             # 根据配置决定是否使用镜像源
             if self.use_mirror and self.mirror_url:
                 original_endpoint = os.environ.get("HF_ENDPOINT", "")
@@ -253,10 +262,10 @@ class LocalEmbeddingProvider(TextEmbeddingProvider):
                 logging.info("不使用镜像源，直接访问Hugging Face官方")
 
             from sentence_transformers import SentenceTransformer
-            
+
             self._model = SentenceTransformer(self.model_name)
             logging.info(f"初始化本地嵌入模型: {self.model_name}")
-            
+
         except ImportError:
             raise ImportError("请安装sentence-transformers: pip install sentence-transformers")
         except Exception as e:
@@ -273,25 +282,25 @@ class LocalEmbeddingProvider(TextEmbeddingProvider):
     def embedding(self, text: str) -> Optional[List[float]]:
         """
         使用本地 sentence-transformers 模型生成文本嵌入
-        
+
         Args:
             text: 要嵌入的文本
-            
+
         Returns:
             嵌入向量列表，失败时返回 None
         """
         try:
             # 对输入文本进行编码异常处理
             safe_text = self._safe_encode_text(text)
-            
+
             with self._lock:
                 if self._model is None:
                     self._initialize_model()
-                
+
                 # 生成嵌入向量
                 embedding = self._model.encode(safe_text, convert_to_tensor=False)
-                return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
-                
+                return embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+
         except Exception as e:
             logging.error(f"生成嵌入向量失败: {e}")
             return None

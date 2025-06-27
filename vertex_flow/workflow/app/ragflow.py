@@ -5,8 +5,8 @@ from typing import Any, Dict
 import requests
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.vertex import FunctionVertex
 from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.vertex import FunctionVertex
 
 logging = LoggerUtil.get_logger()
 

@@ -275,28 +275,30 @@ class MCPLLMVertex(LLMVertex):
     def _get_cached_mcp_llm_tools(self) -> List[Dict[str, Any]]:
         """Get cached LLM format MCP tools, refresh only if needed"""
         import time
-        
+
         current_time = time.time()
-        
+
         # Check if cache is valid
-        if (self._mcp_llm_tools_cache is not None and 
-            current_time - self._mcp_llm_tools_cache_time < self._mcp_cache_ttl):
+        if (
+            self._mcp_llm_tools_cache is not None
+            and current_time - self._mcp_llm_tools_cache_time < self._mcp_cache_ttl
+        ):
             logger.debug("Using cached MCP LLM tools")
             return self._mcp_llm_tools_cache
-        
+
         # Cache expired or not initialized, refresh
         logger.debug("Refreshing MCP LLM tools cache")
         try:
             # Use thread pool to run async operation
             future = self._executor.submit(self._get_mcp_tools_async)
             fresh_tools = future.result(timeout=10.0)
-            
+
             # Update cache
             self._mcp_llm_tools_cache = fresh_tools
             self._mcp_llm_tools_cache_time = current_time
-            
+
             return fresh_tools
-            
+
         except Exception as e:
             logger.warning(f"Failed to refresh MCP tools cache: {e}")
             # Return cached version if available, even if expired
@@ -383,35 +385,35 @@ class MCPLLMVertex(LLMVertex):
 
         # 首先添加assistant消息（包含tool_calls）
         if hasattr(choice.message, "content") and choice.message.content:
-            self.messages.append({
-                "role": "assistant",
-                "content": choice.message.content,
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "type": "function", 
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": choice.message.content,
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
                         }
-                    } for tool_call in choice.message.tool_calls
-                ]
-            })
+                        for tool_call in choice.message.tool_calls
+                    ],
+                }
+            )
         else:
-            self.messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
                         }
-                    } for tool_call in choice.message.tool_calls
-                ]
-            })
+                        for tool_call in choice.message.tool_calls
+                    ],
+                }
+            )
 
         # 分离MCP工具和常规工具
         mcp_tool_calls = []
@@ -452,17 +454,16 @@ class MCPLLMVertex(LLMVertex):
                     )()
 
             mock_choice = MockChoice(choice, regular_tool_calls)
-            
+
             # 临时保存当前消息长度，避免重复添加assistant消息
             original_length = len(self.messages)
             super()._handle_tool_calls(mock_choice, context)
-            
+
             # 如果父类添加了重复的assistant消息，移除它
             if len(self.messages) > original_length:
                 # 检查是否有重复的assistant消息
                 for i in range(original_length, len(self.messages)):
-                    if (self.messages[i].get("role") == "assistant" and 
-                        "tool_calls" in self.messages[i]):
+                    if self.messages[i].get("role") == "assistant" and "tool_calls" in self.messages[i]:
                         # 移除重复的assistant消息
                         self.messages.pop(i)
                         break
@@ -522,10 +523,10 @@ class MCPLLMVertex(LLMVertex):
                     # Handle list of content items
                     content_parts = []
                     for item in result.content:
-                        if hasattr(item, 'text'):
+                        if hasattr(item, "text"):
                             content_parts.append(item.text)
-                        elif isinstance(item, dict) and 'text' in item:
-                            content_parts.append(item['text'])
+                        elif isinstance(item, dict) and "text" in item:
+                            content_parts.append(item["text"])
                         else:
                             content_parts.append(str(item))
                     return "\n".join(content_parts)

@@ -1,13 +1,13 @@
 import builtins
+import functools
 import importlib
 import inspect
 import json
 import os
 import re
 import time
-import functools
 from abc import ABC
-from typing import Callable, Dict, Type, Optional, Union, List
+from typing import Callable, Dict, List, Optional, Type, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 
@@ -20,11 +20,11 @@ def retryable(
     backoff_factor: float = 2.0,
     exceptions: Union[Type[Exception], tuple] = Exception,
     retry_on_status_codes: Optional[List[int]] = None,
-    log_prefix: str = ""
+    log_prefix: str = "",
 ):
     """
     重试装饰器，支持多种重试策略
-    
+
     Args:
         max_retries: 最大重试次数，默认3次
         retry_delay: 初始重试延迟（秒），默认1秒
@@ -32,37 +32,38 @@ def retryable(
         exceptions: 需要重试的异常类型，默认所有异常
         retry_on_status_codes: 需要重试的HTTP状态码列表，如[429, 500, 502, 503, 504]
         log_prefix: 日志前缀，用于区分不同的重试场景
-    
+
     Examples:
         # 基本用法
         @retryable()
         def my_function():
             pass
-        
+
         # 自定义重试策略
         @retryable(max_retries=5, retry_delay=0.5, exceptions=(ValueError, TypeError))
         def my_function():
             pass
-        
+
         # 针对HTTP状态码重试
         @retryable(retry_on_status_codes=[429, 500, 502, 503, 504])
         def api_call():
             pass
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            
+
             for attempt in range(max_retries + 1):  # +1 是因为第一次不算重试
                 try:
                     result = func(*args, **kwargs)
-                    
+
                     # 检查是否需要根据返回值重试（比如HTTP状态码）
-                    if retry_on_status_codes and hasattr(result, 'status_code'):
+                    if retry_on_status_codes and hasattr(result, "status_code"):
                         if result.status_code in retry_on_status_codes:
                             if attempt < max_retries:
-                                wait_time = retry_delay * (backoff_factor ** attempt)
+                                wait_time = retry_delay * (backoff_factor**attempt)
                                 logging.warning(
                                     f"{log_prefix}状态码 {result.status_code}，"
                                     f"等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1})"
@@ -71,17 +72,16 @@ def retryable(
                                 continue
                             else:
                                 logging.error(
-                                    f"{log_prefix}状态码 {result.status_code}，"
-                                    f"已达到最大重试次数 ({max_retries})"
+                                    f"{log_prefix}状态码 {result.status_code}，" f"已达到最大重试次数 ({max_retries})"
                                 )
-                    
+
                     return result
-                    
+
                 except exceptions as e:
                     last_exception = e
-                    
+
                     if attempt < max_retries:
-                        wait_time = retry_delay * (backoff_factor ** attempt)
+                        wait_time = retry_delay * (backoff_factor**attempt)
                         logging.warning(
                             f"{log_prefix}函数 {func.__name__} 执行失败，"
                             f"等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
@@ -89,15 +89,15 @@ def retryable(
                         time.sleep(wait_time)
                     else:
                         logging.error(
-                            f"{log_prefix}函数 {func.__name__} 执行失败，"
-                            f"已达到最大重试次数 ({max_retries}): {e}"
+                            f"{log_prefix}函数 {func.__name__} 执行失败，" f"已达到最大重试次数 ({max_retries}): {e}"
                         )
                         raise last_exception
-            
+
             # 这里理论上不会执行到，因为最后一次重试会抛出异常
             raise last_exception
-        
+
         return wrapper
+
     return decorator
 
 

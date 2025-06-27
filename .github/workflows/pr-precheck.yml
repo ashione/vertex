@@ -33,6 +33,15 @@ jobs:
     
     - name: Check Python code formatting
       run: |
+        # 设置系统编码和换行符，确保Ubuntu和macOS一致
+        export PYTHONIOENCODING=utf-8
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+        
+        # 配置git换行符处理
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+        
         # 显示当前工作目录和文件结构
         echo "🔍 Current working directory: $(pwd)"
         echo "📁 Directory contents:"
@@ -71,6 +80,8 @@ jobs:
         # 检查是否有格式化后的diff
         if ! git diff --exit-code -- '*.py'; then
           echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
+          echo "📊 格式化差异详情:"
+          git diff --stat -- '*.py'
           exit 1
         fi
     
