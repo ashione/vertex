@@ -25,7 +25,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # 直接使用pip安装依赖，避免uv的虚拟环境问题
+        # 强制安装指定版本的格式化工具，确保与本地环境一致
+        pip install flake8==7.2.0 black==25.1.0 isort==6.0.1 autopep8==2.3.2
+        # 安装项目依赖
         pip install -r requirements.txt
         pip install -e .
     
@@ -37,6 +39,13 @@ jobs:
         ls -la
         echo "📁 Scripts directory:"
         ls -la scripts/
+        
+        # 检查格式化工具版本
+        echo "🔧 Checking formatting tool versions:"
+        python -c "import flake8; print(f'flake8: {flake8.__version__}')"
+        python -c "import black; print(f'black: {black.__version__}')"
+        python -c "import isort; print(f'isort: {isort.__version__}')"
+        python -c "import autopep8; print(f'autopep8: {autopep8.__version__}')"
         
         # 检查.flake8文件是否存在
         if [ -f ".flake8" ]; then

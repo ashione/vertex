@@ -1,8 +1,8 @@
 # 代码质量工具
-autopep8>=2.3.2
-black>=25.1.0
-flake8>=6.0.0
-isort>=6.0.1
+autopep8==2.3.2
+black==25.1.0
+flake8==7.2.0
+isort==6.0.1
 
 # 构建和发布工具
 build>=0.10.0
