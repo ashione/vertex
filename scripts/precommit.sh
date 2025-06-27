@@ -53,7 +53,8 @@ activate_venv
 check_package() {
     if ! python3 -c "import $1" &> /dev/null; then
         print_warning "$1 is not installed. Installing..."
-        if command -v uv &> /dev/null; then
+        # 在CI环境中优先使用pip，避免uv的虚拟环境问题
+        if command -v uv &> /dev/null && [ -z "$CI" ]; then
             uv pip install $1
         else
             pip3 install $1
@@ -68,7 +69,8 @@ check_project_dependencies() {
     # 检查项目是否已安装
     if ! python3 -c "import vertex_flow" &> /dev/null; then
         print_warning "Project not installed. Installing in development mode..."
-        if command -v uv &> /dev/null; then
+        # 在CI环境中优先使用pip
+        if command -v uv &> /dev/null && [ -z "$CI" ]; then
             uv pip install -e .
         else
             pip3 install -e .
@@ -107,7 +109,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     echo "🔧 Sorting imports with isort..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv run isort "$file"
             else
                 isort "$file"
@@ -120,7 +122,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     echo "🎨 Formatting code with black..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv run black "$file"
             else
                 black "$file"
@@ -146,7 +148,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     
     # 运行 flake8 进行代码检查
     echo "🔍 Running flake8 linting..."
-    if ! (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
         print_warning "Flake8 found issues. Attempting to auto-fix..."
         
         # 尝试使用 autopep8 自动修复
@@ -154,7 +156,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             echo "🔧 Auto-fixing with autopep8..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    if command -v uv &> /dev/null; then
+                    if command -v uv &> /dev/null && [ -z "$CI" ]; then
                         uv run autopep8 --in-place --aggressive --aggressive "$file"
                     else
                         autopep8 --in-place --aggressive --aggressive "$file"
@@ -166,7 +168,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             echo "🔧 Re-running formatters after auto-fix..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    if command -v uv &> /dev/null; then
+                    if command -v uv &> /dev/null && [ -z "$CI" ]; then
                         uv run isort "$file"
                         uv run black "$file"
                     else
@@ -178,14 +180,14 @@ if [ ! -z "$PYTHON_FILES" ]; then
             
             # 再次检查 flake8
             echo "🔍 Re-checking with flake8..."
-            if (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
                 print_status "Auto-fix successful! Flake8 linting passed"
             else
                 print_warning "Some issues remain after auto-fix. Continuing with commit..."
             fi
         else
             print_warning "autopep8 not available for auto-fixing. Installing..."
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv pip install autopep8
             else
                 pip3 install autopep8
@@ -201,7 +203,7 @@ fi
 # 自动清理配置文件
 echo "🔧 Auto-sanitizing configuration files..."
 if [ -f "scripts/sanitize_config.py" ]; then
-    if command -v uv &> /dev/null; then
+    if command -v uv &> /dev/null && [ -z "$CI" ]; then
         uv run python3 scripts/sanitize_config.py
     else
         python3 scripts/sanitize_config.py
