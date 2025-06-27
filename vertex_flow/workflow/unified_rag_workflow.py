@@ -1779,7 +1779,7 @@ class UnifiedRAGSystem:
             if vertex_id == llm_vertex_id and content:
                 full_response += content
                 # 实时打印流式输出
-                logging.info(content, end="", flush=True)
+                print(content, end="", flush=True)
         
         # 订阅流式消息事件
         workflow_instance.subscribe("messages", on_stream_message)

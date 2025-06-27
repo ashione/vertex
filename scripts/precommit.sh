@@ -7,6 +7,11 @@ set -e
 
 echo "🔍 Running pre-commit checks..."
 
+# 显示当前工作目录和脚本位置
+echo "📁 Current working directory: $(pwd)"
+echo "📁 Script location: $(dirname "$0")"
+echo "📁 Script name: $(basename "$0")"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,6 +49,17 @@ activate_venv() {
 if ! command -v python3 &> /dev/null; then
     print_error "Python3 is not installed or not in PATH"
     exit 1
+fi
+
+# 检查.flake8配置文件是否存在
+if [ ! -f ".flake8" ]; then
+    print_error ".flake8 configuration file not found in current directory"
+    print_error "Current directory: $(pwd)"
+    print_error "Directory contents:"
+    ls -la
+    exit 1
+else
+    print_status ".flake8 configuration file found"
 fi
 
 # 激活虚拟环境
@@ -148,7 +164,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     
     # 运行 flake8 进行代码检查
     echo "🔍 Running flake8 linting..."
-    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 --config=pyproject.toml $PYTHON_FILES; else flake8 --config=pyproject.toml $PYTHON_FILES; fi); then
+    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
         print_warning "Flake8 found issues. Attempting to auto-fix..."
         
         # 尝试使用 autopep8 自动修复
@@ -180,7 +196,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             
             # 再次检查 flake8
             echo "🔍 Re-checking with flake8..."
-            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 --config=pyproject.toml $PYTHON_FILES; else flake8 --config=pyproject.toml $PYTHON_FILES; fi); then
+            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
                 print_status "Auto-fix successful! Flake8 linting passed"
             else
                 print_warning "Some issues remain after auto-fix. Continuing with commit..."

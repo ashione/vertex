@@ -31,7 +31,34 @@ jobs:
     
     - name: Check Python code formatting
       run: |
+        # 显示当前工作目录和文件结构
+        echo "🔍 Current working directory: $(pwd)"
+        echo "📁 Directory contents:"
+        ls -la
+        echo "📁 Scripts directory:"
+        ls -la scripts/
+        
+        # 检查.flake8文件是否存在
+        if [ -f ".flake8" ]; then
+          echo "✅ .flake8 file found"
+          cat .flake8
+        else
+          echo "❌ .flake8 file not found"
+          exit 1
+        fi
+        
+        # 检查precommit.sh脚本是否存在
+        if [ -f "scripts/precommit.sh" ]; then
+          echo "✅ precommit.sh script found"
+          chmod +x scripts/precommit.sh
+        else
+          echo "❌ precommit.sh script not found"
+          exit 1
+        fi
+        
+        # 运行precommit脚本
         bash scripts/precommit.sh
+        
         # 检查是否有格式化后的diff
         if ! git diff --exit-code -- '*.py'; then
           echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
