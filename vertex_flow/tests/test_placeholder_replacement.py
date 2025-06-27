@@ -41,7 +41,8 @@ def test_two_llm_placeholder_replacement(workflow, context):
     first_llm_vertex = LLMVertex(
         id="llm1",
         name="数据生成LLM",
-        params={"model": Mock(), SYSTEM: "你是一个数据生成器", USER: ["生成一段测试数据"]},  # 添加必需的model参数
+        params={"model": Mock(), SYSTEM: "你是一个数据生成器", USER: ["生成一段测试数据"]},
+        # 添加必需的model参数
     )
 
     # 3. 创建第二个mock LLM顶点，使用占位符引用第一个LLM的结果
@@ -57,7 +58,12 @@ def test_two_llm_placeholder_replacement(workflow, context):
 
     # 4. 创建sink顶点
     sink_vertex = SinkVertex(
-        id="sink", name="输出接收器", task=lambda inputs, context: f"接收到结果: {inputs.get('llm2', '')}"
+        id="sink",
+        name="输出接收器",
+        task=lambda inputs, context: f"接收到结果: {
+            inputs.get(
+                'llm2',
+                '')}",
     )
 
     # Mock 第一个LLM的model.chat方法

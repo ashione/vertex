@@ -148,7 +148,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     
     # 运行 flake8 进行代码检查
     echo "🔍 Running flake8 linting..."
-    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 --config=pyproject.toml $PYTHON_FILES; else flake8 --config=pyproject.toml $PYTHON_FILES; fi); then
         print_warning "Flake8 found issues. Attempting to auto-fix..."
         
         # 尝试使用 autopep8 自动修复
@@ -180,7 +180,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             
             # 再次检查 flake8
             echo "🔍 Re-checking with flake8..."
-            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 --config=pyproject.toml $PYTHON_FILES; else flake8 --config=pyproject.toml $PYTHON_FILES; fi); then
                 print_status "Auto-fix successful! Flake8 linting passed"
             else
                 print_warning "Some issues remain after auto-fix. Continuing with commit..."

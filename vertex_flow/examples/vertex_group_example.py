@@ -9,12 +9,12 @@ VertexGroup 允许将多个相关的顶点组织成一个逻辑单元，并控�
 import os
 import sys
 
-# 添加项目根目录到路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, VertexGroup
+
+# 添加项目根目录到路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def example_1_simple_calculation_subgraph():

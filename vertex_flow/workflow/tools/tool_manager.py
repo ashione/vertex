@@ -82,7 +82,8 @@ class FunctionToolManager:
                 web_tool = self._service.get_web_search_tool(provider)
                 # Create unique name for each provider
                 web_tool.name = f"web_search_{provider}"
-                web_tool.description = f"Web search using {provider} - {web_tool.description}"
+                web_tool.description = f"Web search using {provider} - {
+                    web_tool.description}"
                 self.register_tool(web_tool)
                 registered_count += 1
                 break  # Only register the first working provider

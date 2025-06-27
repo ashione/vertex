@@ -93,7 +93,8 @@ def execute_command(inputs: Dict[str, Any], context: Optional[Dict] = None) -> D
             exit_code = result.returncode
 
         else:
-            # For commands that don't need output capture (like interactive commands)
+            # For commands that don't need output capture (like interactive
+            # commands)
             result = subprocess.run(command, shell=use_shell, cwd=working_dir, timeout=timeout)
             stdout = ""
             stderr = ""

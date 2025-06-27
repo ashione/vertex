@@ -11,12 +11,12 @@ import json
 import os
 import sys
 
-# 添加项目根目录到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from vertex_flow.workflow.event_channel import EventChannel
 from vertex_flow.workflow.tools.finance import create_finance_tool, finance_function, finance_tool
 from vertex_flow.workflow.workflow import Workflow
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def example_stock_price_query():
@@ -53,7 +53,12 @@ def example_exchange_rate_query():
 
     if result.get("success"):
         data = result["data"]
-        print(f"汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}")
+        print(
+            f"汇率: 1 {
+                data['from_currency']} = {
+                data['rate']} {
+                data['to_currency']}"
+        )
         print(f"日期: {data['date']}")
         if "note" in data:
             print(f"注意: {data['note']}")
@@ -162,7 +167,12 @@ def example_function_tool_usage():
     if result.get("success"):
         data = result["data"]
         print(f"✅ 查询成功!")
-        print(f"汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}")
+        print(
+            f"汇率: 1 {
+                data['from_currency']} = {
+                data['rate']} {
+                data['to_currency']}"
+        )
     else:
         print(f"❌ 查询失败: {result.get('error')}")
 
@@ -182,7 +192,12 @@ def example_multiple_stocks():
         if result.get("success"):
             data = result["data"]
             change_indicator = "📈" if data["change"] > 0 else "📉" if data["change"] < 0 else "➡️"
-            print(f"{change_indicator} {data['symbol']}: ${data['price']} ({data['change_percent']})")
+            print(
+                f"{change_indicator} {
+                    data['symbol']}: ${
+                    data['price']} ({
+                    data['change_percent']})"
+            )
         else:
             print(f"❌ {symbol}: 查询失败")
 
@@ -202,8 +217,18 @@ def example_currency_conversion():
         data = result["data"]
         converted_amount = amount * data["rate"]
         print(f"💱 货币转换:")
-        print(f"   {amount} {data['from_currency']} = {converted_amount:.2f} {data['to_currency']}")
-        print(f"   汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}")
+        print(
+            f"   {amount} {
+                data['from_currency']} = {
+                converted_amount:.2f} {
+                data['to_currency']}"
+        )
+        print(
+            f"   汇率: 1 {
+                data['from_currency']} = {
+                data['rate']} {
+                data['to_currency']}"
+        )
         print(f"   日期: {data['date']}")
     else:
         print(f"❌ 转换失败: {result.get('error')}")

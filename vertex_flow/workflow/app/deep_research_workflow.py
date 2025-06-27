@@ -832,7 +832,8 @@ class DeepResearchWorkflow:
                 "file_path": "",
                 "success": False,
                 "message": f"保存文件失败: {str(e)}",
-                "summary_report": inputs.get("summary_report", ""),  # 即使保存失败也传递报告内容
+                # 即使保存失败也传递报告内容
+                "summary_report": inputs.get("summary_report", ""),
             }
 
     def _get_summary_report_user_prompt(self) -> str:

@@ -11,9 +11,9 @@ import sys
 import tempfile
 from typing import Dict, Optional
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-
 from vertex_flow.workflow.unified_rag_workflow import UnifiedRAGSystem
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def create_sample_documents(directory_path: str = None):

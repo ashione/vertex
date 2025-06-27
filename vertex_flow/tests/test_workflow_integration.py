@@ -95,7 +95,8 @@ class TestWorkflowIntegration:
         result = workflow.result()
         assert "sink" in result
         assert "math_group" in result["sink"]
-        assert result["sink"]["math_group"]["final_result"] == 32  # (3+5) * 4 = 32
+        # (3+5) * 4 = 32
+        assert result["sink"]["math_group"]["final_result"] == 32
 
     def test_vertex_group_with_function_vertices(self):
         """测试VertexGroup与FunctionVertex组成workflow"""

@@ -5,15 +5,16 @@ import time
 import yaml
 from flask import Flask, jsonify, render_template, request
 
+from vertex_flow.workflow.service import VertexFlowService
+from vertex_flow.workflow.workflow import Workflow
+from vertex_flow.workflow.workflow_manager import WorkflowManager
+
 # 设置CONFIG_PATH环境变量
 config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
 os.environ["CONFIG_PATH"] = config_path
 
 # 添加vertex_flow到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.workflow.workflow import Workflow
-from vertex_flow.workflow.workflow_manager import WorkflowManager
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your-secret-key"
@@ -366,7 +367,11 @@ def save_config():
             if "openrouter" in llm_config:
                 openrouter = llm_config["openrouter"]
                 config_data["llm"]["openrouter"] = {
-                    "sk": f"${{llm.openrouter.sk:{openrouter.get('sk', '-')}}}",
+                    "sk": f"${
+                        llm.openrouter.sk:{
+                            openrouter.get(
+                                'sk',
+                                '-')}} ",
                     "enabled": openrouter.get("enabled", False),
                     "models": [
                         {
