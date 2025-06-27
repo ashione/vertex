@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..utils.logger import LoggerUtil
-from .constants import SYSTEM, USER
+from .constants import ENABLE_STREAM, SYSTEM, USER
 from .service import VertexFlowService
 from .vertex import (
     EmbeddingVertex,
@@ -113,6 +113,7 @@ class EnhancedResultFormatterVertex(FunctionVertex):
         logging.info(f"Vector results: {len(results)}, Web search results: {len(web_search_results)}")
 
         formatted_sections = []
+        all_references = []  # 收集所有参考文档
         
         # 格式化向量检索结果
         if results:
@@ -124,13 +125,23 @@ class EnhancedResultFormatterVertex(FunctionVertex):
                 
                 formatted_result = f"文档{i} (ID: {doc_id}, 相似度: {score:.3f}):\n{content}\n"
                 vector_results.append(formatted_result)
+                
+                # 收集向量检索的参考信息
+                metadata = result.get("metadata", {})
+                source = metadata.get("source", f"本地文档{i}")
+                all_references.append({
+                    "type": "本地知识库",
+                    "title": f"文档{i} (ID: {doc_id})",
+                    "source": source,
+                    "url": source if source.startswith("http") else None,
+                    "score": score
+                })
             
             formatted_sections.append("## 本地知识库检索结果\n" + "\n".join(vector_results))
         
         # 格式化Web搜索结果
         if web_search_results:
             web_results = []
-            reference_links = []
             
             for i, result in enumerate(web_search_results, 1):
                 title = result.get("title", f"网络结果{i}")
@@ -142,15 +153,19 @@ class EnhancedResultFormatterVertex(FunctionVertex):
                 web_result = f"网络结果{i} ({source}):\n标题: {title}\n内容: {snippet}\n"
                 if url:
                     web_result += f"链接: {url}\n"
-                    reference_links.append(f"[{i}] {title}: {url}")
                 
                 web_results.append(web_result)
+                
+                # 收集Web搜索的参考信息
+                all_references.append({
+                    "type": "网络搜索",
+                    "title": title,
+                    "source": source,
+                    "url": url,
+                    "snippet": snippet
+                })
             
             formatted_sections.append("## 网络搜索结果\n" + "\n".join(web_results))
-            
-            # 添加参考链接部分
-            if reference_links:
-                formatted_sections.append("## 参考链接\n" + "\n".join(reference_links))
         
         # 添加Web搜索总结
         if web_search_summary:
@@ -158,10 +173,38 @@ class EnhancedResultFormatterVertex(FunctionVertex):
         
         # 如果没有任何结果
         if not formatted_sections:
-            return {"formatted_results": "未找到相关文档或网络信息。"}
+            return {
+                "formatted_results": "未找到相关文档或网络信息。",
+                "all_references": "无参考文档"
+            }
         
         formatted_text = "\n\n".join(formatted_sections)
-        return {"formatted_results": formatted_text}
+        
+        # 格式化参考文档列表
+        references_text = "## 参考文档列表\n\n"
+        if all_references:
+            for i, ref in enumerate(all_references, 1):
+                ref_type = ref.get("type", "未知")
+                title = ref.get("title", "无标题")
+                source = ref.get("source", "未知来源")
+                url = ref.get("url", "")
+                
+                references_text += f"{i}. **{title}** ({ref_type})\n"
+                references_text += f"   来源: {source}\n"
+                if url:
+                    references_text += f"   URL: {url}\n"
+                if ref.get("score"):
+                    references_text += f"   相似度: {ref['score']:.3f}\n"
+                if ref.get("snippet"):
+                    references_text += f"   摘要: {ref['snippet'][:100]}...\n"
+                references_text += "\n"
+        else:
+            references_text += "无参考文档\n"
+        
+        return {
+            "formatted_results": formatted_text,
+            "all_references": references_text
+        }
 
 
 class WebSearchIntegrationVertex(FunctionVertex):
@@ -731,7 +774,9 @@ class UnifiedRAGWorkflowBuilder:
 
         # 初始化网络搜索服务
         try:
-            self.web_search_service = self.service.get_web_search_tool()
+            # 尝试获取web search tool，不指定provider让系统自动选择
+            from vertex_flow.workflow.tools.web_search import create_web_search_tool
+            self.web_search_service = create_web_search_tool()
             logging.info(f"使用网络搜索服务: {self.web_search_service.name}")
         except Exception as e:
             logging.warning(f"无法初始化网络搜索服务: {e}")
@@ -1053,6 +1098,7 @@ class UnifiedRAGWorkflowBuilder:
                 USER: [
                     "请分析以下问题，并使用网络搜索来帮助扩展和改写查询。\n\n原始查询：{{original_query}}\n\n请以下面的JSON格式返回结果：\n{\n  \"original_query\": \"原始查询文本\",\n  \"intent_queries\": [\n    \"意图查询1（理解用户真正想问什么）\",\n    \"意图查询2（从不同角度理解）\",\n    \"意图查询3（考虑潜在需求）\"\n  ],\n  \"search_queries\": [\n    \"搜索查询1（关键信息检索）\",\n    \"搜索查询2（扩展信息检索）\"\n  ],\n  \"extended_questions\": [\n    \"扩展问题1（基于网络搜索发现的相关话题）\",\n    \"扩展问题2（值得深入探讨的方面）\",\n    \"扩展问题3（最新的相关讨论）\"\n  ]\n}\n\n确保返回的是合法的JSON格式。"
                 ],
+                ENABLE_STREAM: True,  # 开启stream模式
             },
             variables=[
                 {
@@ -1200,8 +1246,9 @@ class UnifiedRAGWorkflowBuilder:
             params={
                 SYSTEM: prompts.get("system", "你是一个有用的AI助手。你可以使用网络搜索工具来获取最新信息。当你需要查找实时或最新的信息时，请使用网络搜索工具。"),
                 USER: [
-                    "基于以下上下文信息回答问题：\n\n上下文：{{formatted_results}}\n\n问题：{{user_question}}\n\n扩展问题：{{extended_questions}}\n\n请提供准确、有用的回答。如果需要查找最新信息，可以使用网络搜索工具。"
+                    "基于以下上下文信息回答问题：\n\n上下文：{{formatted_results}}\n\n问题：{{user_question}}\n\n扩展问题：{{extended_questions}}\n\n参考文档：{{all_references}}\n\n请提供准确、有用的回答。在回答的最后，请列出所有参考的文档和URL。如果需要查找最新信息，可以使用网络搜索工具。"
                 ],
+                ENABLE_STREAM: True,  # 开启stream模式
             },
             tools=[self.web_search_service] if self.web_search_service else [],
             variables=[
@@ -1209,6 +1256,11 @@ class UnifiedRAGWorkflowBuilder:
                     "source_scope": "RESULT_FORMATTER",
                     "source_var": "formatted_results",
                     "local_var": "formatted_results",
+                },
+                {
+                    "source_scope": "RESULT_FORMATTER",
+                    "source_var": "all_references",
+                    "local_var": "all_references",
                 },
                 {
                     "source_scope": "QUERY_SOURCE",
@@ -1509,13 +1561,13 @@ class UnifiedRAGSystem:
         existing_docs = stats.get("total_documents", 0)
 
         if isinstance(existing_docs, (int, float)) and existing_docs > 0 and not force_reindex and not update_existing:
-            print(
+            logging.info(
                 f"向量数据库中已有 {existing_docs} 个文档，跳过索引。使用 force_reindex=True 强制重新索引，或 update_existing=True 更新现有文档。"
             )
             return
 
         if isinstance(existing_docs, (int, float)) and existing_docs > 0 and update_existing:
-            print(f"向量数据库中已有 {existing_docs} 个文档，将检测并更新变化的文档...")
+            logging.info(f"向量数据库中已有 {existing_docs} 个文档，将检测并更新变化的文档...")
         else:
             logging.info(f"开始索引 {len(documents)} 个文档")
 
@@ -1532,9 +1584,9 @@ class UnifiedRAGSystem:
             if isinstance(new_doc_count, (int, float)):
                 added_docs = new_doc_count - existing_docs
                 if added_docs > 0:
-                    print(f"更新完成：新增了 {added_docs} 个文档")
+                    logging.info(f"更新完成：新增了 {added_docs} 个文档")
                 else:
-                    print("更新完成：没有新增文档（可能都是重复内容）")
+                    logging.info("更新完成：没有新增文档（可能都是重复内容）")
         
         # 重要：索引完成后，重置初始化状态，确保后续查询可以正常使用LLM
         # 但保持已初始化的组件（embedding_provider, vector_engine等）
@@ -1688,12 +1740,79 @@ class UnifiedRAGSystem:
             logging.error(f"快速查询失败: {e}")
             return f"查询失败: {e}"
 
-    def start_interactive_mode(self, fast_mode: bool = False):
+    def query_stream(self, question: str) -> str:
+        """
+        流式查询问题，实时显示LLM生成过程
+
+        Args:
+            question: 问题
+
+        Returns:
+            生成的答案
+        """
+        # 查询需要完整初始化（包括LLM）
+        self._lazy_initialize(indexing_only=False)
+
+        # 检查是否在仅索引模式
+        if self._indexing_only_mode:
+            logging.warning("系统在仅索引模式下运行，无法执行LLM查询，回退到快速查询模式")
+            return self.query_fast(question)
+
+        logging.info(f"流式查询问题: {question}")
+
+        # 创建新的工作流实例用于流式执行
+        workflow_instance = self.builder.build_query_workflow()
+        
+        # 收集流式输出
+        full_response = ""
+        llm_vertex_id = "LLM_GENERATE"
+        
+        def on_stream_message(event_data):
+            """处理流式消息事件"""
+            nonlocal full_response
+            from vertex_flow.workflow.constants import VERTEX_ID_KEY, CONTENT_KEY, MESSAGE_KEY
+            
+            vertex_id = event_data.get(VERTEX_ID_KEY)
+            content = event_data.get(CONTENT_KEY) or event_data.get(MESSAGE_KEY, "")
+            message_type = event_data.get("type", "regular")
+            
+            if vertex_id == llm_vertex_id and content:
+                full_response += content
+                # 实时打印流式输出
+                logging.info(content, end="", flush=True)
+        
+        # 订阅流式消息事件
+        workflow_instance.subscribe("messages", on_stream_message)
+        
+        try:
+            retrieval_config = self.builder.config.get("retrieval", {}) if isinstance(self.builder.config, dict) else {}
+            
+            # 执行工作流，启用流式模式
+            workflow_instance.execute_workflow(
+                source_inputs={
+                    "query": question,
+                    "top_k": retrieval_config.get("top_k", 3) if isinstance(retrieval_config, dict) else 3,
+                    "similarity_threshold": (
+                        retrieval_config.get("similarity_threshold", 0.3) if isinstance(retrieval_config, dict) else 0.3
+                    ),
+                },
+                stream=True  # 启用流式模式
+            )
+            
+            print()  # 换行
+            return full_response if full_response else "无法生成答案"
+            
+        except Exception as e:
+            logging.error(f"流式查询执行失败: {e}")
+            return f"查询失败: {e}"
+
+    def start_interactive_mode(self, fast_mode: bool = False, stream_mode: bool = False):
         """
         启动交互式查询模式（性能优化版本）
 
         Args:
             fast_mode: 是否使用快速模式（跳过LLM生成）
+            stream_mode: 是否使用流式模式（实时显示LLM生成过程）
         """
         # 根据模式选择初始化方式
         self._lazy_initialize(indexing_only=fast_mode)
@@ -1701,6 +1820,8 @@ class UnifiedRAGSystem:
         print("\n=== 交互式查询模式 ===")
         if fast_mode:
             print("(快速模式 - 仅显示检索结果，不调用LLM)")
+        elif stream_mode:
+            print("(流式模式 - 实时显示LLM生成过程)")
         else:
             if self._indexing_only_mode:
                 print("(检测到LLM配置问题，自动切换到快速模式)")
@@ -1708,6 +1829,8 @@ class UnifiedRAGSystem:
         print("输入 'quit', 'exit' 或 '退出' 来结束")
         print("输入 'stats' 查看数据库统计")
         print("输入 'cache' 查看缓存状态")
+        print("输入 'stream' 切换流式模式")
+        print("输入 'normal' 切换普通模式")
         print("=" * 50)
 
         query_count = 0
@@ -1726,6 +1849,14 @@ class UnifiedRAGSystem:
                 elif question.lower() == "cache":
                     print(f"\n缓存状态: {len(self._embedding_cache)} 个查询已缓存")
                     continue
+                elif question.lower() == "stream":
+                    stream_mode = True
+                    print("已切换到流式模式")
+                    continue
+                elif question.lower() == "normal":
+                    stream_mode = False
+                    print("已切换到普通模式")
+                    continue
 
                 if not question:
                     continue
@@ -1735,13 +1866,18 @@ class UnifiedRAGSystem:
 
                 if fast_mode or self._indexing_only_mode:
                     answer = self.query_fast(question)
+                    print(f"\n答案: {answer}")
+                elif stream_mode:
+                    # 流式查询，实时显示输出
+                    answer = self.query_stream(question)
+                    print(f"\n[流式生成完成]")
                 else:
                     answer = self.query(question)
+                    print(f"\n答案: {answer}")
 
                 query_time = time.time() - query_start
                 query_count += 1
 
-                print(f"\n答案: {answer}")
                 print(f"查询耗时: {query_time:.2f}秒")
                 print("-" * 50)
 

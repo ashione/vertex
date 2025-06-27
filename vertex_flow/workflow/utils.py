@@ -262,7 +262,8 @@ def default_config_path(file_path):
                 # 如果是文件路径，直接返回该文件路径
                 return os.path.normpath(env_file)
         else:
-            logging.info(f"Using default path {base_path}")
+            # 减少日志输出，只在调试模式下打印
+            logging.debug(f"Using default path {base_path}")
     except Exception as e:
         # 处理环境变量处理过程中可能出现的异常
         logging.error(f"Error processing environment variable: {e}")

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
+import yaml
+
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.rag_config import read_yaml_config_env_placeholder
@@ -46,6 +48,7 @@ class VertexFlowService:
 
     _instance = None
     _lock = None
+    _config_cache = {}  # 添加配置缓存
 
     def __new__(cls, config_file=None):
         """单例模式实现"""
@@ -65,11 +68,6 @@ class VertexFlowService:
     def __init__(self, config_file=None):
         """
         初始化VertexFlowService实例。
-
-        参数:
-        config_file (str): 配置文件的路径。如果为None，则优先使用用户配置文件，
-                           如果用户配置文件不存在，则使用默认配置文件。
-
         该方法主要负责读取配置文件，并初始化实例变量，供类的其他方法使用。
         """
         # 防止重复初始化
@@ -91,7 +89,7 @@ class VertexFlowService:
                 logging.info(f"用户配置文件不存在，使用默认配置: {config_file}")
 
         # 读取并解析配置文件，初始化_config实例变量
-        self._config = read_yaml_config_env_placeholder(config_file)
+        self._config = self._load_config(config_file)
 
         # 确保_config是字典类型
         if not isinstance(self._config, dict):
@@ -106,6 +104,31 @@ class VertexFlowService:
         # 不在这里初始化MCP，延迟到真正需要时
         # MCP初始化会在get_mcp_manager()中按需进行
 
+    def _load_config(self, config_file):
+        """加载配置文件，添加缓存机制"""
+        # 检查缓存
+        cache_key = f"config_{config_file}_{os.path.getmtime(config_file) if os.path.exists(config_file) else 0}"
+        if cache_key in self._config_cache:
+            return self._config_cache[cache_key]
+
+        # 使用原有的配置加载函数
+        try:
+            config = read_yaml_config_env_placeholder(config_file)
+
+            # 缓存配置
+            self._config_cache[cache_key] = config
+
+            # 限制缓存大小，避免内存泄漏
+            if len(self._config_cache) > 10:
+                oldest_key = next(iter(self._config_cache))
+                del self._config_cache[oldest_key]
+
+            return config
+
+        except Exception as e:
+            logging.error(f"Failed to load config file {config_file}: {e}")
+            return {}
+
     @classmethod
     def get_instance(cls, config_file=None):
         """获取单例实例的类方法
@@ -116,8 +139,22 @@ class VertexFlowService:
         Returns:
             VertexFlowService单例实例
         """
+        # 如果已经存在实例，直接返回，避免重复初始化
+        if cls._instance is not None:
+            return cls._instance
+
+        # 如果没有指定配置文件，使用默认路径（但不打印日志）
         if config_file is None:
-            config_file = default_config_path("llm.yml")
+            import os
+            from pathlib import Path
+
+            # 检查用户配置文件是否存在
+            user_config = Path.home() / ".vertex" / "config" / "llm.yml"
+            if user_config.exists():
+                config_file = str(user_config)
+            else:
+                config_file = default_config_path("llm.yml")
+
         return cls(config_file)
 
     def get_chatmodel(self):
@@ -632,15 +669,11 @@ class VertexFlowService:
         """获取Web搜索配置
 
         Args:
-            provider: 搜索提供商，默认为"bocha"，支持"bocha"、"bing"、"free"
+            provider: 搜索提供商，默认为"bocha"
 
         Returns:
-            包含API密钥和启用状态的配置字典
-
-        Raises:
-            ValueError: 如果配置中缺少必需信息
+            dict: 包含搜索配置信息的字典
         """
-        # 获取web-search配置，如果配置不存在，则使用空字典作为默认值
         web_search_config = self._config.get("web-search", {})
 
         if provider == "bocha":
@@ -652,8 +685,6 @@ class VertexFlowService:
 
             # 获取启用状态
             enabled = bocha_config.get("enabled", False)
-
-            logging.info(f"博查搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
 
             return {"api_key": api_key, "enabled": enabled}
 
@@ -667,8 +698,6 @@ class VertexFlowService:
             # 获取启用状态
             enabled = bing_config.get("enabled", False)
 
-            logging.info(f"Bing搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
-
             return {"api_key": api_key, "enabled": enabled}
 
         elif provider == "duckduckgo":
@@ -677,8 +706,6 @@ class VertexFlowService:
 
             # 获取启用状态，默认不启用（需要显式配置）
             enabled = duckduckgo_config.get("enabled", False)
-
-            logging.info(f"DuckDuckGo搜索配置 - 启用状态: {enabled}")
 
             return {"enabled": enabled, "api_key": None}
 
@@ -692,8 +719,6 @@ class VertexFlowService:
             # 获取启用状态
             enabled = serpapi_config.get("enabled", False)
 
-            logging.info(f"SerpAPI搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
-
             return {"api_key": api_key, "enabled": enabled}
 
         elif provider == "searchapi":
@@ -706,7 +731,17 @@ class VertexFlowService:
             # 获取启用状态
             enabled = searchapi_config.get("enabled", False)
 
-            logging.info(f"SearchAPI搜索配置 - 启用状态: {enabled}, API密钥已配置: {bool(api_key)}")
+            return {"api_key": api_key, "enabled": enabled}
+
+        elif provider == "brave":
+            # Brave Search API服务
+            brave_config = web_search_config.get("brave", {})
+
+            # 获取API key
+            api_key = brave_config.get("api_key") or os.getenv("WEB_SEARCH_BRAVE_API_KEY")
+
+            # 获取启用状态
+            enabled = brave_config.get("enabled", False)
 
             return {"api_key": api_key, "enabled": enabled}
 

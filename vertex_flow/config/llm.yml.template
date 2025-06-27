@@ -133,6 +133,11 @@ web-search:
     api_key: ${web-search.searchapi.api_key:-YOUR_SEARCHAPI_API_KEY}
     enabled: false  # 需要API密钥，支持多种搜索引擎
   
+  # Brave Search API服务 - 隐私保护的搜索引擎，需要API密钥
+  brave:
+    api_key: ${web-search.brave.api_key:-YOUR_BRAVE_API_KEY}
+    enabled: false  # 需要API密钥，提供隐私保护的搜索结果
+  
   # 注意：以上搜索服务按优先级排序，系统会自动选择第一个启用且配置正确的服务
   # 建议配置：启用Bocha AI（付费，最佳体验）+ DuckDuckGo（免费备选）
   
