@@ -60,7 +60,11 @@ class BCERerankProvider(RerankProvider):
                 return response_data["results"]
             else:
                 # 记录请求失败的错误信息
-                logging.error(f"请求失败。错误代码: {response.status_code}，错误信息: {response.text}")
+                logging.error(
+                    f"请求失败。错误代码: {
+                        response.status_code}，错误信息: {
+                        response.text}"
+                )
                 return None
         except Exception as e:
             # 记录详细的异常信息

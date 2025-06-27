@@ -4,6 +4,7 @@ from datetime import datetime
 import yaml
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Condition, Edge, EdgeType
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.utils import create_instance, load_task_from_data
@@ -17,7 +18,7 @@ from vertex_flow.workflow.vertex import (
     SourceVertex,
     Vertex,
 )
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
 from vertex_flow.workflow.workflow_instance import WorkflowInstance
 
 logger = LoggerUtil.get_logger()

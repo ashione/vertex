@@ -2,9 +2,10 @@ import pytest
 
 from vertex_flow.utils.logger import logging
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, SinkVertex, SourceVertex, VertexGroup
-from vertex_flow.workflow.workflow import Workflow, WorkflowContext
+from vertex_flow.workflow.workflow import Workflow
 
 logger = logging.getLogger()
 
@@ -94,7 +95,8 @@ class TestWorkflowIntegration:
         result = workflow.result()
         assert "sink" in result
         assert "math_group" in result["sink"]
-        assert result["sink"]["math_group"]["final_result"] == 32  # (3+5) * 4 = 32
+        # (3+5) * 4 = 32
+        assert result["sink"]["math_group"]["final_result"] == 32
 
     def test_vertex_group_with_function_vertices(self):
         """测试VertexGroup与FunctionVertex组成workflow"""

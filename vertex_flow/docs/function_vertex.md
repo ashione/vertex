@@ -398,7 +398,7 @@ workflow.add_edge(Edge(llm_vertex, postprocess_vertex, Always()))
 ```python
 import pytest
 from vertex_flow.workflow.vertex import FunctionVertex
-from vertex_flow.workflow.workflow import WorkflowContext
+from vertex_flow.workflow.context import WorkflowContext
 
 def test_function_vertex():
     """测试函数顶点"""

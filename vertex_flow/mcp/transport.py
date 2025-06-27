@@ -315,7 +315,10 @@ class HTTPTransport(MCPTransport):
         try:
             async with self.session.get(sse_url) as response:
                 if response.status != 200:
-                    raise RuntimeError(f"SSE connection failed: {response.status}")
+                    raise RuntimeError(
+                        f"SSE connection failed: {
+                            response.status}"
+                    )
 
                 async for line in response.content:
                     if self._closed:
@@ -336,7 +339,10 @@ class HTTPTransport(MCPTransport):
                             # Server sending POST endpoint
                             endpoint_data = json.loads(data)
                             self.post_endpoint = endpoint_data.get("uri")
-                            logger.debug(f"Received POST endpoint: {self.post_endpoint}")
+                            logger.debug(
+                                f"Received POST endpoint: {
+                                    self.post_endpoint}"
+                            )
                         elif event_type == "message":
                             # Server sending MCP message
                             message = MCPMessage.from_json(data)
@@ -362,7 +368,10 @@ class HTTPTransport(MCPTransport):
                 self.post_endpoint, json=json_data, headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
-                    raise RuntimeError(f"HTTP request failed: {response.status}")
+                    raise RuntimeError(
+                        f"HTTP request failed: {
+                            response.status}"
+                    )
 
             logger.debug(f"Sent HTTP message: {message.to_json()}")
 

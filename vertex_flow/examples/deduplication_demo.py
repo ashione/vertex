@@ -10,10 +10,10 @@ import shutil
 import sys
 import tempfile
 
+from vertex_flow.workflow.unified_rag_workflow import UnifiedRAGSystem
+
 # 添加项目路径
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-
-from vertex_flow.workflow.unified_rag_workflow import UnifiedRAGSystem
 
 
 def create_test_documents():
@@ -69,7 +69,7 @@ def create_duplicate_documents(original_files):
             content = f.read()
 
         # 创建重复文件
-        duplicate_path = os.path.join(temp_dir, f"duplicate_{i+1}.txt")
+        duplicate_path = os.path.join(temp_dir, f"duplicate_{i + 1}.txt")
         with open(duplicate_path, "w", encoding="utf-8") as f:
             f.write(content)
         duplicate_files.append(duplicate_path)

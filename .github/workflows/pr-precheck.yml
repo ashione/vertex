@@ -7,6 +7,9 @@ on:
 jobs:
   precheck:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.12]
     
     steps:
     - name: Checkout code
@@ -17,13 +20,70 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: ${{ matrix.python-version }}
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8>=7.2.0 black>=25.1.0 isort>=6.0.1 autopep8>=2.3.2
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # 强制安装指定版本的格式化工具，确保与本地环境一致
+        pip install flake8==7.2.0 black==25.1.0 isort==6.0.1 autopep8==2.3.2
+        # 安装项目依赖
+        pip install -r requirements.txt
+        pip install -e .
+    
+    - name: Check Python code formatting
+      run: |
+        # 设置系统编码和换行符，确保Ubuntu和macOS一致
+        export PYTHONIOENCODING=utf-8
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+        
+        # 配置git换行符处理
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+        
+        # 显示当前工作目录和文件结构
+        echo "🔍 Current working directory: $(pwd)"
+        echo "📁 Directory contents:"
+        ls -la
+        echo "📁 Scripts directory:"
+        ls -la scripts/
+        
+        # 检查格式化工具版本
+        echo "🔧 Checking formatting tool versions:"
+        python -c "import flake8; print(f'flake8: {flake8.__version__}')"
+        python -c "import black; print(f'black: {black.__version__}')"
+        python -c "import isort; print(f'isort: {isort.__version__}')"
+        python -c "import autopep8; print(f'autopep8: {autopep8.__version__}')"
+        
+        # 检查.flake8文件是否存在
+        if [ -f ".flake8" ]; then
+          echo "✅ .flake8 file found"
+          cat .flake8
+        else
+          echo "❌ .flake8 file not found"
+          exit 1
+        fi
+        
+        # 检查precommit.sh脚本是否存在
+        if [ -f "scripts/precommit.sh" ]; then
+          echo "✅ precommit.sh script found"
+          chmod +x scripts/precommit.sh
+        else
+          echo "❌ precommit.sh script not found"
+          exit 1
+        fi
+        
+        # 运行precommit脚本
+        bash scripts/precommit.sh
+        
+        # 检查是否有格式化后的diff
+        if ! git diff --exit-code -- '*.py'; then
+          echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
+          echo "📊 格式化差异详情:"
+          git diff --stat -- '*.py'
+          exit 1
+        fi
     
     - name: 配置文件脱敏检查
       run: |
@@ -119,89 +179,6 @@ jobs:
         else
           echo "✅ 未发现敏感信息泄露。"
         fi
-    
-    - name: Check Python code formatting
-      run: |
-        echo "🐍 Checking Python code formatting..."
-        
-        # 查找所有Python文件（排除流水线目录）
-        PYTHON_FILES=$(find . -name "*.py" -not -path "./.venv/*" -not -path "./venv/*" -not -path "./.git/*" -not -path "./.github/*")
-        
-        if [ -z "$PYTHON_FILES" ]; then
-          echo "ℹ️ 未找到Python文件，跳过格式检查。"
-          exit 0
-        fi
-        
-        echo "📁 Found Python files:"
-        echo "$PYTHON_FILES"
-        echo ""
-        
-        # 检查语法错误
-        echo "🔍 Checking for syntax errors..."
-        SYNTAX_ERRORS=false
-        for file in $PYTHON_FILES; do
-          if ! python -m py_compile "$file" 2>/dev/null; then
-            echo "❌ Syntax error in: $file"
-            python -m py_compile "$file"
-            SYNTAX_ERRORS=true
-          fi
-        done
-        
-        if [ "$SYNTAX_ERRORS" = true ]; then
-          echo "❌ 发现Python语法错误！"
-          exit 1
-        fi
-        
-        echo "✅ 未发现语法错误。"
-        
-        # 检查禁止的import *语句
-        echo "🚫 Checking for prohibited 'import *' statements..."
-        IMPORT_STAR_FOUND=false
-        for file in $PYTHON_FILES; do
-          if grep -q "from .* import \*" "$file"; then
-            echo "❌ Found prohibited 'import *' in: $file"
-            grep -n "from .* import \*" "$file"
-            IMPORT_STAR_FOUND=true
-          fi
-        done
-        
-        if [ "$IMPORT_STAR_FOUND" = true ]; then
-          echo "❌ 发现禁止的 'import *' 语句！请使用具体的导入。"
-          echo "💡 建议: 将 'from module import *' 替换为 'from module import specific_item'"
-          exit 1
-        fi
-        
-        echo "✅ 未发现禁止的 'import *' 语句。"
-        
-        # 检查代码风格 (flake8)
-        echo "🔍 Checking code style with flake8..."
-        if ! flake8 $PYTHON_FILES --max-line-length=120 --ignore=E203,W503,E501; then
-          echo "❌ 发现代码风格问题！请修复上述问题。"
-          echo "💡 建议运行: flake8 --max-line-length=120 --ignore=E203,W503,E501 ."
-          exit 1
-        fi
-        
-        echo "✅ 代码风格检查通过。"
-        
-        # 检查import排序 (isort)
-        echo "🔍 Checking import sorting with isort..."
-        if ! isort --check-only --diff $PYTHON_FILES; then
-          echo "❌ 发现import排序问题！"
-          echo "💡 建议运行: isort ."
-          exit 1
-        fi
-        
-        echo "✅ Import排序检查通过。"
-        
-        # 检查代码格式 (black)
-        echo "🔍 Checking code formatting with black..."
-        if ! black --check --diff $PYTHON_FILES; then
-          echo "❌ 发现代码格式问题！"
-          echo "💡 建议运行: black ."
-          exit 1
-        fi
-        
-        echo "✅ 代码格式检查通过。"
     
     - name: Run Unit Tests
       run: |

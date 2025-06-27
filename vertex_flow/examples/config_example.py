@@ -7,10 +7,10 @@
 import sys
 from pathlib import Path
 
+from vertex_flow.config import get_config_loader, load_config
+
 # 添加项目根目录到路径
 sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from vertex_flow.config import get_config_loader, load_config
 
 
 def main():
@@ -67,7 +67,10 @@ def main():
         print(f"\n嵌入模型配置:")
         local_enabled = embedding_config.get("local", {}).get("enabled", False)
         model_name = embedding_config.get("local", {}).get("model_name", "N/A")
-        print(f"  本地嵌入: {'✓ 已启用' if local_enabled else '✗ 未启用'} (模型: {model_name})")
+        print(
+            f"  本地嵌入: {
+                '✓ 已启用' if local_enabled else '✗ 未启用'} (模型: {model_name})"
+        )
 
         dashscope_enabled = embedding_config.get("dashscope", {}).get("enabled", False)
         print(f"  DashScope: {'✓ 已启用' if dashscope_enabled else '✗ 未启用'}")

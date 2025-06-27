@@ -1,4 +1,5 @@
 import logging
+import traceback
 from abc import abstractmethod
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
@@ -134,34 +135,57 @@ class VectorQueryVertex(VectorVertex):
         top_k = inputs.get("top_k", 3)
         filter = inputs.get("filter", None)
         similarity_threshold = inputs.get("similarity_threshold", 0.3)  # 默认最小阈值0.3
-
-        # 处理EmbeddingVertex的输出格式
-        if isinstance(query, dict) and "embeddings" in query:
-            # EmbeddingVertex的输出格式
-            embeddings_data = query["embeddings"]
-            if isinstance(embeddings_data, list) and len(embeddings_data) > 0:
-                # 使用第一个嵌入向量作为查询
-                query = embeddings_data[0]["embedding"]
-            else:
-                # 单个嵌入向量
-                query = embeddings_data
+        logging.info(f"VectorQueryVertex length of query: {len(query)}")
 
         try:
-            results = self.vector_engine.search(query, top_k=top_k, filter=filter)
+            # 处理EmbeddingVertex的输出格式
+            embeddings_data = []
+            if isinstance(query, dict) and "embeddings" in query:
+                embeddings_data = query["embeddings"]
+            elif isinstance(query, list):
+                embeddings_data = query
 
-            # 根据相似度阈值过滤结果
-            filtered_results = []
-            for result in results:
-                score = result.get("score", 0)
-                if score >= similarity_threshold:
-                    filtered_results.append(result)
+            if isinstance(embeddings_data, list):
+                if not embeddings_data:
+                    # 空列表，返回空结果
+                    self.output = {"results": [], STATUS: SUCCESS}
+                    return
 
-            logging.info(
-                f"向量查询返回 {len(results)} 个结果，经过阈值 {similarity_threshold} 过滤后剩余 {len(filtered_results)} 个"
-            )
+                # 处理多个嵌入向量
+                all_results = []
+                seen_docs = set()  # 用于去重
+
+                for emb_data in embeddings_data:
+                    if isinstance(emb_data, dict) and "embedding" in emb_data:
+                        embedding = emb_data["embedding"]
+                        if not embedding:  # 跳过空向量
+                            continue
+                        # 执行向量搜索
+                        results = self.vector_engine.search(embedding, top_k=top_k, filter=filter)
+
+                        # 过滤低于阈值的结果并去重
+                        for result in results:
+                            doc_id = result.get("id")
+                            score = result.get("score", 0)
+                            if score >= similarity_threshold and doc_id not in seen_docs:
+                                seen_docs.add(doc_id)
+                                all_results.append(result)
+
+                # 按相似度分数排序
+                all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+                # 只返回top_k个结果
+                filtered_results = all_results[:top_k]
+
+            else:
+                # 直接使用向量
+                results = self.vector_engine.search(query, top_k=top_k, filter=filter)
+                # 过滤低于阈值的结果
+                filtered_results = [r for r in results if r.get("score", 0) >= similarity_threshold]
 
             self.output = {"results": filtered_results, STATUS: SUCCESS}
         except Exception as e:
             logging.error(f"Error querying vectors in VectorQueryVertex {self.id}: {e}")
+            traceback.print_exc()
             self.output = {STATUS: "error", "message": str(e)}
             raise e

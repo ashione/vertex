@@ -30,10 +30,16 @@ Vertex Flow支持多种Web搜索引擎，采用同级别架构设计。系统会
 - **优势**：支持多种搜索引擎
 - **适用场景**：多样化搜索需求
 
+### 5. Brave Search
+- **特点**：隐私保护的搜索引擎
+- **费用**：付费服务，需要API密钥
+- **优势**：隐私保护，高质量搜索结果
+- **适用场景**：注重隐私的搜索需求
+
 ## 优先级顺序
 
 系统按以下顺序尝试搜索服务：
-1. **SerpAPI** → 2. **DuckDuckGo** → 3. **Bocha AI** → 4. **SearchAPI.io** → 5. **Bing**
+1. **SerpAPI** → 2. **DuckDuckGo** → 3. **Bocha AI** → 4. **SearchAPI.io** → 5. **Brave Search** → 6. **Bing**
 
 只有启用且配置正确的服务才会被使用。当前配置中SerpAPI被设为最高优先级，因为它提供高质量的Google搜索结果。
 
@@ -58,6 +64,10 @@ web-search:
   
   searchapi:
     api_key: "your-searchapi-key"
+    enabled: false
+  
+  brave:
+    api_key: "your-brave-api-key"
     enabled: false
   
   bing:
@@ -113,6 +123,9 @@ export WEB_SEARCH_SERPAPI_KEY="your-serpapi-key"
 
 # SearchAPI.io
 export WEB_SEARCH_SEARCHAPI_KEY="your-searchapi-key"
+
+# Brave Search
+export WEB_SEARCH_BRAVE_API_KEY="your-brave-api-key"
 ```
 
 ## Function Tool使用

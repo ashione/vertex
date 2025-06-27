@@ -32,10 +32,10 @@ classifiers = [
 ]
 keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow", "rag"]
 dependencies = [
-    "autopep8>=2.3.2",
-    "black>=25.1.0",
-    "flake8>=6.0.0",
-    "isort>=6.0.1",
+    "autopep8==2.3.2",
+    "black==25.1.0",
+    "flake8==7.2.0",
+    "isort==6.0.1",
     "requests>=2.28.2",
     "PySocks>=1.7.1",
     # Web UI 依赖 - 使用已知稳定的版本组合

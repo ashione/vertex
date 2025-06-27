@@ -45,8 +45,6 @@ def sanitize_sk_values(content):
     sanitized_content = re.sub(sk_pattern, replace_sk, content)
 
     # 2. 匹配包含真实API密钥的sk配置（新格式）
-    # 匹配格式: sk: ${llm.deepseek.sk:-sk-1c72572257634abb90a9b17520a94847}
-    # 或: sk: ${llm.openrouter.sk:-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}
     new_sk_pattern = r"(\s*sk:\s*\$\{[^:]+:-)(sk-[a-zA-Z0-9\-]{10,})(\})"
 
     def replace_new_sk(match):

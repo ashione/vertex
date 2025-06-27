@@ -105,7 +105,10 @@ class FinanceAPI:
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                logging.info(f"正在通过Yahoo Finance API获取股票 {symbol} 的信息... (尝试 {attempt + 1}/{max_retries})")
+                logging.info(
+                    f"正在通过Yahoo Finance API获取股票 {symbol} 的信息... (尝试 {
+                        attempt + 1}/{max_retries})"
+                )
 
                 # Yahoo Finance API endpoints
                 quote_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -185,7 +188,8 @@ class FinanceAPI:
                     "symbol": symbol.upper(),
                     "price": round(float(current_price), 2),
                     "change": round(float(change), 2),
-                    "change_percent": f"{change_percent:+.2f}%",
+                    "change_percent": f"{
+                        change_percent:+.2f}%",
                     "volume": int(volume) if volume else 0,
                     "latest_trading_day": trading_day,
                     "previous_close": round(float(previous_close), 2) if previous_close else 0,
@@ -209,7 +213,10 @@ class FinanceAPI:
                 else:
                     raise ValueError(f"Yahoo Finance API网络连接失败: {network_e}")
             except Exception as e:
-                logging.error(f"Yahoo Finance API获取股票数据失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                logging.error(
+                    f"Yahoo Finance API获取股票数据失败 (尝试 {
+                        attempt + 1}/{max_retries}): {e}"
+                )
                 logging.error(f"错误类型: {type(e).__name__}")
                 if attempt < max_retries - 1 and ("Connection" in str(e) or "timeout" in str(e).lower()):
                     time.sleep(1)
@@ -273,7 +280,10 @@ class FinanceAPI:
                 response = requests.get(url, params=params, timeout=10)
 
             if response.status_code != 200:
-                return {"error": f"Failed to fetch historical data for {symbol}: HTTP {response.status_code}"}
+                return {
+                    "error": f"Failed to fetch historical data for {symbol}: HTTP {
+                        response.status_code}"
+                }
 
             data = response.json()
 

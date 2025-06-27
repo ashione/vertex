@@ -1,6 +1,7 @@
 import json
-import logging
+import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote_plus
@@ -11,6 +12,27 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.tools.functions import FunctionTool
 
 logging = LoggerUtil.get_logger()
+
+# 搜索服务常量
+SEARCH_PROVIDER_BRAVE = "brave"
+SEARCH_PROVIDER_BOCHA = "bocha"
+SEARCH_PROVIDER_SERPAPI = "serpapi"
+SEARCH_PROVIDER_SEARCHAPI = "searchapi"
+SEARCH_PROVIDER_DUCKDUCKGO = "duckduckgo"
+
+# 搜索服务列表，按优先级排序
+SEARCH_PROVIDERS = [
+    SEARCH_PROVIDER_BRAVE,
+    SEARCH_PROVIDER_BOCHA,
+    SEARCH_PROVIDER_SERPAPI,
+    SEARCH_PROVIDER_SEARCHAPI,
+    SEARCH_PROVIDER_DUCKDUCKGO,
+]
+
+# 全局配置缓存
+_web_search_config_cache = None
+_config_loaded = False
+_config_lock = threading.Lock()  # 添加线程锁
 
 
 def _is_valid_date_format(freshness: str) -> bool:
@@ -28,6 +50,73 @@ def _is_valid_date_format(freshness: str) -> bool:
     date_range_pattern = r"^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$"
 
     return bool(re.match(single_date_pattern, freshness) or re.match(date_range_pattern, freshness))
+
+
+def _get_web_search_config():
+    """获取Web搜索配置（带缓存）
+
+    Returns:
+        包含被启用的搜索服务配置和对应搜索函数的字典
+    """
+    global _web_search_config_cache, _config_loaded
+
+    # 使用线程锁确保配置加载的线程安全
+    with _config_lock:
+        if not _config_loaded or _web_search_config_cache is None:
+            try:
+                from vertex_flow.workflow.service import VertexFlowService
+
+                service = VertexFlowService.get_instance()
+
+                # 获取各种搜索服务的配置
+                _web_search_config_cache = {}
+                enabled_services = []
+
+                # 搜索函数映射
+                search_functions = {
+                    SEARCH_PROVIDER_BRAVE: _search_with_brave,
+                    SEARCH_PROVIDER_BOCHA: _search_with_bocha,
+                    SEARCH_PROVIDER_SERPAPI: _search_with_serpapi,
+                    SEARCH_PROVIDER_SEARCHAPI: _search_with_searchapi,
+                    SEARCH_PROVIDER_DUCKDUCKGO: _search_with_duckduckgo,
+                }
+
+                # 获取各个搜索服务的配置，只保留启用的服务
+                for provider in SEARCH_PROVIDERS:
+                    try:
+                        config = service.get_web_search_config(provider)
+                        if config.get("enabled", False):
+                            _web_search_config_cache[provider] = {
+                                "config": config,
+                                "function": search_functions[provider],
+                            }
+                            enabled_services.append(provider)
+                    except Exception as e:
+                        logging.warning(f"获取{provider}配置失败: {e}")
+
+                _config_loaded = True
+                # 只在有启用服务时打印日志
+                if enabled_services:
+                    logging.info(f"Web搜索配置已加载并缓存，启用的服务: {enabled_services}")
+                else:
+                    logging.warning("Web搜索配置已加载，但没有启用任何搜索服务")
+            except Exception as e:
+                logging.error(f"获取Web搜索配置失败: {str(e)}")
+                _web_search_config_cache = {}
+
+    return _web_search_config_cache
+
+
+def reset_web_search_config_cache():
+    """重置Web搜索配置缓存
+
+    当配置文件更新时，可以调用此函数重新加载配置。
+    """
+    global _web_search_config_cache, _config_loaded
+    with _config_lock:
+        _web_search_config_cache = None
+        _config_loaded = False
+        logging.info("Web搜索配置缓存已重置")
 
 
 class BochaWebSearch:
@@ -90,46 +179,7 @@ class BochaWebSearch:
 def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """统一的Web搜索工具函数
 
-    这是一个可用于function calling的Web搜索工具，支持多种搜索服务。
-    根据配置文件自动选择可用的搜索服务，支持Bocha AI、DuckDuckGo、SerpAPI等。
-
-    Args:
-        inputs: 输入参数字典，包含以下字段:
-            - query (str): 必需，搜索查询字符串
-            - count (int): 可选，返回结果数量，默认5
-            - freshness (str): 可选，搜索结果时效性，默认"noLimit"，可选值:
-                * noLimit: 不限（默认，推荐使用）
-                * oneDay: 一天内
-                * oneWeek: 一周内
-                * oneMonth: 一个月内
-                * oneYear: 一年内
-                * YYYY-MM-DD..YYYY-MM-DD: 搜索日期范围（仅Bocha支持）
-                * YYYY-MM-DD: 搜索指定日期（仅Bocha支持）
-            - summary (bool): 可选，是否返回AI总结，默认True（仅Bocha支持）
-        context: 上下文对象（可选）
-
-    Returns:
-        搜索结果字典，包含以下字段:
-            - success (bool): 搜索是否成功
-            - query (str): 原始查询字符串
-            - summary (str): AI生成的搜索结果总结（如果支持且启用）
-            - results (List[Dict]): 搜索结果列表
-            - total_count (int): 总结果数量
-            - search_engine (str): 实际使用的搜索引擎
-            - error (str): 错误信息（如果有）
-
-    Example:
-        >>> inputs = {
-        ...     "query": "人工智能最新发展趋势",
-        ...     "count": 5,
-        ...     "summary": True
-        ... }
-        >>> result = web_search_function(inputs)
-        >>> print(f"使用搜索引擎: {result['search_engine']}")
-        >>> if result['summary']:
-        ...     print(f"AI总结: {result['summary']}")
-        >>> for item in result['results']:
-        ...     print(f"{item['title']}: {item['url']}")
+    根据配置自动选择启用的搜索服务，按优先级顺序尝试。
     """
     # 参数验证
     if not inputs.get("query"):
@@ -146,43 +196,40 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
     if not isinstance(count, int) or count <= 0:
         count = 5
 
-    # 获取搜索服务配置
     try:
         from vertex_flow.workflow.service import VertexFlowService
 
         service = VertexFlowService.get_instance()
 
-        # 尝试不同的搜索服务，按优先级排序
-        search_services = [
-            ("bocha", _search_with_bocha),
-            ("duckduckgo", _search_with_duckduckgo),
-            ("serpapi", _search_with_serpapi),
-            ("searchapi", _search_with_searchapi),
-        ]
+        # 获取缓存的配置，避免重复加载
+        configs = _get_web_search_config() or {}
 
-        for service_name, search_func in search_services:
-            logging.info(f"尝试搜索引擎: {service_name}")
-            try:
-                result = search_func(service, query, count, freshness, summary)
-                if result["success"]:
-                    result["search_engine"] = service_name
-                    logging.info(f"Web搜索成功，使用引擎: {service_name}, 查询: {query}")
+        # 按优先级顺序尝试搜索服务
+        for provider in SEARCH_PROVIDERS:
+            provider_info = configs.get(provider)
+            if provider_info:  # 如果配置存在，说明该服务已启用
+                search_func = provider_info["function"]
+                logging.debug(f"尝试使用 {provider} 搜索服务")
+                result = search_func(service, query, count, freshness, summary, configs)
+                if result.get("success", False):
+                    result["search_engine"] = provider
                     return result
                 else:
-                    logging.warning(f"搜索引擎 {service_name} 失败: {result.get('error', 'Unknown error')}")
-            except Exception as e:
-                logging.error(f"搜索引擎 {service_name} 异常: {e}")
-                continue
+                    logging.warning(
+                        f"{provider} 搜索失败: {
+                            result.get(
+                                'error', '未知错误')}"
+                    )
 
-        # 所有搜索服务都失败
+        # 没有启用的搜索服务
         return {
             "success": False,
-            "error": "所有搜索服务都不可用，请检查配置或网络连接",
+            "error": "没有启用的搜索服务，请在配置文件中启用至少一个搜索服务",
+            "search_engine": "none",
             "query": query,
             "summary": "",
             "results": [],
             "total_count": 0,
-            "search_engine": "none",
         }
 
     except Exception as e:
@@ -198,64 +245,55 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
         }
 
 
-def _search_with_bocha(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
+def _search_with_bocha(
+    service, query: str, count: int, freshness: str, summary: bool, configs: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
     """使用Bocha AI搜索"""
     try:
-        config = service.get_web_search_config("bocha")
-        if not config.get("enabled", False):
-            return {"success": False, "error": "Bocha搜索服务未启用"}
+        # 使用缓存的配置
+        provider_info = configs.get(SEARCH_PROVIDER_BOCHA, {})
+        config = provider_info.get("config", {})
 
-        if not config.get("api_key"):
-            return {"success": False, "error": "Bocha搜索API密钥未配置"}
+        if not config.get("sk"):
+            return {"success": False, "error": "Bocha API密钥未配置"}
 
-        # freshness参数验证：支持预定义值和日期格式
-        valid_freshness = ["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"]
-        if not isinstance(freshness, str) or (
-            freshness not in valid_freshness and not _is_valid_date_format(freshness)
-        ):
-            freshness = "noLimit"
-        if not isinstance(summary, bool):
-            summary = True
+        # 创建Bocha搜索客户端
+        bocha_client = BochaWebSearch(config["sk"])
 
-        # 执行Bocha搜索
-        search_client = BochaWebSearch(config["api_key"])
-        search_result = search_client.search(query=query, count=count, freshness=freshness, summary=summary)
+        # 执行搜索
+        result = bocha_client.search(query, count, freshness, summary)
 
-        if "error" in search_result:
-            return {"success": False, "error": search_result["error"]}
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
 
-        # 提取结果
-        web_pages = search_result.get("webPages", {})
-        results = web_pages.get("value", [])
-        total_count = web_pages.get("totalEstimatedMatches", len(results))
+        # 解析搜索结果
+        web_pages = result.get("webPages", {})
+        pages = web_pages.get("value", [])
+        summary_text = result.get("summary", "")
 
-        # 格式化结果
+        # 转换为统一格式
         formatted_results = []
-        for item in results:
+        for page in pages:
             formatted_results.append(
                 {
-                    "title": item.get("name", ""),
-                    "url": item.get("url", ""),
-                    "snippet": item.get("snippet", ""),
-                    "site_name": item.get("siteName", ""),
+                    "title": page.get("title", ""),
+                    "url": page.get("url", ""),
+                    "snippet": page.get("snippet", ""),
                     "source": "Bocha AI",
                 }
             )
 
-        # 提取AI总结
-        ai_summary = search_result.get("summary", {}).get("content", "") if summary else ""
-
         return {
             "success": True,
             "query": query,
-            "summary": ai_summary,
+            "summary": summary_text,
             "results": formatted_results,
-            "total_count": total_count,
-            "error": "",
+            "total_count": len(formatted_results),
         }
 
     except Exception as e:
-        return {"success": False, "error": f"Bocha搜索失败: {str(e)}"}
+        logging.error(f"Bocha搜索异常: {e}")
+        return {"success": False, "error": f"Bocha搜索异常: {str(e)}"}
 
 
 def _direct_serpapi_search(api_key: str, query: str, count: int = 5) -> Dict[str, Any]:
@@ -306,187 +344,212 @@ def _direct_serpapi_search(api_key: str, query: str, count: int = 5) -> Dict[str
         return {"error": str(e)}
 
 
-def _search_with_duckduckgo(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
+def _search_with_duckduckgo(
+    service, query: str, count: int, freshness: str, summary: bool, configs: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
     """使用DuckDuckGo搜索"""
     logging.info(f"DuckDuckGo搜索: {query}, {count}, {freshness}, {summary}")
 
     try:
-        config = service.get_web_search_config("duckduckgo")
-        if not config.get("enabled", False):
-            return {"success": False, "error": "DuckDuckGo搜索服务未启用"}
+        # 使用缓存的配置
+        provider_info = configs.get(SEARCH_PROVIDER_DUCKDUCKGO, {})
+        config = provider_info.get("config", {}) if provider_info else {}
 
-        # 使用WebSearchTool的免费搜索功能
-        web_tool = WebSearchTool(config)
-        search_result = web_tool.free_search.search_duckduckgo_instant(query)
+        # 使用DuckDuckGo Instant Answer API
+        url = "https://api.duckduckgo.com/"
+        params = {
+            "q": query,
+            "format": "json",
+            "no_html": "1",
+            "skip_disambig": "1",
+        }
 
-        if "error" in search_result:
-            return {"success": False, "error": search_result["error"]}
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
 
-        results = search_result.get("results", [])
-        instant_answer = search_result.get("instant_answer")
+        data = response.json()
 
-        # 格式化结果
-        formatted_results = []
-        for item in results[:count]:
-            formatted_results.append(
+        # 解析DuckDuckGo响应
+        results = []
+        summary_text = ""
+
+        # 提取即时答案
+        if data.get("Abstract"):
+            results.append(
                 {
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "snippet": item.get("snippet", ""),
-                    "site_name": "",
+                    "title": data.get("Heading", "DuckDuckGo即时答案"),
+                    "url": data.get("AbstractURL", ""),
+                    "snippet": data.get("Abstract", ""),
                     "source": "DuckDuckGo",
                 }
             )
+            summary_text = data.get("Abstract", "")
 
-        # 如果有即时答案但没有搜索结果，将即时答案作为一个结果
-        if instant_answer and not formatted_results:
-            formatted_results.append(
-                {
-                    "title": f"即时答案: {query}",
-                    "url": f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
-                    "snippet": instant_answer.get("answer", ""),
-                    "site_name": instant_answer.get("source", "DuckDuckGo"),
-                    "source": "DuckDuckGo Instant Answer",
-                }
-            )
-
-        # 如果没有任何结果，创建一个搜索链接作为备用
-        if not formatted_results:
-            formatted_results.append(
-                {
-                    "title": f"在DuckDuckGo上搜索: {query}",
-                    "url": f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
-                    "snippet": f"点击查看关于'{query}'的完整搜索结果",
-                    "site_name": "DuckDuckGo",
-                    "source": "DuckDuckGo Search",
-                }
-            )
-
-        # 如果有即时答案，添加到总结中
-        ai_summary = ""
-        if instant_answer and summary:
-            ai_summary = f"即时答案: {instant_answer.get('answer', '')}"
-            if instant_answer.get("source"):
-                ai_summary += f" (来源: {instant_answer['source']})"
-        elif summary:
-            ai_summary = f"为您找到关于'{query}'的搜索结果"
-
-        logging.info(f"DuckDuckGo搜索结果: {formatted_results}, {ai_summary}")
+        # 提取相关主题
+        for topic in data.get("RelatedTopics", [])[: count - 1]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                results.append(
+                    {
+                        "title": (
+                            topic.get("Text", "").split(" - ")[0]
+                            if " - " in topic.get("Text", "")
+                            else topic.get("Text", "")
+                        ),
+                        "url": topic.get("FirstURL", ""),
+                        "snippet": topic.get("Text", ""),
+                        "source": "DuckDuckGo",
+                    }
+                )
 
         return {
             "success": True,
             "query": query,
-            "summary": ai_summary,
-            "results": formatted_results,
-            "total_count": len(formatted_results),
-            "error": "",
+            "summary": summary_text,
+            "results": results,
+            "total_count": len(results),
         }
 
     except Exception as e:
-        return {"success": False, "error": f"DuckDuckGo搜索失败: {str(e)}"}
+        logging.error(f"DuckDuckGo搜索异常: {e}")
+        return {"success": False, "error": f"DuckDuckGo搜索异常: {str(e)}"}
 
 
-def _search_with_serpapi(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
+def _search_with_serpapi(
+    service, query: str, count: int, freshness: str, summary: bool, configs: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
     """使用SerpAPI搜索"""
     try:
-        config = service.get_web_search_config("serpapi")
-        if not config.get("enabled", False):
-            return {"success": False, "error": "SerpAPI搜索服务未启用"}
+        # 使用缓存的配置
+        provider_info = configs.get(SEARCH_PROVIDER_SERPAPI, {})
+        config = provider_info.get("config", {}) if provider_info else {}
 
         if not config.get("api_key"):
             return {"success": False, "error": "SerpAPI密钥未配置"}
 
-        # 直接调用SerpAPI，不使用FreeWebSearchTool
-        search_result = _direct_serpapi_search(config.get("api_key"), query, count)
+        # 使用SerpAPI搜索
+        result = _direct_serpapi_search(config["api_key"], query, count)
 
-        if "error" in search_result:
-            return {"success": False, "error": search_result["error"]}
-
-        results = search_result.get("results", [])
-        if not results:
-            return {"success": False, "error": "SerpAPI搜索无结果"}
-
-        # 格式化结果
-        formatted_results = []
-        for item in results[:count]:
-            formatted_results.append(
-                {
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "snippet": item.get("snippet", ""),
-                    "site_name": "",
-                    "source": "SerpAPI",
-                }
-            )
-
-        # 生成简单总结
-        ai_summary = ""
-        if summary and formatted_results:
-            ai_summary = f"通过SerpAPI找到 {len(formatted_results)} 个相关结果"
+        if not result.get("success", False):
+            return {"success": False, "error": result.get("error", "SerpAPI搜索失败")}
 
         return {
             "success": True,
             "query": query,
-            "summary": ai_summary,
-            "results": formatted_results,
-            "total_count": len(formatted_results),
-            "error": "",
+            "summary": "",  # SerpAPI不提供AI总结
+            "results": result.get("results", []),
+            "total_count": len(result.get("results", [])),
         }
 
     except Exception as e:
-        return {"success": False, "error": f"SerpAPI搜索失败: {str(e)}"}
+        logging.error(f"SerpAPI搜索异常: {e}")
+        return {"success": False, "error": f"SerpAPI搜索异常: {str(e)}"}
 
 
-def _search_with_searchapi(service, query: str, count: int, freshness: str, summary: bool) -> Dict[str, Any]:
+def _search_with_searchapi(
+    service, query: str, count: int, freshness: str, summary: bool, configs: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
     """使用SearchAPI搜索"""
     try:
-        config = service.get_web_search_config("searchapi")
-        if not config.get("enabled", False):
-            return {"success": False, "error": "SearchAPI搜索服务未启用"}
+        # 使用缓存的配置
+        provider_info = configs.get(SEARCH_PROVIDER_SEARCHAPI, {})
+        config = provider_info.get("config", {}) if provider_info else {}
 
         if not config.get("api_key"):
             return {"success": False, "error": "SearchAPI密钥未配置"}
 
-        # 使用FreeWebSearchTool的SearchAPI功能
-        free_search = FreeWebSearchTool(config)
-        search_result = free_search.search_searchapi_free(query)
+        api_key = config["api_key"]
+        url = "https://www.searchapi.io/api/v1/search"
 
-        if "error" in search_result:
-            return {"success": False, "error": search_result["error"]}
+        params = {
+            "api_key": api_key,
+            "q": query,
+            "num": count,
+            "engine": "google",
+        }
 
-        results = search_result.get("results", [])
-        if not results:
-            return {"success": False, "error": "SearchAPI搜索无结果"}
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
 
-        # 格式化结果
-        formatted_results = []
-        for item in results[:count]:
-            formatted_results.append(
+        data = response.json()
+
+        if "error" in data:
+            return {"success": False, "error": f"SearchAPI错误: {data['error']}"}
+
+        # 解析搜索结果
+        results = []
+        organic_results = data.get("organic_results", [])
+
+        for result in organic_results:
+            results.append(
                 {
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "snippet": item.get("snippet", ""),
-                    "site_name": "",
+                    "title": result.get("title", ""),
+                    "url": result.get("link", ""),
+                    "snippet": result.get("snippet", ""),
                     "source": "SearchAPI",
                 }
             )
 
-        # 生成简单总结
-        ai_summary = ""
-        if summary and formatted_results:
-            ai_summary = f"通过SearchAPI找到 {len(formatted_results)} 个相关结果"
+        return {
+            "success": True,
+            "query": query,
+            "summary": "",  # SearchAPI不提供AI总结
+            "results": results,
+            "total_count": len(results),
+        }
+
+    except Exception as e:
+        logging.error(f"SearchAPI搜索异常: {e}")
+        return {"success": False, "error": f"SearchAPI搜索异常: {str(e)}"}
+
+
+def _search_with_brave(
+    service, query: str, count: int, freshness: str, summary: bool, configs: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
+    """使用Brave Search API搜索"""
+    logging.info(f"Brave Search搜索: {query}, {count}, {freshness}, {summary}")
+    try:
+        provider_info = configs.get(SEARCH_PROVIDER_BRAVE, {})
+        config = provider_info.get("config", {}) if provider_info else {}
+        if not config.get("api_key"):
+            return {"success": False, "error": "Brave Search API密钥未配置"}
+        api_key = config["api_key"]
+        url = "https://api.search.brave.com/res/v1/web/search"
+        headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
+        params = {
+            "q": query,
+            "count": count,
+        }
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+
+        data = response.json()
+
+        # 解析Brave Search结果
+        results = []
+        web_results = data.get("web", {}).get("results", [])
+
+        for result in web_results:
+            results.append(
+                {
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("description", ""),
+                    "source": "Brave Search",
+                }
+            )
 
         return {
             "success": True,
             "query": query,
-            "summary": ai_summary,
-            "results": formatted_results,
-            "total_count": len(formatted_results),
-            "error": "",
+            "summary": "",  # Brave Search不提供AI总结
+            "results": results,
+            "total_count": len(results),
         }
 
     except Exception as e:
-        return {"success": False, "error": f"SearchAPI搜索失败: {str(e)}"}
+        logging.error(f"Brave Search搜索异常: {e}")
+        return {"success": False, "error": f"Brave Search搜索异常: {str(e)}"}
 
 
 def create_web_search_tool() -> FunctionTool:
@@ -522,7 +585,7 @@ def create_web_search_tool() -> FunctionTool:
 
     return FunctionTool(
         name="web_search",
-        description="智能Web搜索工具，支持多种搜索引擎。根据配置按优先级自动选择可用的搜索服务：Bocha AI（高质量AI总结）、DuckDuckGo（免费即时答案）、SerpAPI（Google搜索结果）、SearchAPI（多搜索引擎支持）。每次只使用一个启用的搜索服务。可以搜索最新的网络信息，支持新闻、百科、学术等多种内容源。适用于获取实时信息、研究资料收集、事实核查等场景。",
+        description="智能Web搜索工具，支持多种搜索引擎。根据配置文件中的enabled状态自动选择可用的搜索服务，按优先级顺序尝试：Brave Search、Bocha AI（高质量AI总结）、SerpAPI（Google搜索结果）、SearchAPI（多搜索引擎支持）、DuckDuckGo（免费即时答案）。每次只使用一个启用的搜索服务。可以搜索最新的网络信息，支持新闻、百科、学术等多种内容源。适用于获取实时信息、研究资料收集、事实核查等场景。",
         func=web_search_function,
         schema=schema,
         id="web_search_unified",
@@ -755,7 +818,10 @@ class FreeWebSearchTool:
                 else:
                     if "error" in result:
                         errors.append(f"{method_name}: {result['error']}")
-                        self.logger.warning(f"{method_name} 搜索失败: {result['error']}")
+                        self.logger.warning(
+                            f"{method_name} 搜索失败: {
+                                result['error']}"
+                        )
 
                 # 避免过于频繁的请求
                 time.sleep(0.5)
@@ -820,18 +886,35 @@ class WebSearchTool:
                 # 格式化结果
                 formatted_results = []
                 for i, item in enumerate(result["results"], 1):
-                    formatted_result = f"{i}. **{item.get('title', 'No Title')}**\n"
-                    formatted_result += f"   URL: {item.get('url', 'No URL')}\n"
-                    formatted_result += f"   摘要: {item.get('snippet', 'No snippet available')}\n"
-                    formatted_result += f"   来源: {item.get('source', 'Unknown')}\n"
+                    formatted_result = f"{i}. **{
+                        item.get(
+                            'title',
+                            'No Title')}**\n"
+                    formatted_result += f"   URL: {
+                        item.get(
+                            'url', 'No URL')}\n"
+                    formatted_result += f"   摘要: {
+                        item.get(
+                            'snippet',
+                            'No snippet available')}\n"
+                    formatted_result += f"   来源: {
+                        item.get(
+                            'source',
+                            'Unknown')}\n"
                     formatted_results.append(formatted_result)
 
                 search_summary = f"🔍 搜索查询: {query}\n"
                 search_summary += f"📊 找到 {result['total_results']} 个结果\n"
-                search_summary += f"🛠️ 使用的搜索方法: {', '.join(result.get('search_methods_used', []))}\n\n"
+                search_summary += f"🛠️ 使用的搜索方法: {
+                    ', '.join(
+                        result.get(
+                            'search_methods_used',
+                            []))}\n\n"
 
                 if result.get("errors"):
-                    search_summary += f"⚠️ 部分搜索方法失败: {'; '.join(result['errors'])}\n\n"
+                    search_summary += f"⚠️ 部分搜索方法失败: {
+                        '; '.join(
+                            result['errors'])}\n\n"
 
                 search_summary += "📋 搜索结果:\n" + "\n".join(formatted_results)
 

@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY
+from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import (
     Condition,
     Edge,
@@ -64,8 +65,7 @@ class Workflow(Generic[T]):
     pass
 
 
-class WorkflowContext(Generic[T]):
-    pass
+# WorkflowContext现在从context模块导入
 
 
 class Vertex(Generic[T], metaclass=VertexAroundMeta):

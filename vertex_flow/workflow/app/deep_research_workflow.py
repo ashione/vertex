@@ -44,7 +44,8 @@ from vertex_flow.workflow.constants import (
     SYSTEM,
     USER,
 )
-from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow, WorkflowContext
+from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow
 
 logger = LoggerUtil.get_logger()
 
@@ -831,7 +832,8 @@ class DeepResearchWorkflow:
                 "file_path": "",
                 "success": False,
                 "message": f"保存文件失败: {str(e)}",
-                "summary_report": inputs.get("summary_report", ""),  # 即使保存失败也传递报告内容
+                # 即使保存失败也传递报告内容
+                "summary_report": inputs.get("summary_report", ""),
             }
 
     def _get_summary_report_user_prompt(self) -> str:

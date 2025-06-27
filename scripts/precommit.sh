@@ -5,7 +5,43 @@
 
 set -e
 
+# 设置系统编码和换行符，确保Ubuntu和macOS一致
+export PYTHONIOENCODING=utf-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+# 配置git换行符处理
+git config --global core.autocrlf false
+git config --global core.eol lf
+
+# 检测操作系统类型
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "🐧 Running on Linux (Ubuntu)"
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "🍎 Running on macOS"
+else
+    echo "🖥️ Running on other OS: $OSTYPE"
+fi
+
+# 检测是否为CI环境
+if [ "$CI" = "true" ]; then
+    echo "🔧 Running in CI environment"
+    # CI环境优先使用pip
+    PIP_CMD="pip"
+    UV_CMD="uv"
+else
+    echo "💻 Running in local environment"
+    # 本地环境优先使用uv
+    PIP_CMD="uv pip"
+    UV_CMD="uv"
+fi
+
 echo "🔍 Running pre-commit checks..."
+
+# 显示当前工作目录和脚本位置
+echo "📁 Current working directory: $(pwd)"
+echo "📁 Script location: $(dirname "$0")"
+echo "📁 Script name: $(basename "$0")"
 
 # Colors for output
 RED='\033[0;31m'
@@ -46,6 +82,17 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# 检查.flake8配置文件是否存在
+if [ ! -f ".flake8" ]; then
+    print_error ".flake8 configuration file not found in current directory"
+    print_error "Current directory: $(pwd)"
+    print_error "Directory contents:"
+    ls -la
+    exit 1
+else
+    print_status ".flake8 configuration file found"
+fi
+
 # 激活虚拟环境
 activate_venv
 
@@ -53,7 +100,8 @@ activate_venv
 check_package() {
     if ! python3 -c "import $1" &> /dev/null; then
         print_warning "$1 is not installed. Installing..."
-        if command -v uv &> /dev/null; then
+        # 在CI环境中优先使用pip，避免uv的虚拟环境问题
+        if command -v uv &> /dev/null && [ -z "$CI" ]; then
             uv pip install $1
         else
             pip3 install $1
@@ -61,11 +109,30 @@ check_package() {
     fi
 }
 
-# 安装必需的包
+# 检查项目依赖是否已安装
+check_project_dependencies() {
+    print_status "Checking project dependencies..."
+    
+    # 检查项目是否已安装
+    if ! python3 -c "import vertex_flow" &> /dev/null; then
+        print_warning "Project not installed. Installing in development mode..."
+        # 在CI环境中优先使用pip
+        if command -v uv &> /dev/null && [ -z "$CI" ]; then
+            uv pip install -e .
+        else
+            pip3 install -e .
+        fi
+    fi
+}
+
+# 安装必需的包（与pyproject.toml保持一致）
 check_package "flake8"
 check_package "black"
 check_package "isort"
 check_package "autopep8"
+
+# 检查项目依赖
+check_project_dependencies
 
 # 获取要检查的 Python 文件列表（暂存的文件，排除 pipeline 目录）
 PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' | grep -v '^\.github/' || true)
@@ -89,7 +156,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     echo "🔧 Sorting imports with isort..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv run isort "$file"
             else
                 isort "$file"
@@ -102,7 +169,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     echo "🎨 Formatting code with black..."
     for file in $PYTHON_FILES; do
         if [ -f "$file" ]; then
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv run black "$file"
             else
                 black "$file"
@@ -128,7 +195,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
     
     # 运行 flake8 进行代码检查
     echo "🔍 Running flake8 linting..."
-    if ! (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+    if ! (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
         print_warning "Flake8 found issues. Attempting to auto-fix..."
         
         # 尝试使用 autopep8 自动修复
@@ -136,7 +203,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             echo "🔧 Auto-fixing with autopep8..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    if command -v uv &> /dev/null; then
+                    if command -v uv &> /dev/null && [ -z "$CI" ]; then
                         uv run autopep8 --in-place --aggressive --aggressive "$file"
                     else
                         autopep8 --in-place --aggressive --aggressive "$file"
@@ -148,7 +215,7 @@ if [ ! -z "$PYTHON_FILES" ]; then
             echo "🔧 Re-running formatters after auto-fix..."
             for file in $PYTHON_FILES; do
                 if [ -f "$file" ]; then
-                    if command -v uv &> /dev/null; then
+                    if command -v uv &> /dev/null && [ -z "$CI" ]; then
                         uv run isort "$file"
                         uv run black "$file"
                     else
@@ -160,14 +227,14 @@ if [ ! -z "$PYTHON_FILES" ]; then
             
             # 再次检查 flake8
             echo "🔍 Re-checking with flake8..."
-            if (if command -v uv &> /dev/null; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
+            if (if command -v uv &> /dev/null && [ -z "$CI" ]; then uv run flake8 $PYTHON_FILES; else flake8 $PYTHON_FILES; fi); then
                 print_status "Auto-fix successful! Flake8 linting passed"
             else
                 print_warning "Some issues remain after auto-fix. Continuing with commit..."
             fi
         else
             print_warning "autopep8 not available for auto-fixing. Installing..."
-            if command -v uv &> /dev/null; then
+            if command -v uv &> /dev/null && [ -z "$CI" ]; then
                 uv pip install autopep8
             else
                 pip3 install autopep8
@@ -183,7 +250,7 @@ fi
 # 自动清理配置文件
 echo "🔧 Auto-sanitizing configuration files..."
 if [ -f "scripts/sanitize_config.py" ]; then
-    if command -v uv &> /dev/null; then
+    if command -v uv &> /dev/null && [ -z "$CI" ]; then
         uv run python3 scripts/sanitize_config.py
     else
         python3 scripts/sanitize_config.py
