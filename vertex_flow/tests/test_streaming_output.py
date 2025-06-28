@@ -53,11 +53,7 @@ async def test_streaming_output():
             delay = receive_time - send_time if send_time > 0 else 0
             elapsed = receive_time - start_time
 
-            print(
-                f"[接收] 事件 {event_id}: {message} (延迟: {
-                    delay:.3f}s, 总时间: {
-                    elapsed:.3f}s)"
-            )
+            print(f"[接收] 事件 {event_id}: {message} (延迟: { delay:.3f}s, 总时间: { elapsed:.3f}s)")
 
             # 检查是否为完成事件
             if event.get("status") == "workflow_complete":
