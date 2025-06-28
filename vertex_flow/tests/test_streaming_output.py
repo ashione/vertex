@@ -34,12 +34,7 @@ async def test_streaming_output():
         for i, event in enumerate(events):
             await asyncio.sleep(0.5)  # 每0.5秒发送一个事件
             event["timestamp"] = time.time()
-            print(
-                f"[发送] 事件 {
-                    event['id']}: {
-                    event['message']} (时间: {
-                    event['timestamp']:.3f})"
-            )
+            print(f"[发送] 事件 {event['id']}: {event['message']} (时间: {event['timestamp']:.3f})")
             channel.emit_event(EventType.MESSAGES, event)
 
     # 启动发送任务
