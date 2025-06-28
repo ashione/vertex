@@ -56,22 +56,26 @@ generate_image_tags() {
     local commit_id="$3"
     local tag="$4"
     
-    # 清理分支名（替换特殊字符）
-    local clean_branch=$(echo "$branch_name" | sed 's/[^a-zA-Z0-9._-]/-/g')
-    
     # 生成标签列表
     local tags=()
     
-    # 如果有标签，使用标签
+    # 如果有标签，优先使用tag name
     if [ -n "$tag" ]; then
         tags+=("$base_name:$tag")
+        tags+=("$base_name:latest")
+    else
+        # 清理分支名（替换特殊字符，只保留字母数字和连字符）
+        local clean_branch=$(echo "$branch_name" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+        
+        # 如果清理后的分支名为空，使用默认值
+        if [ -z "$clean_branch" ]; then
+            clean_branch="unknown"
+        fi
+        
+        # 分支-commit标签
+        tags+=("$base_name:$clean_branch-$commit_id")
+        tags+=("$base_name:latest")
     fi
-    
-    # 分支-commit标签
-    tags+=("$base_name:$clean_branch-$commit_id")
-    
-    # latest标签
-    tags+=("$base_name:latest")
     
     echo "${tags[@]}"
 }

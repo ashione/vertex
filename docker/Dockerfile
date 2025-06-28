@@ -36,6 +36,7 @@ RUN mkdir -p /usr/local/lib/python3.12/site-packages/config && cp ./config/llm.y
 
 # 暴露端口（如果需要Web UI）
 EXPOSE 7860
+EXPOSE 8999
 
 # 设置默认命令
 CMD ["python", "-m", "vertex_flow.cli", "workflow"] 
