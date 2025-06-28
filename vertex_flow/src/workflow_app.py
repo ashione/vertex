@@ -13,7 +13,16 @@ from typing import List, Tuple
 import gradio as gr
 
 from vertex_flow.utils.logger import setup_logger
-from vertex_flow.workflow.constants import ENABLE_STREAM, SHOW_REASONING, SHOW_REASONING_KEY, SYSTEM, USER
+from vertex_flow.workflow.constants import (
+    ENABLE_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
+    ENABLE_STREAM,
+    ENABLE_TOKEN_USAGE_KEY,
+    SHOW_REASONING,
+    SHOW_REASONING_KEY,
+    SYSTEM,
+    USER,
+)
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
@@ -217,8 +226,9 @@ class WorkflowChatApp:
                         SYSTEM: system_prompt,
                         USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
                         ENABLE_STREAM: True,  # 启用流模式
-                        "enable_reasoning": enable_reasoning,  # 启用思考过程
+                        ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                         SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
+                        ENABLE_SEARCH_KEY: True,
                     },
                     tools=tools,  # 传递工具列表
                 )
@@ -236,8 +246,9 @@ class WorkflowChatApp:
                 SYSTEM: system_prompt,
                 USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
                 ENABLE_STREAM: True,  # 启用流模式
-                "enable_reasoning": enable_reasoning,  # 启用思考过程
+                ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                 SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
+                ENABLE_SEARCH_KEY: True,
             },
             tools=tools,  # 传递工具列表
         )
@@ -368,6 +379,7 @@ class WorkflowChatApp:
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
         logger.info(f"用户: {display_message[:150]}... | 助手: {final_response[:150]}...")
+        logger.info(f"token usage: {llm_vertex.model.get_usage()}")
 
     def get_available_providers(self) -> List[str]:
         """获取可用的提供商列表"""

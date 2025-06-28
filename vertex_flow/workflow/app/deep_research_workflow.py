@@ -31,6 +31,7 @@ from typing import Any, Dict
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import (
+    ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
     LOCAL_VAR,
     POSTPROCESS,
@@ -146,6 +147,7 @@ class DeepResearchWorkflow:
             ENABLE_STREAM: stream_mode,
             "temperature": 0.6,  # 保持准确性，适度创新
             "max_tokens": 8192,  # 信息收集需要更多空间
+            ENABLE_SEARCH_KEY: True,
         }
         if save_intermediate:
             information_collection_params[POSTPROCESS] = lambda content, inputs, context: self._postprocess_with_save(

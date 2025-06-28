@@ -64,6 +64,9 @@ WORKFLOW_END_STATES = [WORKFLOW_COMPLETE, WORKFLOW_FAILED, WORKFLOW_ERROR]
 # Reasoning configuration constants
 SHOW_REASONING = True  # Default value for showing reasoning process in AI responses
 SHOW_REASONING_KEY = "show_reasoning"  # Key name for show_reasoning parameter
+ENABLE_REASONING_KEY = "enable_reasoning"  # Key name for enable_reasoning parameter
+ENABLE_SEARCH_KEY = "enable_search"  # Key name for enable_search parameter
+ENABLE_TOKEN_USAGE_KEY = "enable_token_usage"  # Key name for enable_token_usage parameter
 
 # Content attribute constants
 CONTENT_ATTR = "content"  # Attribute name for regular content

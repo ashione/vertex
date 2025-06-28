@@ -7,7 +7,12 @@ from openai import OpenAI
 from openai.types.chat.chat_completion import Choice
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import CONTENT_ATTR, REASONING_CONTENT_ATTR, SHOW_REASONING_KEY
+from vertex_flow.workflow.constants import (
+    CONTENT_ATTR,
+    ENABLE_REASONING_KEY,
+    REASONING_CONTENT_ATTR,
+    SHOW_REASONING_KEY,
+)
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
 logging = LoggerUtil.get_logger()
@@ -23,6 +28,7 @@ class ChatModel(abc.ABC):
         self.name = name
         self.sk = sk
         self.provider = provider
+        self._usage = {}  # 存储最新的usage信息
         logging.info(f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}.")
         # 为序列化保存.
         self._base_url = base_url
@@ -87,8 +93,8 @@ class ChatModel(abc.ABC):
         logging.debug(f"Processed messages: {processed_messages}")
         return processed_messages
 
-    def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
-        """Create completion with proper error handling"""
+    def _build_api_params(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
+        """构建API调用参数的基础方法，供子类调用"""
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -105,13 +111,23 @@ class ChatModel(abc.ABC):
         processed_messages = self._process_multimodal_messages(messages)
 
         # 构建API调用参数 - 过滤掉自定义参数
-        filtered_option = {k: v for k, v in default_option.items() if k not in [SHOW_REASONING_KEY, "enable_reasoning"]}
+        filtered_option = {
+            k: v for k, v in default_option.items() if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY]
+        }
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
+        # 支持enable_search参数
+        if "enable_search" in filtered_option:
+            api_params["enable_search"] = filtered_option["enable_search"]
+        return api_params
 
+    def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
+        """Create completion with proper error handling"""
+        api_params = self._build_api_params(messages, option, stream, tools)
         try:
             completion = self.client.chat.completions.create(**api_params)
+            logging.info(f"show completion: {completion}")
             return completion
         except Exception as e:
             logging.error(f"Error creating completion: {e}")
@@ -119,7 +135,27 @@ class ChatModel(abc.ABC):
 
     def chat(self, messages, option: Optional[Dict[str, Any]] = None, tools=None) -> Choice:
         completion = self._create_completion(messages, option, stream=False, tools=tools)
+        # 记录usage信息
+        self._set_usage(completion)
         return completion.choices[0]
+
+    def _set_usage(self, completion=None):
+        """
+        默认实现：适配 OpenAI/通义等主流 usage 字段。
+        子类可重写以适配特定的 usage 字段结构。
+        """
+        usage = {}
+        if hasattr(completion, "usage") and completion.usage:
+            usage = {
+                "input_tokens": getattr(completion.usage, "prompt_tokens", None),
+                "output_tokens": getattr(completion.usage, "completion_tokens", None),
+                "total_tokens": getattr(completion.usage, "total_tokens", None),
+            }
+        logging.info(f"usage: {usage}")
+        self._usage = usage
+
+    def get_usage(self) -> dict:
+        return self._usage
 
     def chat_stream(self, messages, option: Optional[Dict[str, Any]] = None, tools=None):
         completion = self._create_completion(messages, option, stream=True, tools=tools)
@@ -130,6 +166,7 @@ class ChatModel(abc.ABC):
                 if content is not None:  # 只yield非None的内容
                     yield content
             else:
+                self._set_usage(chunk)
                 logging.debug("Chunk object does not have valid choices or delta content.")
 
     def chat_stream_with_reasoning(self, messages, option: Optional[Dict[str, Any]] = None):
@@ -243,6 +280,19 @@ class Tongyi(ChatModel):
             base_url=base_url,
             provider="tongyi",
         )
+
+    def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
+        """Tongyi专属：流式时自动加stream_options.include_usage"""
+        api_params = self._build_api_params(messages, option, stream, tools)
+        # 仅Tongyi流式加usage
+        if stream:
+            api_params["stream_options"] = {"include_usage": True}
+        try:
+            completion = self.client.chat.completions.create(**api_params)
+            return completion
+        except Exception as e:
+            logging.error(f"Error creating completion: {e}")
+            raise
 
 
 class OpenRouter(ChatModel):

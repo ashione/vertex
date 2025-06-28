@@ -384,36 +384,36 @@ class MCPLLMVertex(LLMVertex):
             return
 
         # 首先添加assistant消息（包含tool_calls）
+        tool_message = None
         if hasattr(choice.message, "content") and choice.message.content:
-            self.messages.append(
-                {
-                    "role": "assistant",
-                    "content": choice.message.content,
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
-                        }
-                        for tool_call in choice.message.tool_calls
-                    ],
-                }
-            )
+            tool_message = {
+                "role": "assistant",
+                "content": choice.message.content,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
+                    }
+                    for tool_call in choice.message.tool_calls
+                ],
+            }
         else:
-            self.messages.append(
-                {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
-                        }
-                        for tool_call in choice.message.tool_calls
-                    ],
-                }
-            )
+            tool_message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
+                    }
+                    for tool_call in choice.message.tool_calls
+                ],
+            }
+
+        logger.info(f"tool_message: {tool_message}")
+        self.messages.append(tool_message)
 
         # 分离MCP工具和常规工具
         mcp_tool_calls = []
@@ -561,49 +561,7 @@ class MCPLLMVertex(LLMVertex):
             logger.error(f"Error in streaming with tools: {e}")
             yield f"Error: {str(e)}"
 
-    def _chat_stream(self, inputs: Dict[str, Any], context: Optional[WorkflowContext] = None):
-        """Regular chat stream without tools"""
-        if context is None:
-            context = WorkflowContext()
-
-        try:
-            # Use parent's chat stream method
-            for chunk in self.model.chat_stream(self.messages):
-                yield chunk
-        except Exception as e:
-            logger.error(f"Error in chat stream: {e}")
-            yield f"Error: {str(e)}"
-
     # === MCP Utility Methods ===
-
-    def chat(self, inputs: Dict[str, Any], context: Union[WorkflowContext, None] = None):
-        """
-        Override chat method to fix parent class bug and add MCP support
-
-        This method fixes the _build_llm_option parameter issue in the parent class
-        while maintaining full MCP integration.
-        """
-        finish_reason = None
-        if self.enable_stream and hasattr(self.model, "chat_stream"):
-            return self._chat_stream(inputs, context)
-
-        llm_tools = self._build_llm_tools()
-        option = self._build_llm_option(inputs, context) if context else {}
-
-        while finish_reason is None or finish_reason == "tool_calls":
-            choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-            finish_reason = choice.finish_reason
-            if finish_reason == "tool_calls":
-                self._handle_tool_calls(choice, context)
-
-        result = (
-            choice.message.content
-            if self.postprocess is None
-            else self.postprocess(choice.message.content, inputs, context)
-        )
-
-        logger.debug(f"MCP chat bot response: {result}")
-        return result
 
     async def read_mcp_resource(self, resource_uri: str) -> Optional[str]:
         """Read an MCP resource by URI"""

@@ -2,7 +2,7 @@ import argparse
 import json
 import threading
 import traceback
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -14,13 +14,18 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    ENABLE_REASONING_KEY,
     ENABLE_STREAM,
     ERROR_KEY,
     MESSAGE_KEY,
+    MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
     MESSAGE_TYPE_REGULAR,
     OUTPUT_KEY,
+    SHOW_REASONING_KEY,
+    SYSTEM,
     TYPE_KEY,
+    USER,
     VERTEX_ID_KEY,
 )
 from vertex_flow.workflow.context import WorkflowContext
@@ -55,11 +60,20 @@ workflow_instances = {}  # 存储workflow实例
 
 class WorkflowInput(BaseModel):
     workflow_name: str
-    env_vars: Dict[str, Any] = {}
-    user_vars: Dict[str, Any] = {}
-    content: str = ""
-    stream: bool = False  # 新增参数，用于指定是否为流式模式
-    enable_mcp: bool = True  # 🆕 默认启用MCP开关
+    env_vars: Dict[str, Any] = {}  # 环境变量，用于模板替换
+    user_vars: Dict[str, Any] = {}  # 用户变量，用于模板替换
+    content: str = ""  # 用户输入内容
+    image_url: Optional[str] = None  # 图片URL，支持多模态输入
+    stream: bool = False  # 是否启用流式输出
+    enable_mcp: bool = True  # 是否启用MCP功能
+
+    # LLM配置参数（与user_vars分离）
+    system_prompt: Optional[str] = None  # 系统提示词
+    enable_reasoning: bool = False  # 是否启用推理过程
+    show_reasoning: bool = True  # 是否显示推理过程
+    temperature: Optional[float] = None  # 温度参数
+    max_tokens: Optional[int] = None  # 最大token数
+    enable_search: bool = True  # 新增：通义千问联网搜索增强，默认为True
 
 
 class WorkflowOutput(BaseModel):
@@ -67,6 +81,8 @@ class WorkflowOutput(BaseModel):
     status: bool = False
     message: str = ""
     vertices_status: Dict[str, Any] = {}
+    token_usage: Dict[str, Any] = {}  # 添加token使用统计
+    total_token_usage: Dict[str, Any] = {}  # 添加总token使用统计（多轮对话）
 
 
 class WorkflowInstanceManager:
@@ -165,7 +181,48 @@ def check_mcp_availability():
 
 
 def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List[FunctionTool]):
-    """创建LLM Vertex，根据MCP开关选择类型"""
+    """创建LLM Vertex，根据MCP开关选择类型，支持多模态输入"""
+
+    # 构建用户消息，支持多模态
+    user_messages = []
+
+    # 如果有图片URL，创建多模态消息
+    if input_data.image_url:
+        if input_data.content and input_data.content.strip():
+            # 有文本内容，创建多模态消息
+            multimodal_content = [
+                {"type": "text", "text": input_data.content},
+                {"type": "image_url", "image_url": {"url": input_data.image_url}},
+            ]
+            user_messages = [multimodal_content]
+        else:
+            # 只有图片，创建纯图片消息
+            multimodal_content = [{"type": "image_url", "image_url": {"url": input_data.image_url}}]
+            user_messages = [multimodal_content]
+    else:
+        # 只有文本内容
+        if input_data.content and input_data.content.strip():
+            user_messages = [input_data.content]
+        else:
+            # 如果既没有文本也没有图片，使用默认消息
+            user_messages = ["请帮助我。"]
+
+    # 构建LLM参数
+    llm_params = {
+        "model": chatmodel,
+        SYSTEM: input_data.system_prompt or "你是一个热情的聊天机器人。",
+        USER: user_messages,
+        ENABLE_STREAM: input_data.stream,
+        ENABLE_REASONING_KEY: input_data.enable_reasoning,
+        SHOW_REASONING_KEY: input_data.show_reasoning,
+    }
+
+    # 添加可选的LLM参数
+    if input_data.temperature is not None:
+        llm_params["temperature"] = input_data.temperature
+    if input_data.max_tokens is not None:
+        llm_params["max_tokens"] = input_data.max_tokens
+    llm_params["enable_search"] = input_data.enable_search
 
     # 检查是否启用MCP
     if input_data.enable_mcp:
@@ -176,19 +233,20 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
             try:
                 # 创建MCP增强的LLM Vertex
                 logger.info("Creating MCP-enhanced LLM Vertex")
-                llm_vertex = MCPLLMVertex(
-                    vertex_id="llm",
-                    params={
-                        "model": chatmodel,
-                        "system": "你是一个热情的聊天机器人，具有访问外部资源和工具的能力。",
-                        "user_messages": [input_data.content],
-                        ENABLE_STREAM: input_data.stream,
+                mcp_params = llm_params.copy()
+                mcp_params.update(
+                    {
                         # MCP相关参数
                         "mcp_enabled": True,
                         "mcp_context_enabled": True,  # 自动包含MCP上下文
                         "mcp_tools_enabled": True,  # 启用MCP工具调用
                         "mcp_prompts_enabled": True,  # 启用MCP提示
-                    },
+                    }
+                )
+
+                llm_vertex = MCPLLMVertex(
+                    id="llm",
+                    params=mcp_params,
                     tools=function_tools,
                 )
 
@@ -213,12 +271,7 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
     logger.info("Creating standard LLM Vertex")
     llm_vertex = LLMVertex(
         id="llm",
-        params={
-            "model": chatmodel,
-            "system": "你是一个热情的聊天机器人。",
-            "user": [input_data.content],
-            ENABLE_STREAM: input_data.stream,
-        },
+        params=llm_params,
         tools=function_tools,
     )
 
@@ -327,8 +380,18 @@ def get_default_workflow(input_data):
         ),
     ]
 
-    # 创建顶点
-    source = SourceVertex(id="source", task=lambda inputs, context: data.get("input", "Default Input"))
+    # 创建顶点 - 支持多模态输入
+    def source_task(inputs, context=None):
+        # 构建多模态输入数据
+        input_data_dict = {
+            "content": input_data.content,
+            "image_url": input_data.image_url,
+            **data.get("user_vars", {}),
+        }
+        # 过滤掉None值
+        return {k: v for k, v in input_data_dict.items() if v is not None}
+
+    source = SourceVertex(id="source", task=source_task)
 
     # 🆕 使用新的LLM Vertex创建函数，支持MCP开关
     llm_vertex, mcp_status = create_llm_vertex(input_data, vertex_service.get_chatmodel(), function_tools)
@@ -369,6 +432,12 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
     # 🆕 记录MCP开关状态
     logger.info(f"MCP enabled: {input_data.enable_mcp}")
 
+    # 记录多模态输入状态
+    if input_data.image_url:
+        logger.info(f"Multimodal input detected: text='{input_data.content}', image_url='{input_data.image_url}'")
+    else:
+        logger.info(f"Text-only input: '{input_data.content}'")
+
     workflow_name = input_data.workflow_name
     workflow: Workflow = None
     if workflow_name in dify_workflow_instances:
@@ -381,6 +450,7 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             workflow = instance["builder"](
                 {
                     "content": input_data.content,
+                    "image_url": input_data.image_url,  # 添加图片URL支持
                     "env_vars": input_data.env_vars,
                     "user_vars": input_data.user_vars,
                     "stream": input_data.stream,
@@ -408,15 +478,42 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
                         # 获取消息类型，用于前端区分显示
                         message_type = result.get(TYPE_KEY, MESSAGE_TYPE_REGULAR)
 
-                        yield json.dumps(
-                            {
-                                VERTEX_ID_KEY: result[VERTEX_ID_KEY],
-                                OUTPUT_KEY: output_content,
-                                TYPE_KEY: message_type,
-                                "status": True,
-                            },
-                            ensure_ascii=False,
-                        ) + "\n"
+                        # 检查是否为流式结束消息，附加usage
+                        if message_type == MESSAGE_TYPE_END:
+                            token_usage = {}
+                            total_token_usage = {}
+                            try:
+                                if hasattr(workflow, "vertices"):
+                                    for vertex in workflow.vertices.values():
+                                        if hasattr(vertex, "task_type") and vertex.task_type == "LLM":
+                                            if hasattr(vertex, "token_usage") and vertex.token_usage:
+                                                token_usage = vertex.token_usage
+                                            if hasattr(vertex, "get_total_usage"):
+                                                total_token_usage = vertex.get_total_usage()
+                                            break
+                            except Exception as e:
+                                logger.warning(f"Could not collect token usage: {e}")
+                            yield json.dumps(
+                                {
+                                    VERTEX_ID_KEY: result[VERTEX_ID_KEY],
+                                    OUTPUT_KEY: output_content,
+                                    TYPE_KEY: message_type,
+                                    "status": True,
+                                    "token_usage": token_usage,
+                                    "total_token_usage": total_token_usage,
+                                },
+                                ensure_ascii=False,
+                            ) + "\n"
+                        else:
+                            yield json.dumps(
+                                {
+                                    VERTEX_ID_KEY: result[VERTEX_ID_KEY],
+                                    OUTPUT_KEY: output_content,
+                                    TYPE_KEY: message_type,
+                                    "status": True,
+                                },
+                                ensure_ascii=False,
+                            ) + "\n"
             except BaseException as e:
                 logger.info(f"workflow run exception {e}")
                 traceback.print_exc()
@@ -435,14 +532,37 @@ async def execute_workflow_endpoint(request: Request, input_data: WorkflowInput)
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
     else:
+        # 普通响应
         try:
             # 使用WorkflowInstanceManager执行，避免重复运行
             result = workflow_instance_manager.execute_instance(workflow, input_data.user_vars, stream=False)
-            return {
-                "output": result,
-                "status": True,
-                "vertices_status": workflow.status(),
-            }
+
+            # 收集token统计信息
+            token_usage = {}
+            total_token_usage = {}
+            try:
+                # 直接从workflow对象中获取LLM vertex的token统计
+                if hasattr(workflow, "vertices"):
+                    for vertex in workflow.vertices.values():
+                        if hasattr(vertex, "task_type") and vertex.task_type == "LLM":
+                            if hasattr(vertex, "token_usage") and vertex.token_usage:
+                                token_usage = vertex.token_usage
+                            if hasattr(vertex, "get_total_usage"):
+                                total_token_usage = vertex.get_total_usage()
+                            # 新增日志
+                            logger.info(f"LLM Vertex token usage: {token_usage}, total usage: {total_token_usage}")
+                            break
+            except Exception as e:
+                logger.warning(f"Could not collect token usage: {e}")
+
+            return WorkflowOutput(
+                output=result,
+                status=True,
+                message="Workflow executed successfully",
+                vertices_status={},
+                token_usage=token_usage,
+                total_token_usage=total_token_usage,
+            )
         except BaseException as e:
             logger.info(f"workflow run exception {e}")
             traceback.print_exc()
