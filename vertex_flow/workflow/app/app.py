@@ -1,9 +1,9 @@
 import argparse
 import json
+import os
 import threading
 import time
 import traceback
-import os
 from typing import Any, Dict, List, Optional
 
 import uvicorn
@@ -668,17 +668,12 @@ async def health_check():
     """健康检查端点 - 用于阿里云Serverless"""
     try:
         # 检查基本服务状态
-        service_status = {
-            "status": "healthy",
-            "timestamp": time.time(),
-            "service": "vertex-flow",
-            "version": "1.0.0"
-        }
-        
+        service_status = {"status": "healthy", "timestamp": time.time(), "service": "vertex-flow", "version": "1.0.0"}
+
         # 检查VertexFlowService是否正常初始化
         try:
             global vertex_service
-            if vertex_service and hasattr(vertex_service, '_config'):
+            if vertex_service and hasattr(vertex_service, "_config"):
                 service_status["config_loaded"] = True
             else:
                 service_status["config_loaded"] = False
@@ -687,7 +682,7 @@ async def health_check():
             service_status["config_loaded"] = False
             service_status["config_error"] = str(e)
             service_status["status"] = "unhealthy"
-        
+
         # 检查工作流管理器
         try:
             if workflow_instance_manager:
@@ -699,19 +694,15 @@ async def health_check():
             service_status["workflow_manager"] = "error"
             service_status["workflow_error"] = str(e)
             service_status["status"] = "unhealthy"
-        
+
         # 根据状态返回相应的HTTP状态码
         if service_status["status"] == "healthy":
             return service_status
         else:
             return JSONResponse(content=service_status, status_code=503)
-            
+
     except Exception as e:
-        return JSONResponse(content={
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": time.time()
-        }, status_code=500)
+        return JSONResponse(content={"status": "unhealthy", "error": str(e), "timestamp": time.time()}, status_code=500)
 
 
 def main():

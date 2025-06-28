@@ -54,10 +54,10 @@ class VertexFlowService:
     def _parse_bool(value) -> bool:
         """
         安全地解析布尔值，支持字符串和布尔类型
-        
+
         Args:
             value: 要解析的值，可能是字符串或布尔类型
-            
+
         Returns:
             bool: 解析后的布尔值
         """
@@ -67,10 +67,10 @@ class VertexFlowService:
             # 转换为小写并去除空格
             value_lower = value.lower().strip()
             # 真值
-            if value_lower in ['true', '1', 'yes', 'on', 'enabled']:
+            if value_lower in ["true", "1", "yes", "on", "enabled"]:
                 return True
             # 假值
-            elif value_lower in ['false', '0', 'no', 'off', 'disabled']:
+            elif value_lower in ["false", "0", "no", "off", "disabled"]:
                 return False
             else:
                 # 无法解析的值，默认为False
@@ -207,10 +207,9 @@ class VertexFlowService:
         logging.info("llm config : %s", self._config["llm"])
 
         # 过滤出启用的provider，使用安全的布尔值解析
-        enabled_providers = list(filter(
-            lambda value: self._parse_bool(value[1].get("enabled", False)), 
-            self._config["llm"].items()
-        ))
+        enabled_providers = list(
+            filter(lambda value: self._parse_bool(value[1].get("enabled", False)), self._config["llm"].items())
+        )
         self.model: ChatModel = None
 
         # 如果有provider被启用，则选择第一个enabled的provider
@@ -223,10 +222,7 @@ class VertexFlowService:
             if "models" in provider_config:
                 # 多模型结构：选择第一个enabled的model，使用安全的布尔值解析
                 models = provider_config["models"]
-                enabled_models = list(filter(
-                    lambda m: self._parse_bool(m.get("enabled", False)), 
-                    models
-                ))
+                enabled_models = list(filter(lambda m: self._parse_bool(m.get("enabled", False)), models))
 
                 if enabled_models:
                     selected_model = enabled_models[0]
@@ -345,10 +341,7 @@ class VertexFlowService:
                     logging.info("Using specified model %s from provider %s", model_name, provider)
                 else:
                     # 没有指定model名称，选择第一个enabled的model，使用安全的布尔值解析
-                    enabled_models = list(filter(
-                        lambda m: self._parse_bool(m.get("enabled", False)), 
-                        models
-                    ))
+                    enabled_models = list(filter(lambda m: self._parse_bool(m.get("enabled", False)), models))
 
                     if enabled_models:
                         target_model = enabled_models[0]
@@ -434,17 +427,17 @@ class VertexFlowService:
 
         for provider_name, provider_config in self._config["llm"].items():
             provider_info = {
-                "provider": provider_name, 
-                "enabled": self._parse_bool(provider_config.get("enabled", False)), 
-                "models": []
+                "provider": provider_name,
+                "enabled": self._parse_bool(provider_config.get("enabled", False)),
+                "models": [],
             }
 
             # 检查是否有models配置（多模型结构）
             if "models" in provider_config:
                 for model_config in provider_config["models"]:
                     model_info = {
-                        "name": model_config["name"], 
-                        "enabled": self._parse_bool(model_config.get("enabled", False))
+                        "name": model_config["name"],
+                        "enabled": self._parse_bool(model_config.get("enabled", False)),
                     }
                     provider_info["models"].append(model_info)
             else:
@@ -452,8 +445,8 @@ class VertexFlowService:
                 model_name = provider_config.get("model-name")
                 if model_name:
                     model_info = {
-                        "name": model_name, 
-                        "enabled": self._parse_bool(provider_config.get("enabled", False))
+                        "name": model_name,
+                        "enabled": self._parse_bool(provider_config.get("enabled", False)),
                     }
                     provider_info["models"].append(model_info)
 
