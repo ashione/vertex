@@ -282,7 +282,9 @@ class LLMVertex(Vertex[T]):
                 # Handle tool calls
                 logging.info(f"LLM {self.id} wants to call tools")
                 self._handle_tool_calls(choice, context)
-                # Continue the loop to get the final response after tool calls
+                # Reset finish_reason to continue the loop and get the final response after tool calls
+                finish_reason = None
+                continue
             else:
                 # No tool calls, process the final response
                 content = choice.message.content or ""
@@ -368,7 +370,9 @@ class LLMVertex(Vertex[T]):
                         # Handle tool calls first
                         logging.info(f"LLM {self.id} wants to call tools in reasoning mode")
                         self._handle_tool_calls(choice, context)
-                        # Continue the loop to get the final response after tool calls
+                        # Reset finish_reason to continue the loop and get the final response after tool calls
+                        finish_reason = None
+                        continue
                     else:
                         # No tool calls, use reasoning streaming
                         # Pass tools to reasoning stream in case model needs them
@@ -424,7 +428,9 @@ class LLMVertex(Vertex[T]):
                                     # Handle tool calls
                                     logging.info(f"LLM {self.id} wants to call tools")
                                     self._handle_tool_calls(choice, context)
-                                    # Continue the loop to get the final response after tool calls
+                                    # Reset finish_reason to continue the loop and get the final response after tool calls
+                                    finish_reason = None
+                                    continue
                                 else:
                                     # No tool calls and no streaming content, yield what we got
                                     content = choice.message.content or ""
@@ -453,7 +459,9 @@ class LLMVertex(Vertex[T]):
                                 # Handle tool calls
                                 logging.info(f"LLM {self.id} wants to call tools")
                                 self._handle_tool_calls(choice, context)
-                                # Continue the loop to get the final response after tool calls
+                                # Reset finish_reason to continue the loop and get the final response after tool calls
+                                finish_reason = None
+                                continue
                             else:
                                 # No tool calls, yield the content
                                 content = choice.message.content or ""
