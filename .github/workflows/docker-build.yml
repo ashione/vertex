@@ -25,9 +25,11 @@ on:
         type: boolean
 
 env:
-  REGISTRY: ${{ github.event.inputs.registry || vars.DOCKER_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
-  IMAGE_NAME: ${{ github.event.inputs.image_name || secrets.DOCKER_IMAGE_NAME || 'vertex' }}
+  DOCKER_REGISTRY: ${{ github.event.inputs.registry || vars.DOCKER_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
+  DOCKER_IMAGE_NAME: ${{ github.event.inputs.image_name || secrets.DOCKER_IMAGE_NAME || 'vertex' }}
   PUSH_TO_REGISTRY: ${{ github.event.inputs.push_to_registry != 'false' }}
+  REGISTRY: ${{ env.DOCKER_REGISTRY }}
+  IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
 
 jobs:
   docker-build:
@@ -89,7 +91,7 @@ jobs:
         echo "Commit: $COMMIT_ID"
         echo "Tag: $TAG_NAME"
     
-    - name: Login to Aliyun ACR
+    - name: Login to Docker Registry
       if: github.event_name != 'pull_request' && env.PUSH_TO_REGISTRY == 'true'
       uses: docker/login-action@v3
       with:
