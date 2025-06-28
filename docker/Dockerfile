@@ -39,6 +39,10 @@ RUN uv pip install --system -e .
 # 复制配置文件模板
 COPY vertex_flow/config/llm.yml.template ./config/llm.yml
 
+# 复制启动脚本
+COPY docker/test-start.sh ./test-start.sh
+RUN chmod +x ./test-start.sh
+
 # 创建必要的目录并设置权限
 RUN mkdir -p /app/logs /app/reports /app/.vertex/config && \
     chown -R admin:admin /app
@@ -53,5 +57,5 @@ EXPOSE 8999
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8999/health || exit 1
 
-# 设置默认命令 - 启动工作流web服务
-CMD ["python", "-m", "vertex_flow.cli", "workflow", "--host", "0.0.0.0", "--port", "8999"] 
+# 设置默认命令 - 使用启动脚本
+CMD ["./test-start.sh"] 

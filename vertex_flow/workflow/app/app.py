@@ -1,7 +1,9 @@
 import argparse
 import json
 import threading
+import time
 import traceback
+import os
 from typing import Any, Dict, List, Optional
 
 import uvicorn
@@ -660,6 +662,58 @@ async def on_startup():
     logger.info(f"Application startup, finished, loaded {len(dify_workflow_instances)}...")
 
 
+# 健康检查端点
+@vertex_flow.get("/health")
+async def health_check():
+    """健康检查端点 - 用于阿里云Serverless"""
+    try:
+        # 检查基本服务状态
+        service_status = {
+            "status": "healthy",
+            "timestamp": time.time(),
+            "service": "vertex-flow",
+            "version": "1.0.0"
+        }
+        
+        # 检查VertexFlowService是否正常初始化
+        try:
+            global vertex_service
+            if vertex_service and hasattr(vertex_service, '_config'):
+                service_status["config_loaded"] = True
+            else:
+                service_status["config_loaded"] = False
+                service_status["status"] = "unhealthy"
+        except Exception as e:
+            service_status["config_loaded"] = False
+            service_status["config_error"] = str(e)
+            service_status["status"] = "unhealthy"
+        
+        # 检查工作流管理器
+        try:
+            if workflow_instance_manager:
+                service_status["workflow_manager"] = "available"
+            else:
+                service_status["workflow_manager"] = "unavailable"
+                service_status["status"] = "unhealthy"
+        except Exception as e:
+            service_status["workflow_manager"] = "error"
+            service_status["workflow_error"] = str(e)
+            service_status["status"] = "unhealthy"
+        
+        # 根据状态返回相应的HTTP状态码
+        if service_status["status"] == "healthy":
+            return service_status
+        else:
+            return JSONResponse(content=service_status, status_code=503)
+            
+    except Exception as e:
+        return JSONResponse(content={
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": time.time()
+        }, status_code=500)
+
+
 def main():
     parser = argparse.ArgumentParser(description="vertex-flow app")
 
@@ -668,6 +722,17 @@ def main():
         "--config",
         default=None,  # 改为None，让VertexFlowService自动选择配置文件
         help="指定模型与请求配置",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("VERTEX_WORKFLOW_HOST", "0.0.0.0"),
+        help="指定服务主机地址",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("VERTEX_WORKFLOW_PORT", "8999")),
+        help="指定服务端口",
     )
 
     # 解析命令行参数
@@ -682,9 +747,9 @@ def main():
 
     uvicorn.run(
         "vertex_flow.workflow.app.app:vertex_flow",
-        host=vertex_service.get_service_host(),
-        port=vertex_service.get_service_port(),
-        reload=True,
+        host=args.host,
+        port=args.port,
+        reload=False,  # Serverless环境不需要reload
     )
 
 

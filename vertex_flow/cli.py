@@ -255,9 +255,11 @@ def run_workflow_mode(args=None):
         if config_file:
             args_dict["config"] = config_file
 
-        # 设置端口环境变量（如果指定了的话）
+        # 设置端口和主机环境变量
         if args and args.port:
             os.environ["VERTEX_WORKFLOW_PORT"] = str(args.port)
+        if args and args.host:
+            os.environ["VERTEX_WORKFLOW_HOST"] = str(args.host)
 
         # 使用通用启动器
         _launch_app_with_args(main_func=workflow_main, args_dict=args_dict)
