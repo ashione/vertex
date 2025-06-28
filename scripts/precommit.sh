@@ -140,12 +140,12 @@ PYTHON_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$'
 # 如果没有暂存的 Python 文件，检查仓库中的所有 Python 文件（类似 CI 的行为）
 if [ -z "$PYTHON_FILES" ]; then
     print_warning "No staged Python files found. Checking all Python files in repository..."
-    PYTHON_FILES=$(find . -name "*.py" -not -path "./.*" -not -path "./.github/*" | head -50 || true)
+    PYTHON_FILES=$(find . -name "*.py" -not -path "./.*" -not -path "./.github/*" || true)
     if [ -z "$PYTHON_FILES" ]; then
         print_status "No Python files found in repository"
         exit 0
     else
-        echo "📝 Checking all Python files (first 50): $(echo $PYTHON_FILES | tr '\n' ' ')"
+        echo "📝 Checking all Python files: $(echo $PYTHON_FILES | wc -w) files found"
     fi
 else
     echo "📝 Checking staged Python files: $PYTHON_FILES"

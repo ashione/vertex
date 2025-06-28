@@ -455,9 +455,7 @@ def run_deepresearch_cli(args):
                         from datetime import datetime
 
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        filename = f"{output_dir}/深度研究报告_{
-                            args.topic.replace(
-                                ' ', '_')}_{timestamp}.md"
+                        filename = f"{output_dir}/深度研究报告_{args.topic.replace(' ', '_')}_{timestamp}.md"
 
                         with open(filename, "w", encoding="utf-8") as f:
                             f.write(content)

@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  vertex:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vertex:latest
+    container_name: vertex-app
+    ports:
+      - "7860:7860"  # Gradio Web UI
+      - "8000:8000"  # FastAPI (如果需要)
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # 挂载配置文件目录
+      - ../config:/app/config:ro
+      - ../vertex_flow/config:/app/vertex_flow/config:ro
+      # 挂载数据目录（如果需要持久化）
+      - vertex_data:/app/data
+    working_dir: /app
+    command: ["python", "-m", "vertex_flow.cli", "web", "--host", "0.0.0.0", "--port", "7860"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 开发环境服务（可选）
+  vertex-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vertex:dev
+    container_name: vertex-dev
+    ports:
+      - "7861:7860"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+    volumes:
+      # 挂载源代码目录用于开发
+      - ../vertex_flow:/app/vertex_flow
+      - ../config:/app/config:ro
+      - ../vertex_flow/config:/app/vertex_flow/config:ro
+      - vertex_data:/app/data
+    working_dir: /app
+    command: ["python", "-m", "vertex_flow.cli", "web", "--host", "0.0.0.0", "--port", "7860"]
+    profiles:
+      - dev
+
+volumes:
+  vertex_data:
+    driver: local 

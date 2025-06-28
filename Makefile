@@ -1,4 +1,4 @@
-.PHONY: version-show version-patch version-minor version-major publish publish-test help
+.PHONY: version-show version-patch version-minor version-major publish publish-test help wheel
 
 # 显示当前版本
 version-show:
@@ -47,6 +47,14 @@ publish-no-bump:
 # 发布到TestPyPI
 publish-test:
 	@python scripts/publish.py --test
+
+# 清理dist目录并构建wheel包
+wheel:
+	@echo "清理dist目录..."
+	rm -rf dist/*
+	@echo "构建wheel包..."
+	uv pip install --system build
+	python -m build --wheel
 
 # 显示帮助信息
 help:

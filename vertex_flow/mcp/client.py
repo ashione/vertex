@@ -143,11 +143,7 @@ class MCPClient:
         await self._send_notification(notification)
 
         self._initialized = True
-        logger.info(
-            f"Connected to MCP server: {
-                self.server_info.name} v{
-                self.server_info.version}"
-        )
+        logger.info(f"Connected to MCP server: {self.server_info.name} v{self.server_info.version}")
 
     async def _message_loop(self) -> None:
         """Main message handling loop"""
@@ -187,8 +183,7 @@ class MCPClient:
                             id=message.id or 0,
                             error={
                                 "code": -32601,
-                                "message": f"Method {
-                                    message.method} not found",
+                                "message": f"Method {message.method} not found",
                             },
                         )
                         await self.transport.send_message(error)
@@ -212,10 +207,7 @@ class MCPClient:
                 if handler:
                     await handler(message)
                 else:
-                    logger.debug(
-                        f"No handler for notification: {
-                            message.method}"
-                    )
+                    logger.debug(f"No handler for notification: {message.method}")
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
@@ -247,11 +239,7 @@ class MCPClient:
                 with self._lock:
                     if request.id in self._pending_requests:
                         del self._pending_requests[request.id]
-            logger.warning(
-                f"Request {
-                    request.id} ({
-                    request.method}) timed out after {timeout}s"
-            )
+            logger.warning(f"Request {request.id} ({request.method}) timed out after {timeout}s")
             raise RuntimeError(f"Request {request.id} timed out")
         except Exception as e:
             # Clean up pending request
@@ -308,10 +296,7 @@ class MCPClient:
         response = await self._send_request(request)
 
         if response.error:
-            raise RuntimeError(
-                f"Failed to read resource {uri}: {
-                    response.error}"
-            )
+            raise RuntimeError(f"Failed to read resource {uri}: {response.error}")
 
         result = response.result or {}
         contents = result.get("contents", [])
@@ -338,10 +323,7 @@ class MCPClient:
             if response.error:
                 # If server doesn't support tools, return empty list
                 if "not supported" in str(response.error).lower() or "not found" in str(response.error).lower():
-                    logger.debug(
-                        f"Server does not support tools: {
-                            response.error}"
-                    )
+                    logger.debug(f"Server does not support tools: {response.error}")
                     return []
                 raise RuntimeError(f"Failed to list tools: {response.error}")
 
@@ -425,10 +407,7 @@ class MCPClient:
         response = await self._send_request(request)
 
         if response.error:
-            raise RuntimeError(
-                f"Failed to get prompt {name}: {
-                    response.error}"
-            )
+            raise RuntimeError(f"Failed to get prompt {name}: {response.error}")
 
         result = response.result or {}
         messages = result.get("messages", [])

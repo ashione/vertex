@@ -107,8 +107,7 @@ class VertexFlowService:
     def _load_config(self, config_file):
         """加载配置文件，添加缓存机制"""
         # 检查缓存
-        cache_key = f"config_{config_file}_{
-            os.path.getmtime(config_file) if os.path.exists(config_file) else 0}"
+        cache_key = f"config_{config_file}_{os.path.getmtime(config_file) if os.path.exists(config_file) else 0}"
         if cache_key in self._config_cache:
             return self._config_cache[cache_key]
 
@@ -794,8 +793,7 @@ class VertexFlowService:
         yahoo_finance_enabled = yahoo_finance_config.get("enabled", True)
 
         logging.info(
-            f"金融工具配置 - Alpha Vantage启用: {alpha_vantage_enabled}, API密钥已配置: {
-                bool(alpha_vantage_api_key)}"
+            f"金融工具配置 - Alpha Vantage启用: {alpha_vantage_enabled}, API密钥已配置: {bool(alpha_vantage_api_key)}"
         )
         logging.info(f"金融工具配置 - Finnhub启用: {finnhub_enabled}, API密钥已配置: {bool(finnhub_api_key)}")
         logging.info(f"金融工具配置 - Yahoo Finance启用: {yahoo_finance_enabled}")
