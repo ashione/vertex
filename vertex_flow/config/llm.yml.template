@@ -36,13 +36,13 @@ llm:
         enabled: false
   openrouter:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
-    enabled: false
+    enabled: true
     base_url: ${llm.openrouter.base_url:https://openrouter.ai/api/v1}
     models:
       - name: deepseek/deepseek-chat-v3-0324:free
         enabled: false
       - name: deepseek/deepseek-r1-0528:free
-        enabled: false
+        enabled: true
       - name: google/gemini-2.5-pro
         enabled: true
       - name: anthropic/claude-3.5-sonnet
@@ -161,8 +161,6 @@ workflow:
   dify:
     root-path: config/
     instances:
-    - name: if_else_test
-      path: if-else-test.yml
 
 web:
   port: 8999

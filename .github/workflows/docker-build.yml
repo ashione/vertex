@@ -16,7 +16,7 @@ on:
       image_name:
         description: 'Docker Image Name'
         required: false
-        default: 'vertex'
+        default: 'vertexflow/vertex'
         type: string
       push_to_registry:
         description: 'Push to registry (false for PR builds)'

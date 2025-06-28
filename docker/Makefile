@@ -61,9 +61,8 @@ run:
 	fi
 	docker run -d --name vertex-app \
 		-p 7860:7860 \
-		-v $(PWD)/../config:/app/config:ro \
-		-v $(PWD)/../vertex_flow/config:/app/vertex_flow/config:ro \
-		vertex:dockerize
+		-p 8999:8999 \
+		vertex:latest
 
 # 运行开发容器
 run-dev:
