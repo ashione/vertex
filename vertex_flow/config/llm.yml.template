@@ -16,18 +16,20 @@
 llm:
   deepseek:
     sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
-    enabled: ${llm.deepseek.enabled:-false}
+    enabled: ${llm.deepseek.enabled:false}
     base_url: ${llm.deepseek.base_url:https://api.deepseek.com}
     models:
       - name: deepseek-chat
-        enabled: ${llm.deepseek.models.deepseek_chat.enabled:true}
-      - name: deepseek-coder
+        enabled: ${llm.deepseek.models.deepseek_chat.enabled:false}
+      - name: deepseek-reason
         enabled: ${llm.deepseek.models.deepseek_coder.enabled:false}
   tongyi:
     sk: ${llm.tongyi.sk:-YOUR_TONGYI_API_KEY}
-    enabled: ${llm.tongyi.enabled:-false}
+    enabled: ${llm.tongyi.enabled:false}
     base_url: ${llm.tongyi.base_url:https://dashscope.aliyuncs.com/compatible-mode/v1}
     models:
+      - name: qwen-vl-max
+        enabled: ${llm.tongyi.models.qwen_vl_max.enabled:false}
       - name: qwen-max
         enabled: ${llm.tongyi.models.qwen_max.enabled:true}
       - name: qwen-plus
@@ -36,7 +38,7 @@ llm:
         enabled: ${llm.tongyi.models.qwen_turbo.enabled:false}
   openrouter:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
-    enabled: ${llm.openrouter.enabled:-true}
+    enabled: ${llm.openrouter.enabled:false}
     base_url: ${llm.openrouter.base_url:https://openrouter.ai/api/v1}
     models:
       - name: deepseek/deepseek-chat-v3-0324:free

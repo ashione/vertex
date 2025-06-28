@@ -76,39 +76,34 @@ jobs:
           TAG_NAME=${GITHUB_REF#refs/tags/}
         fi
         
-        # 清理分支名（替换特殊字符）
-        CLEAN_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g')
+        # 生成标签数组
+        declare -a TAGS_ARRAY=()
         
-        # 生成标签列表
-        TAGS=""
-        
-        # 如果有标签，添加版本标签和latest
+        # 如果有标签，使用tag名作为标签
         if [ -n "$TAG_NAME" ]; then
-          TAGS="$TAGS $REGISTRY/$IMAGE_NAME:$TAG_NAME"
-          TAGS="$TAGS $REGISTRY/$IMAGE_NAME:latest"
+          # 清理tag名称，确保符合Docker标签规范
+          CLEAN_TAG=$(echo "$TAG_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$CLEAN_TAG")
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
+        else
+          # 其他情况（包括PR、分支推送等）都使用commit id
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$COMMIT_ID")
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
         fi
         
-        # 分支-commit标签
-        TAGS="$TAGS $REGISTRY/$IMAGE_NAME:$CLEAN_BRANCH-$COMMIT_ID"
+        # 将数组转换为逗号分隔的字符串（docker/build-push-action期望的格式）
+        TAGS_STRING=$(IFS=','; echo "${TAGS_ARRAY[*]}")
         
-        # 分支标签
-        TAGS="$TAGS $REGISTRY/$IMAGE_NAME:$CLEAN_BRANCH"
-        
-        # 仅commit标签
-        TAGS="$TAGS $REGISTRY/$IMAGE_NAME:$COMMIT_ID"
-        
-        # 输出标签（去除前导空格）
-        TAGS=$(echo "$TAGS" | sed 's/^ *//')
-        
-        echo "tags=$TAGS" >> $GITHUB_OUTPUT
-        echo "branch=$CLEAN_BRANCH" >> $GITHUB_OUTPUT
+        echo "tags=$TAGS_STRING" >> $GITHUB_OUTPUT
+        echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
         echo "commit=$COMMIT_ID" >> $GITHUB_OUTPUT
         echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
         
-        echo "Generated tags: $TAGS"
-        echo "Branch: $CLEAN_BRANCH"
+        echo "Generated tags: $TAGS_STRING"
+        echo "Branch: $BRANCH_NAME"
         echo "Commit: $COMMIT_ID"
         echo "Tag: $TAG_NAME"
+        echo "Tags array: ${TAGS_ARRAY[@]}"
     
     - name: Login to Docker Registry
       if: github.event_name != 'pull_request' && env.PUSH_TO_REGISTRY == 'true'

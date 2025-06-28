@@ -1,6 +1,9 @@
 # 使用官方Python镜像作为基础镜像
 FROM python:3.12-slim
 
+# 创建admin用户
+RUN groupadd -r admin && useradd -r -g admin admin
+
 # 设置工作目录
 WORKDIR /app
 
@@ -8,6 +11,8 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=8999
+ENV HOST=0.0.0.0
 
 # 安装基础系统依赖
 RUN apt-get update && apt-get install -y \
@@ -19,24 +24,34 @@ RUN apt-get update && apt-get install -y \
 # 安装uv包管理器
 RUN pip install uv
 
-# 只复制whl包和必要文件
-COPY dist/vertex-0.1.0-py3-none-any.whl .
+# 复制项目文件（使用root用户复制）
+COPY pyproject.toml .
 COPY requirements.txt .
+COPY vertex_flow/ ./vertex_flow/
 COPY scripts/ ./scripts/
 COPY docs/ ./docs/
 COPY README*.md ./
 COPY LICENSE ./
 
-# 安装whl包
-RUN uv pip install --system vertex-0.1.0-py3-none-any.whl
+# 使用root用户安装Python依赖
+RUN uv pip install --system -e .
 
 # 复制配置文件模板
 COPY vertex_flow/config/llm.yml.template ./config/llm.yml
-RUN mkdir -p /usr/local/lib/python3.12/site-packages/config && cp ./config/llm.yml /usr/local/lib/python3.12/site-packages/config/llm.yml
 
-# 暴露端口（如果需要Web UI）
-EXPOSE 7860
+# 创建必要的目录并设置权限
+RUN mkdir -p /app/logs /app/reports /app/.vertex/config && \
+    chown -R admin:admin /app
+
+# 切换到admin用户
+USER admin
+
+# 暴露端口
 EXPOSE 8999
 
-# 设置默认命令
-CMD ["python", "-m", "vertex_flow.cli", "workflow"] 
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8999/health || exit 1
+
+# 设置默认命令 - 启动工作流web服务
+CMD ["python", "-m", "vertex_flow.cli", "workflow", "--host", "0.0.0.0", "--port", "8999"] 
