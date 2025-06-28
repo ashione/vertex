@@ -1,28 +1,27 @@
 #!/bin/bash
 
-# 启动脚本 - 用于调试容器启动问题
+# SAE生产环境启动脚本
 
-echo "Starting Vertex Flow application..."
+set -e
 
-# 检查Python环境
-echo "Python version:"
-python --version
+echo "=== SAE Vertex Flow Startup ==="
+echo "Environment: HOST=$HOST, PORT=$PORT"
 
-echo "Python path:"
-python -c "import sys; print(sys.path)"
+# 设置默认环境变量
+export PORT=${PORT:-8080}
+export HOST=${HOST:-0.0.0.0}
+
+# 快速检查Python环境
+python --version > /dev/null 2>&1 || { echo "Error: Python not found"; exit 1; }
 
 # 检查vertex_flow模块
-echo "Checking vertex_flow module..."
-python -c "import vertex_flow; print('vertex_flow imported successfully')"
+python -c "import vertex_flow; print('✓ Module loaded successfully')" || { echo "Error: Failed to import vertex_flow"; exit 1; }
 
 # 检查配置文件
-echo "Checking config file..."
-if [ -f "/app/config/llm.yml" ]; then
-    echo "Config file exists: /app/config/llm.yml"
-else
-    echo "Config file not found: /app/config/llm.yml"
+if [ ! -f "/app/config/llm.yml" ]; then
+    echo "Warning: Config file not found at /app/config/llm.yml"
 fi
 
 # 启动应用
-echo "Starting application with host: $HOST, port: $PORT"
+echo "Starting application on $HOST:$PORT"
 exec python -m vertex_flow.cli workflow --host "$HOST" --port "$PORT" 
