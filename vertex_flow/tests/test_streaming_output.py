@@ -34,12 +34,7 @@ async def test_streaming_output():
         for i, event in enumerate(events):
             await asyncio.sleep(0.5)  # 每0.5秒发送一个事件
             event["timestamp"] = time.time()
-            print(
-                f"[发送] 事件 {
-                    event['id']}: {
-                    event['message']} (时间: {
-                    event['timestamp']:.3f})"
-            )
+            print(f"[发送] 事件 {event['id']}: {event['message']} (时间: {event['timestamp']:.3f})")
             channel.emit_event(EventType.MESSAGES, event)
 
     # 启动发送任务
@@ -58,11 +53,7 @@ async def test_streaming_output():
             delay = receive_time - send_time if send_time > 0 else 0
             elapsed = receive_time - start_time
 
-            print(
-                f"[接收] 事件 {event_id}: {message} (延迟: {
-                    delay:.3f}s, 总时间: {
-                    elapsed:.3f}s)"
-            )
+            print(f"[接收] 事件 {event_id}: {message} (延迟: { delay:.3f}s, 总时间: { elapsed:.3f}s)")
 
             # 检查是否为完成事件
             if event.get("status") == "workflow_complete":

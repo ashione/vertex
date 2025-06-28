@@ -50,6 +50,40 @@ class VertexFlowService:
     _lock = None
     _config_cache = {}  # 添加配置缓存
 
+    @staticmethod
+    def _parse_bool(value) -> bool:
+        """
+        安全地解析布尔值，支持字符串和布尔类型
+
+        Args:
+            value: 要解析的值，可能是字符串或布尔类型
+
+        Returns:
+            bool: 解析后的布尔值
+        """
+        if isinstance(value, bool):
+            return value
+        elif isinstance(value, str):
+            # 转换为小写并去除空格
+            value_lower = value.lower().strip()
+            # 真值
+            if value_lower in ["true", "1", "yes", "on", "enabled"]:
+                return True
+            # 假值
+            elif value_lower in ["false", "0", "no", "off", "disabled"]:
+                return False
+            else:
+                # 无法解析的值，默认为False
+                logging.warning(f"无法解析布尔值: '{value}'，默认为False")
+                return False
+        else:
+            # 非字符串非布尔类型，尝试转换为布尔值
+            try:
+                return bool(value)
+            except (ValueError, TypeError):
+                logging.warning(f"无法转换值为布尔类型: {value}，默认为False")
+                return False
+
     def __new__(cls, config_file=None):
         """单例模式实现"""
         if cls._instance is None:
@@ -107,8 +141,7 @@ class VertexFlowService:
     def _load_config(self, config_file):
         """加载配置文件，添加缓存机制"""
         # 检查缓存
-        cache_key = f"config_{config_file}_{
-            os.path.getmtime(config_file) if os.path.exists(config_file) else 0}"
+        cache_key = f"config_{config_file}_{os.path.getmtime(config_file) if os.path.exists(config_file) else 0}"
         if cache_key in self._config_cache:
             return self._config_cache[cache_key]
 
@@ -173,8 +206,10 @@ class VertexFlowService:
         # 记录llm配置信息
         logging.info("llm config : %s", self._config["llm"])
 
-        # 过滤出启用的provider
-        enabled_providers = list(filter(lambda value: value[1]["enabled"], self._config["llm"].items()))
+        # 过滤出启用的provider，使用安全的布尔值解析
+        enabled_providers = list(
+            filter(lambda value: self._parse_bool(value[1].get("enabled", False)), self._config["llm"].items())
+        )
         self.model: ChatModel = None
 
         # 如果有provider被启用，则选择第一个enabled的provider
@@ -185,9 +220,9 @@ class VertexFlowService:
 
             # 检查是否有models配置（多模型结构）
             if "models" in provider_config:
-                # 多模型结构：选择第一个enabled的model
+                # 多模型结构：选择第一个enabled的model，使用安全的布尔值解析
                 models = provider_config["models"]
-                enabled_models = list(filter(lambda m: m.get("enabled", False), models))
+                enabled_models = list(filter(lambda m: self._parse_bool(m.get("enabled", False)), models))
 
                 if enabled_models:
                     selected_model = enabled_models[0]
@@ -305,8 +340,8 @@ class VertexFlowService:
                     model_name = target_model["name"]
                     logging.info("Using specified model %s from provider %s", model_name, provider)
                 else:
-                    # 没有指定model名称，选择第一个enabled的model
-                    enabled_models = list(filter(lambda m: m.get("enabled", False), models))
+                    # 没有指定model名称，选择第一个enabled的model，使用安全的布尔值解析
+                    enabled_models = list(filter(lambda m: self._parse_bool(m.get("enabled", False)), models))
 
                     if enabled_models:
                         target_model = enabled_models[0]
@@ -391,18 +426,28 @@ class VertexFlowService:
         available_models = []
 
         for provider_name, provider_config in self._config["llm"].items():
-            provider_info = {"provider": provider_name, "enabled": provider_config.get("enabled", False), "models": []}
+            provider_info = {
+                "provider": provider_name,
+                "enabled": self._parse_bool(provider_config.get("enabled", False)),
+                "models": [],
+            }
 
             # 检查是否有models配置（多模型结构）
             if "models" in provider_config:
                 for model_config in provider_config["models"]:
-                    model_info = {"name": model_config["name"], "enabled": model_config.get("enabled", False)}
+                    model_info = {
+                        "name": model_config["name"],
+                        "enabled": self._parse_bool(model_config.get("enabled", False)),
+                    }
                     provider_info["models"].append(model_info)
             else:
                 # 旧格式：使用model-name
                 model_name = provider_config.get("model-name")
                 if model_name:
-                    model_info = {"name": model_name, "enabled": provider_config.get("enabled", False)}
+                    model_info = {
+                        "name": model_name,
+                        "enabled": self._parse_bool(provider_config.get("enabled", False)),
+                    }
                     provider_info["models"].append(model_info)
 
             available_models.append(provider_info)
@@ -794,8 +839,7 @@ class VertexFlowService:
         yahoo_finance_enabled = yahoo_finance_config.get("enabled", True)
 
         logging.info(
-            f"金融工具配置 - Alpha Vantage启用: {alpha_vantage_enabled}, API密钥已配置: {
-                bool(alpha_vantage_api_key)}"
+            f"金融工具配置 - Alpha Vantage启用: {alpha_vantage_enabled}, API密钥已配置: {bool(alpha_vantage_api_key)}"
         )
         logging.info(f"金融工具配置 - Finnhub启用: {finnhub_enabled}, API密钥已配置: {bool(finnhub_api_key)}")
         logging.info(f"金融工具配置 - Yahoo Finance启用: {yahoo_finance_enabled}")

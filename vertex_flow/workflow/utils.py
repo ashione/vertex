@@ -65,14 +65,13 @@ def retryable(
                             if attempt < max_retries:
                                 wait_time = retry_delay * (backoff_factor**attempt)
                                 logging.warning(
-                                    f"{log_prefix}状态码 {result.status_code}，"
-                                    f"等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1})"
+                                    f"{log_prefix}状态码 {result.status_code}，等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1})"
                                 )
                                 time.sleep(wait_time)
                                 continue
                             else:
                                 logging.error(
-                                    f"{log_prefix}状态码 {result.status_code}，" f"已达到最大重试次数 ({max_retries})"
+                                    f"{log_prefix}状态码 {result.status_code}，已达到最大重试次数 ({max_retries})"
                                 )
 
                     return result
@@ -83,13 +82,12 @@ def retryable(
                     if attempt < max_retries:
                         wait_time = retry_delay * (backoff_factor**attempt)
                         logging.warning(
-                            f"{log_prefix}函数 {func.__name__} 执行失败，"
-                            f"等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
+                            f"{log_prefix}函数 {func.__name__} 执行失败，等待 {wait_time} 秒后重试 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
                         )
                         time.sleep(wait_time)
                     else:
                         logging.error(
-                            f"{log_prefix}函数 {func.__name__} 执行失败，" f"已达到最大重试次数 ({max_retries}): {e}"
+                            f"{log_prefix}函数 {func.__name__} 执行失败，已达到最大重试次数 ({max_retries}): {e}"
                         )
                         raise last_exception
 

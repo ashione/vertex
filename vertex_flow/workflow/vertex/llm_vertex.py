@@ -2,12 +2,13 @@ import asyncio
 import inspect
 import json
 import traceback
-from typing import List
+from typing import List, Optional
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    ENABLE_REASONING_KEY,
     ENABLE_STREAM,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
@@ -65,10 +66,12 @@ class LLMVertex(Vertex[T]):
         self.postprocess = None
         self.tools = tools or []  # 保存可用的function tools
         self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
-        self.enable_reasoning = params.get("enable_reasoning", False) if params else False  # 支持思考过程
+        self.enable_reasoning = params.get(ENABLE_REASONING_KEY, False) if params else False  # 支持思考过程
         self.show_reasoning = (
             params.get(SHOW_REASONING_KEY, SHOW_REASONING) if params else SHOW_REASONING
         )  # 是否显示思考过程
+        self.token_usage = {}  # 添加token统计属性
+        self.usage_history = []  # 添加usage历史记录，用于多轮对话统计
 
         if task is None:
             logging.info("Use llm chat in task executing.")
@@ -251,24 +254,48 @@ class LLMVertex(Vertex[T]):
 
         logging.info(f"{self}, {self.id} chat context messages {self.messages}")
 
+    def _handle_token_usage(self):
+        """处理token使用统计的通用方法，供子类调用"""
+        # 记录token使用情况
+        if hasattr(self.model, "get_usage"):
+            usage = self.model.get_usage()
+            self.usage_history.append(usage)  # 添加到历史记录
+            self.token_usage = usage  # 当前轮次
+            logging.info(f"LLM {self.id} token usage: {self.token_usage}")
+
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
+        """Chat with LLM and handle token usage"""
         finish_reason = None
         if self.enable_stream and hasattr(self.model, "chat_stream"):
             return self._chat_stream(inputs, context)
-        llm_tools = self._build_llm_tools()
+
+        # Build LLM options
         option = self._build_llm_option(inputs, context)
+        llm_tools = self._build_llm_tools()
+
+        # Handle tool calls in a loop
         while finish_reason is None or finish_reason == "tool_calls":
             choice = self.model.chat(self.messages, option=option, tools=llm_tools)
             finish_reason = choice.finish_reason
+
             if finish_reason == "tool_calls":
+                # Handle tool calls
+                logging.info(f"LLM {self.id} wants to call tools")
                 self._handle_tool_calls(choice, context)
-        result = (
-            choice.message.content
-            if self.postprocess is None
-            else self.postprocess(choice.message.content, inputs, context)
-        )
-        logging.debug(f"chat bot response : {result}")
-        return result
+                # Reset finish_reason to continue the loop and get the final response after tool calls
+                finish_reason = None
+                continue
+            else:
+                # No tool calls, process the final response
+                content = choice.message.content or ""
+                result = content if self.postprocess is None else self.postprocess(content, inputs, context)
+                self.output = result
+
+                # Handle token usage
+                self._handle_token_usage()
+
+                logging.debug(f"chat bot response : {result}")
+                return result
 
     def chat_stream_generator(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         """返回流式输出的生成器，支持reasoning和工具调用"""
@@ -328,7 +355,7 @@ class LLMVertex(Vertex[T]):
             while finish_reason is None or finish_reason == "tool_calls":
 
                 # Check if reasoning is enabled
-                enable_reasoning = self.params.get("enable_reasoning", False)
+                enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
                 show_reasoning = self.params.get(SHOW_REASONING_KEY, True)
 
                 if enable_reasoning:
@@ -343,7 +370,9 @@ class LLMVertex(Vertex[T]):
                         # Handle tool calls first
                         logging.info(f"LLM {self.id} wants to call tools in reasoning mode")
                         self._handle_tool_calls(choice, context)
-                        # Continue the loop to get the final response after tool calls
+                        # Reset finish_reason to continue the loop and get the final response after tool calls
+                        finish_reason = None
+                        continue
                     else:
                         # No tool calls, use reasoning streaming
                         # Pass tools to reasoning stream in case model needs them
@@ -399,7 +428,9 @@ class LLMVertex(Vertex[T]):
                                     # Handle tool calls
                                     logging.info(f"LLM {self.id} wants to call tools")
                                     self._handle_tool_calls(choice, context)
-                                    # Continue the loop to get the final response after tool calls
+                                    # Reset finish_reason to continue the loop and get the final response after tool calls
+                                    finish_reason = None
+                                    continue
                                 else:
                                     # No tool calls and no streaming content, yield what we got
                                     content = choice.message.content or ""
@@ -428,7 +459,9 @@ class LLMVertex(Vertex[T]):
                                 # Handle tool calls
                                 logging.info(f"LLM {self.id} wants to call tools")
                                 self._handle_tool_calls(choice, context)
-                                # Continue the loop to get the final response after tool calls
+                                # Reset finish_reason to continue the loop and get the final response after tool calls
+                                finish_reason = None
+                                continue
                             else:
                                 # No tool calls, yield the content
                                 content = choice.message.content or ""
@@ -485,7 +518,7 @@ class LLMVertex(Vertex[T]):
             for tool in self.tools
         ]
 
-    def _build_llm_option(self, inputs: Dict[str, Any], context: WorkflowContext) -> Dict[str, Any]:
+    def _build_llm_option(self, inputs: Dict[str, Any], context: Optional[WorkflowContext] = None) -> Dict[str, Any]:
         """Build LLM options from inputs and context"""
         option = {}
 
@@ -567,3 +600,21 @@ class LLMVertex(Vertex[T]):
         except RuntimeError:
             # 不在事件循环中
             asyncio.run(self._handle_tool_calls_async(choice, context))
+
+    def get_total_usage(self) -> dict:
+        """
+        获取多轮对话的总token消耗统计
+        """
+        total = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        for usage in self.usage_history:
+            for key in total:
+                if usage.get(key) is not None:
+                    total[key] += usage[key]
+        return total
+
+    def reset_usage_history(self):
+        """
+        重置usage历史记录
+        """
+        self.usage_history = []
+        self.token_usage = {}

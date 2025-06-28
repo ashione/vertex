@@ -60,10 +60,7 @@ def test_two_llm_placeholder_replacement(workflow, context):
     sink_vertex = SinkVertex(
         id="sink",
         name="输出接收器",
-        task=lambda inputs, context: f"接收到结果: {
-            inputs.get(
-                'llm2',
-                '')}",
+        task=lambda inputs, context: f"接收到结果: {inputs.get('llm2', '')}",
     )
 
     # Mock 第一个LLM的model.chat方法

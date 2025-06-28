@@ -1,0 +1,200 @@
+name: Docker Build and Push to Aliyun ACR
+
+on:
+  push:
+    branches: [ main, develop, master, dockerize, release* ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop, master, dockerize, release* ]
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Docker Registry URL'
+        required: false
+        default: 'registry.cn-hangzhou.aliyuncs.com'
+        type: string
+      image_name:
+        description: 'Docker Image Name'
+        required: false
+        default: 'vertexflow/vertex'
+        type: string
+      push_to_registry:
+        description: 'Push to registry (false for PR builds)'
+        required: false
+        default: true
+        type: boolean
+
+# 工作流级别权限配置
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  actions: read
+
+env:
+  REGISTRY: ${{ github.event.inputs.registry || vars.DOCKER_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
+  IMAGE_NAME: ${{ github.event.inputs.image_name || secrets.DOCKER_IMAGE_NAME || 'vertex' }}
+  PUSH_TO_REGISTRY: ${{ github.event.inputs.push_to_registry != 'false' }}
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取完整历史用于标签生成
+    
+    - name: Debug environment variables
+      run: |
+        echo "=== Environment Variables Debug ==="
+        echo "REGISTRY: ${{ env.REGISTRY }}"
+        echo "IMAGE_NAME: ${{ env.IMAGE_NAME }}"
+        echo "PUSH_TO_REGISTRY: ${{ env.PUSH_TO_REGISTRY }}"
+        echo ""
+        echo "=== GitHub Context ==="
+        echo "Manual input registry: ${{ github.event.inputs.registry }}"
+        echo "Manual input image_name: ${{ github.event.inputs.image_name }}"
+        echo "Manual input push_to_registry: ${{ github.event.inputs.push_to_registry }}"
+        echo ""
+        echo "=== Repository Variables ==="
+        echo "vars.DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}"
+        echo ""
+        echo "=== Repository Secrets ==="
+        echo "secrets.DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_IMAGE_NAME }}"
+        echo "secrets.ACR_USERNAME: ${{ secrets.ACR_USERNAME }}"
+        echo "secrets.ACR_PASSWORD: [HIDDEN]"
+        echo "=================================="
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Generate image tags
+      id: tags
+      run: |
+        # 获取Git信息
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
+        COMMIT_ID=${GITHUB_SHA::7}
+        TAG_NAME=""
+        
+        # 如果是标签推送，获取标签名
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+        fi
+        
+        # 生成标签数组
+        declare -a TAGS_ARRAY=()
+        
+        # 如果有标签，使用tag名作为标签
+        if [ -n "$TAG_NAME" ]; then
+          # 清理tag名称，确保符合Docker标签规范
+          CLEAN_TAG=$(echo "$TAG_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$CLEAN_TAG")
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
+        else
+          # 其他情况（包括PR、分支推送等）都使用commit id
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$COMMIT_ID")
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
+        fi
+        
+        # 将数组转换为逗号分隔的字符串（docker/build-push-action期望的格式）
+        TAGS_STRING=$(IFS=','; echo "${TAGS_ARRAY[*]}")
+        
+        echo "tags=$TAGS_STRING" >> $GITHUB_OUTPUT
+        echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        echo "commit=$COMMIT_ID" >> $GITHUB_OUTPUT
+        echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+        
+        echo "Generated tags: $TAGS_STRING"
+        echo "Branch: $BRANCH_NAME"
+        echo "Commit: $COMMIT_ID"
+        echo "Tag: $TAG_NAME"
+        echo "Tags array: ${TAGS_ARRAY[@]}"
+    
+    - name: Login to Docker Registry
+      if: github.event_name != 'pull_request' && env.PUSH_TO_REGISTRY == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile
+        push: ${{ env.PUSH_TO_REGISTRY == 'true' && github.event_name != 'pull_request' }}
+        tags: ${{ steps.tags.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build summary
+      run: |
+        echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image Name:** ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ steps.tags.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ steps.tags.outputs.commit }}" >> $GITHUB_STEP_SUMMARY
+        if [ -n "${{ steps.tags.outputs.tag }}" ]; then
+          echo "- **Tag:** ${{ steps.tags.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Generated Tags:**" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ env.PUSH_TO_REGISTRY }}" == "true" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Images pushed to ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 Build completed (no push)" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  # 可选：镜像安全扫描
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.event_name != 'pull_request'
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.commit }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif' 

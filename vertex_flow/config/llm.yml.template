@@ -16,99 +16,101 @@
 llm:
   deepseek:
     sk: ${llm.deepseek.sk:-YOUR_DEEPSEEK_API_KEY}
-    enabled: false
+    enabled: ${llm.deepseek.enabled:false}
     base_url: ${llm.deepseek.base_url:https://api.deepseek.com}
     models:
       - name: deepseek-chat
-        enabled: true
-      - name: deepseek-coder
-        enabled: false
+        enabled: ${llm.deepseek.models.deepseek_chat.enabled:false}
+      - name: deepseek-reason
+        enabled: ${llm.deepseek.models.deepseek_coder.enabled:false}
   tongyi:
     sk: ${llm.tongyi.sk:-YOUR_TONGYI_API_KEY}
-    enabled: false
+    enabled: ${llm.tongyi.enabled:false}
     base_url: ${llm.tongyi.base_url:https://dashscope.aliyuncs.com/compatible-mode/v1}
     models:
+      - name: qwen-vl-max
+        enabled: ${llm.tongyi.models.qwen_vl_max.enabled:false}
       - name: qwen-max
-        enabled: true
+        enabled: ${llm.tongyi.models.qwen_max.enabled:true}
       - name: qwen-plus
-        enabled: false
+        enabled: ${llm.tongyi.models.qwen_plus.enabled:false}
       - name: qwen-turbo
-        enabled: false
+        enabled: ${llm.tongyi.models.qwen_turbo.enabled:false}
   openrouter:
     sk: ${llm.openrouter.sk:-YOUR_OPENROUTER_API_KEY}
-    enabled: false
+    enabled: ${llm.openrouter.enabled:false}
     base_url: ${llm.openrouter.base_url:https://openrouter.ai/api/v1}
     models:
       - name: deepseek/deepseek-chat-v3-0324:free
-        enabled: false
+        enabled: ${llm.openrouter.models.deepseek_chat_v3_0324.enabled:false}
       - name: deepseek/deepseek-r1-0528:free
-        enabled: false
+        enabled: ${llm.openrouter.models.deepseek_r1_0528.enabled:true}
       - name: google/gemini-2.5-pro
-        enabled: true
+        enabled: ${llm.openrouter.models.gemini_2_5_pro.enabled:true}
       - name: anthropic/claude-3.5-sonnet
-        enabled: false
+        enabled: ${llm.openrouter.models.claude_3_5_sonnet.enabled:false}
       - name: openai/gpt-4o
-        enabled: false
+        enabled: ${llm.openrouter.models.gpt_4o.enabled:false}
   ollama:
     sk: ${llm.ollama.sk:-ollama-local}          # 本地模型不需要真实API key，使用占位符
-    enabled: false                               # 默认不启用，需要手动切换
+    enabled: ${llm.ollama.enabled:-false}       # 默认不启用，需要手动切换
     base-url: ${llm.ollama.base_url:http://localhost:11434}  # Ollama服务地址
     models:
       - name: qwen:7b
-        enabled: true
+        enabled: ${llm.ollama.models.qwen_7b.enabled:true}
       - name: llama3:8b
-        enabled: false
+        enabled: ${llm.ollama.models.llama3_8b.enabled:false}
       - name: mistral:7b
-        enabled: false
+        enabled: ${llm.ollama.models.mistral_7b.enabled:false}
   doubao:
     sk: ${llm.doubao.sk:-YOUR_DOUBAO_API_KEY}
-    enabled: false
+    enabled: ${llm.doubao.enabled:-false}
     base_url: ${llm.doubao.base_url:https://ark.cn-beijing.volces.com/api/v3}
     models:
       - name: doubao-seed-1.6-250615
-        enabled: true
+        enabled: ${llm.doubao.models.doubao_seed_1_6_250615.enabled:true}
       - name: doubao-seed-1.6-thinking-250615
-        enabled: false
+        enabled: ${llm.doubao.models.doubao_seed_1_6_thinking_250615.enabled:false}
       - name: doubao-seed-1.6-flash-250615
-        enabled: false
+        enabled: ${llm.doubao.models.doubao_seed_1_6_flash_250615.enabled:false}
   
   # 其他自定义LLM提供商配置
   # 支持每个模型单独配置provider、model name和base_url
   # 适用于自定义API端点、私有部署模型等场景
   other:
-    enabled: false  # 默认不启用
+    enabled: ${llm.other.enabled:-false}  # 默认不启用
     models:
       # 示例：SiliconFlow Qwen/QwQ-32B模型
       - name: Qwen/QwQ-32B
-        enabled: false
+        enabled: ${llm.other.models.qwen_qwq_32b.enabled:false}
         provider: "siliconflow"
         base_url: ${llm.other.qwen_qwq_32b.base_url:-https://api.siliconflow.cn/v1}
         sk: ${llm.other.qwen_qwq_32b.sk:-YOUR_SILICONFLOW_API_KEY}
       
       # 示例：自定义OpenAI兼容API
       - name: custom-model-1
-        enabled: false
+        enabled: ${llm.other.models.custom_model_1.enabled:false}
         provider: "custom-openai"
         base_url: ${llm.other.custom_model_1.base_url:-https://your-custom-api.com/v1}
         sk: ${llm.other.custom_model_1.sk:-YOUR_CUSTOM_API_KEY}
       
       # 示例：私有部署的模型
       - name: private-llama
-        enabled: false
+        enabled: ${llm.other.models.private_llama.enabled:false}
         provider: "private-deployment"
         base_url: ${llm.other.private_llama.base_url:-http://localhost:8000/v1}
         sk: ${llm.other.private_llama.sk:-your-private-key}
       
       # 示例：第三方API服务
       - name: third-party-model
-        enabled: false
+        enabled: ${llm.other.models.third_party_model.enabled:false}
         provider: "third-party"
         base_url: ${llm.other.third_party_model.base_url:-https://api.thirdparty.com/v1}
         sk: ${llm.other.third_party_model.sk:-YOUR_THIRD_PARTY_API_KEY}
       
       # 示例：本地部署的模型服务
       - name: local-model
-        enabled: false
+        enabled: ${llm.other.models.local_model.enabled:false}
         provider: "local"
         base_url: ${llm.other.local_model.base_url:-http://127.0.0.1:8080/v1}
         sk: ${llm.other.local_model.sk:-local-key}
@@ -161,8 +163,6 @@ workflow:
   dify:
     root-path: config/
     instances:
-    - name: if_else_test
-      path: if-else-test.yml
 
 web:
   port: 8999

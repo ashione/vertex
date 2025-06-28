@@ -13,13 +13,12 @@ maintainers = [
     {name = "Vertex Team", email = "skyzlxuan@gmail.com"}
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -32,10 +31,10 @@ classifiers = [
 ]
 keywords = ["ai", "workflow", "llm", "qwen", "ollama", "automation", "vertex-flow", "rag"]
 dependencies = [
-    "autopep8==2.3.2",
-    "black==25.1.0",
-    "flake8==7.2.0",
-    "isort==6.0.1",
+    "autopep8>=2.3.2",
+    "black>=25.1.0",
+    "flake8>=7.2.0",
+    "isort>=6.0.1",
     "requests>=2.28.2",
     "PySocks>=1.7.1",
     # Web UI 依赖 - 使用已知稳定的版本组合
@@ -166,7 +165,7 @@ skip_glob = [
 
 [tool.flake8]
 max-line-length = 120
-ignore = ["E203", "W503", "E501", "E402"]
+ignore = ["E203", "W503", "E501", "E402", "F821", "F841"]
 # Explicitly check for import * violations
 select = ["F403", "F405"]
 exclude = [

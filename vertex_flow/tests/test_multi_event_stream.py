@@ -116,28 +116,16 @@ class TestMultiEventStream:
         print(f"Events: {events}")  # 调试输出
 
         # 验证收到了预期数量的事件
-        assert (
-            len(events) == 11
-        ), f"Expected 11 events, got {
-            len(events)}: {events}"
+        assert len(events) == 11, f"Expected 11 events, got {len(events)}: {events}"
 
         # 验证事件类型分布
         message_events = [e for e in events if e.get("type") == "message"]
         value_events = [e for e in events if e.get("type") == "value"]
         complete_events = [e for e in events if e.get("status") == "workflow_complete"]
 
-        assert (
-            len(message_events) == 5
-        ), f"Expected 5 message events, got {
-            len(message_events)}"
-        assert (
-            len(value_events) == 5
-        ), f"Expected 5 value events, got {
-            len(value_events)}"
-        assert (
-            len(complete_events) == 1
-        ), f"Expected 1 complete event, got {
-            len(complete_events)}"
+        assert len(message_events) == 5, f"Expected 5 message events, got { len(message_events)}"
+        assert len(value_events) == 5, f"Expected 5 value events, got { len(value_events)}"
+        assert len(complete_events) == 1, f"Expected 1 complete event, got { len(complete_events)}"
 
 
 if __name__ == "__main__":

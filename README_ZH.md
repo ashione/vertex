@@ -26,7 +26,28 @@
 - Python 3.9+
 - Ollama（本地模型）- [下载地址](https://ollama.com/download)
 
-### 安装
+### 安装方式
+
+#### 方式一：Docker部署（推荐）
+
+```bash
+# 克隆项目
+git clone https://github.com/ashione/vertex.git
+cd vertex
+
+# 使用Docker Compose快速启动
+docker-compose -f docker/docker-compose.yml up -d
+
+# 或使用Makefile
+cd docker
+make compose-up
+
+# 访问Web界面
+# http://localhost:7860
+```
+
+#### 方式二：本地安装
+
 ```bash
 # 通过pip安装（推荐）
 pip install vertex
@@ -73,6 +94,66 @@ vertex --desktop
 ```
 
 访问Web界面：[http://localhost:7860](http://localhost:7860)（或[http://localhost:7864](http://localhost:7864)访问工作流应用）
+
+## Docker部署
+
+### 快速开始
+
+```bash
+# 1. 构建镜像
+cd docker
+make build
+
+# 2. 运行容器
+make run
+
+# 3. 访问应用
+# http://localhost:7860
+```
+
+### 开发环境
+
+```bash
+# 构建开发镜像（支持热重载）
+make build-dev
+
+# 运行开发容器
+make run-dev
+
+# 查看日志
+make logs
+```
+
+### 推送到阿里云ACR
+
+```bash
+# 设置ACR注册表地址
+export ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com/your-namespace
+
+# 构建并推送
+make push
+
+# 或使用构建脚本
+./build.sh -r $ACR_REGISTRY
+```
+
+### 使用Docker Compose
+
+```bash
+# 启动生产环境
+docker-compose -f docker/docker-compose.yml up -d
+
+# 启动开发环境
+docker-compose -f docker/docker-compose.yml --profile dev up -d
+
+# 查看日志
+docker-compose -f docker/docker-compose.yml logs -f
+
+# 停止服务
+docker-compose -f docker/docker-compose.yml down
+```
+
+详细Docker使用说明请参考：[docker/README.md](docker/README.md)
 
 ## 使用指南
 
