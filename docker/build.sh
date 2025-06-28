@@ -65,17 +65,13 @@ generate_image_tags() {
     # 如果有标签，使用标签
     if [ -n "$tag" ]; then
         tags+=("$base_name:$tag")
-        tags+=("$base_name:latest")
     fi
     
     # 分支-commit标签
     tags+=("$base_name:$clean_branch-$commit_id")
     
-    # 分支标签
-    tags+=("$base_name:$clean_branch")
-    
-    # 仅commit标签
-    tags+=("$base_name:$commit_id")
+    # latest标签
+    tags+=("$base_name:latest")
     
     echo "${tags[@]}"
 }

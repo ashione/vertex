@@ -25,11 +25,9 @@ on:
         type: boolean
 
 env:
-  DOCKER_REGISTRY: ${{ github.event.inputs.registry || vars.DOCKER_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
-  DOCKER_IMAGE_NAME: ${{ github.event.inputs.image_name || secrets.DOCKER_IMAGE_NAME || 'vertex' }}
+  REGISTRY: ${{ github.event.inputs.registry || vars.DOCKER_REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
+  IMAGE_NAME: ${{ github.event.inputs.image_name || secrets.DOCKER_IMAGE_NAME || 'vertex' }}
   PUSH_TO_REGISTRY: ${{ github.event.inputs.push_to_registry != 'false' }}
-  REGISTRY: ${{ env.DOCKER_REGISTRY }}
-  IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
 
 jobs:
   docker-build:

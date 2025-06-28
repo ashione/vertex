@@ -1,4 +1,4 @@
-.PHONY: version-show version-patch version-minor version-major publish publish-test help wheel
+.PHONY: version-show version-patch version-minor version-major publish publish-test help wheel build run stop clean
 
 # 显示当前版本
 version-show:
@@ -73,7 +73,38 @@ help:
 	@echo "  publish-no-bump       发布到PyPI (不递增版本)"
 	@echo "  publish-test          发布到TestPyPI"
 	@echo ""
+	@echo "Docker命令:"
+	@echo "  build                 构建Docker镜像 (vertex:latest, vertex:branch-commitid)"
+	@echo "  run                   运行Docker容器 (Web工作流界面)"
+	@echo "  stop                  停止Docker容器"
+	@echo "  clean                 清理Docker镜像"
+	@echo ""
 	@echo "示例:"
 	@echo "  make version-show     # 查看当前版本"
 	@echo "  make version-patch    # 递增补丁版本"
 	@echo "  make publish-minor    # 递增次版本并发布"
+	@echo "  make build            # 构建Docker镜像"
+	@echo "  make run              # 运行Docker容器"
+
+# Docker相关命令
+build: wheel
+	@echo "构建Docker镜像..."
+	@cd docker && ./build.sh --no-push
+
+run:
+	@echo "启动Docker容器..."
+	@docker rm -f vertex-app 2>/dev/null || true
+	@docker run -d -p 7860:7860 --name vertex-app vertex:latest python -m vertex_flow.cli workflow --port 7860 --host 0.0.0.0
+	@echo "容器已启动，访问 http://localhost:7860"
+
+stop:
+	@echo "停止Docker容器..."
+	@docker stop vertex-app 2>/dev/null || true
+	@docker rm vertex-app 2>/dev/null || true
+
+clean:
+	@echo "清理Docker镜像..."
+	@docker rmi vertex:latest 2>/dev/null || true
+	@docker rmi vertex:dockerize-1e892d7 2>/dev/null || true
+	@docker rmi vertex:dockerize 2>/dev/null || true
+	@docker rmi vertex:1e892d7 2>/dev/null || true
