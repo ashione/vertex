@@ -134,6 +134,7 @@ class DeepResearchWorkflow:
 
         topic_analysis = LLMVertex(
             id="topic_analysis",
+            task=None,
             params=topic_analysis_params,
         )
 
@@ -149,6 +150,7 @@ class DeepResearchWorkflow:
         }
         analysis_plan = LLMVertex(
             id="analysis_plan",
+            task=None,
             params=analysis_plan_params,
         )
 
@@ -191,10 +193,6 @@ class DeepResearchWorkflow:
             # 直接从inputs获取steps和step_index
             steps = inputs.get("steps", [])
             step_index = inputs.get("step_index", 0)
-            step_inner_index = inputs.get("step_inner_index", 0)
-
-            if step_inner_index is not None:
-                step_index = step_inner_index
 
             if step_index >= len(steps):
                 logger.warning(f"步骤索引超出范围: {step_index} >= {len(steps)}")
@@ -206,7 +204,11 @@ class DeepResearchWorkflow:
             return {
                 "current_step": current_step,
                 "step_index": step_index,
-                "total_steps": len(steps)
+                "total_steps": len(steps),
+                "step_id": current_step.get("step_id", ""),
+                "step_name": current_step.get("step_name", ""),
+                "step_description": current_step.get("description", ""),
+                "step_method": current_step.get("method", ""),
             }
         
         step_prepare = FunctionVertex(
@@ -215,7 +217,6 @@ class DeepResearchWorkflow:
             variables=[
                 {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
                 {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
-                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "step_index", LOCAL_VAR: "step_inner_index"},
             ]
         )
         
@@ -232,12 +233,17 @@ class DeepResearchWorkflow:
         
         step_analysis = LLMVertex(
             id="step_analysis",
+            task=None,
             params=step_analysis_params,
             variables=[
                 {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "current_step", LOCAL_VAR: "current_step"},
                 {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
                 {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "total_steps", LOCAL_VAR: "total_steps"},
-                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
+                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_id", LOCAL_VAR: "step_id"},
+                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_name", LOCAL_VAR: "step_name"},
+                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_description", LOCAL_VAR: "step_description"},
+                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_method", LOCAL_VAR: "step_method"},
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
             ]
         )
@@ -254,6 +260,10 @@ class DeepResearchWorkflow:
                 step_index = inputs.get("step_index")
 
             total_steps = step_prepare_output.get("total_steps", 0)
+
+            if inputs.get("total_steps") is not None:
+                total_steps = inputs.get("total_steps")
+
             # 更新步骤索引
             next_step_index = step_index + 1
             logger.info(f"步骤 {step_index + 1}/{total_steps} 执行完成，下一步索引: {next_step_index}")
@@ -281,10 +291,10 @@ class DeepResearchWorkflow:
         
         # 创建循环条件函数
         def step_condition_task(inputs, context):
-            # 从extract_steps_output中获取steps和step_index
+            # 从WhileVertexGroup的内部暴露变量中获取更新后的step_index
             logger.info(f"步骤循环条件检查: {inputs}")
             steps = inputs.get("steps", [])
-
+            # 优先从内部暴露的变量中获取step_index，如果没有则使用默认值0
             step_index = inputs.get("step_index", 0)
             should_continue = step_index < len(steps)
             logger.info(f"步骤循环条件检查: 当前索引={step_index}, 总步骤数={len(steps)}, 继续循环={should_continue}")
@@ -299,8 +309,14 @@ class DeepResearchWorkflow:
             condition_task=step_condition_task,
             variables=[
                 {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
-                {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
                 {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "total_steps", LOCAL_VAR: "total_steps"},
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
+            ],
+            exposed_variables=[
+                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
+                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
             ]
         )
 
@@ -328,6 +344,7 @@ class DeepResearchWorkflow:
 
         information_collection = LLMVertex(
             id="information_collection",
+            task=None,
             params=information_collection_params,
             # - - 贵，有选择使用。
             # tools= [self.vertex_service.get_web_search_tool()]
@@ -351,6 +368,7 @@ class DeepResearchWorkflow:
 
         deep_analysis = LLMVertex(
             id="deep_analysis",
+            task=None,
             params=deep_analysis_params,
         )
 
@@ -371,12 +389,14 @@ class DeepResearchWorkflow:
 
         cross_validation = LLMVertex(
             id="cross_validation",
+            task=None,
             params=cross_validation_params,
         )
 
         # 6. 总结报告顶点
         summary_report = LLMVertex(
             id="summary_report",
+            task=None,
             params={
                 "model": model_to_use,  # 使用指定的模型
                 SYSTEM: self.prompts.get_summary_report_system_prompt(),

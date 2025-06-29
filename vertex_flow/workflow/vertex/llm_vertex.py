@@ -51,7 +51,7 @@ class LLMVertex(Vertex[T]):
         self,
         id: str,
         name: str = None,
-        task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
+        task: Optional[Callable[[Dict[str, Any], WorkflowContext[T]], T]] = None,
         params: Dict[str, Any] = None,
         tools: list = None,  # 新增参数
         variables: List[Dict[str, Any]] = None,
