@@ -238,6 +238,9 @@ class EventChannel:
                         current_time = asyncio.get_event_loop().time()
                         if empty_start_time is None:
                             empty_start_time = current_time
+                            empty_count = 0
+                        else:
+                            empty_count += 1
 
                         empty_duration = current_time - empty_start_time
 
@@ -254,6 +257,7 @@ class EventChannel:
                     else:
                         # 重置空事件计数器
                         empty_start_time = None
+                        empty_count = 0
 
                     # 如果收到 workflow 状态事件，且所有队列都为空，则退出
                     if workflow_ended and all_queues_empty:

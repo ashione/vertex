@@ -1,4 +1,6 @@
-# WhileVertex 设计文档
+# WhileVertex 文档
+
+> **注意**: 关于变量选择和条件判断的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
 
 ## 概述
 

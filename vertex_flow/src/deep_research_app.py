@@ -47,20 +47,24 @@ logger = setup_logger(__name__)
 class DeepResearchApp:
     """深度研究工作流 Gradio 应用"""
 
-    # 类常量：阶段映射配置
+    # 类常量：阶段映射配置 - 更新以反映新的工作流结构
     STAGE_MAPPING = {
         "topic_analysis": ("主题分析", "🔍"),
-        "research_planning": ("研究规划", "📋"),
+        "analysis_plan": ("分析计划", "📋"),
+        "extract_steps": ("步骤提取", "🔧"),
+        "while_analysis_steps_group": ("迭代分析", "🔄"),
         "information_collection": ("信息收集", "📚"),
         "deep_analysis": ("深度分析", "🔬"),
         "cross_validation": ("交叉验证", "✅"),
         "summary_report": ("总结报告", "📄"),
     }
 
-    # 阶段顺序列表
+    # 阶段顺序列表 - 更新以反映新的工作流结构
     STAGE_ORDER = [
         "topic_analysis",
-        "research_planning",
+        "analysis_plan", 
+        "extract_steps",
+        "while_analysis_steps_group",
         "information_collection",
         "deep_analysis",
         "cross_validation",
@@ -99,7 +103,10 @@ class DeepResearchApp:
                 logger.info(f"使用指定配置路径: {config_path}")
                 self.service = VertexFlowService(config_path)
 
-            self.workflow_builder = DeepResearchWorkflow(self.service)
+            self._initialize_llm()
+            
+            # 初始化工作流构建器，传入当前模型和默认语言
+            self.workflow_builder = DeepResearchWorkflow(self.service, self.llm_model, language="en")
             self.current_workflow = None
 
             # 初始化阶段历史记录
@@ -107,8 +114,8 @@ class DeepResearchApp:
             self.completed_stages = set()
             self.current_research_topic = ""
             self.workflow_running = False
+            self.current_language = "en"  # 添加当前语言设置
 
-            self._initialize_llm()
             logger.info("Deep Research 应用初始化成功")
         except Exception as e:
             logger.error(f"Deep Research 应用初始化失败: {e}")
@@ -133,7 +140,7 @@ class DeepResearchApp:
             raise
 
     def start_research(
-        self, research_topic: str, save_intermediate: bool, save_final_report: bool, enable_stream: bool
+        self, research_topic: str, save_intermediate: bool, save_final_report: bool, enable_stream: bool, language: str = "en"
     ):
         """开始深度研究"""
         if not research_topic.strip():
@@ -146,6 +153,7 @@ class DeepResearchApp:
             self.completed_stages = set()
             self.current_research_topic = research_topic.strip()
             self.workflow_running = True
+            self.current_language = language  # 更新当前语言设置
 
             # 准备输入数据
             input_data = {
@@ -153,13 +161,14 @@ class DeepResearchApp:
                 "stream": enable_stream,
                 "save_intermediate": save_intermediate,
                 "save_final_report": save_final_report,
+                "language": language,  # 添加语言参数
                 "env_vars": {},
                 "user_vars": {},
             }
 
-            logger.info(f"开始深度研究: {research_topic}")
+            logger.info(f"开始深度研究: {research_topic}, 语言: {language}")
 
-            # 创建工作流
+            # 创建工作流，传入语言参数
             self.current_workflow = self.workflow_builder.create_workflow(input_data)
 
             if enable_stream:
@@ -193,11 +202,48 @@ class DeepResearchApp:
                         # 新完成的阶段
                         stage_name = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[0]
                         stage_icon = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[1]
+                        
+                        # 特殊处理WhileVertexGroup的迭代分析阶段
+                        if vertex_id == "while_analysis_steps_group":
+                            # 获取迭代结果和统计信息
+                            iteration_count = 0
+                            iteration_results = []
+                            if isinstance(output, dict):
+                                iteration_count = output.get('iteration_count', 0)
+                                # 兼容results/iteration_results两种key
+                                iteration_results = output.get('results', []) or output.get('iteration_results', [])
+                            stage_name = f"分析步骤循环执行组 (共{iteration_count}轮)"
+                            stage_icon = "🔄"
+
+                            # 结构化展示每一轮内容
+                            content = f"## 🔄 分析步骤循环执行组\n\n共执行 {iteration_count} 轮：\n\n"
+                            for i, result in enumerate(iteration_results, 1):
+                                step_info = result.get('step_info', {})
+                                step_name = step_info.get('step_name', f'步骤{i}')
+                                content += f"### 第{i}轮 - {step_name}\n"
+                                step_prepare = result.get('step_prepare', '')
+                                step_analysis = result.get('step_analysis', '')
+                                step_postprocess = result.get('step_postprocess', '')
+                                if step_prepare:
+                                    content += f"- 步骤准备: {step_prepare}\n"
+                                if step_analysis:
+                                    content += f"- 步骤分析: {step_analysis}\n"
+                                if step_postprocess:
+                                    content += f"- 步骤后处理: {step_postprocess}\n"
+                                step_result = result.get('step_result', '')
+                                if step_result:
+                                    summary = step_result[:200] + "..." if len(step_result) > 200 else step_result
+                                    content += f"- 步骤结果摘要: {summary}\n"
+                                content += "\n"
+                            if not iteration_results:
+                                content += "(无详细迭代结果)\n"
+                        else:
+                            content = str(output)
 
                         self.stage_history[vertex_id] = {
                             "name": stage_name,
                             "icon": stage_icon,
-                            "content": str(output),
+                            "content": content,
                             "status": "completed",
                             "cost_time": 0,
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -495,8 +541,8 @@ class DeepResearchApp:
             new_model = self.service.get_chatmodel_by_provider(provider, model_name)
             if new_model:
                 self.llm_model = new_model
-                # 重新初始化工作流构建器
-                self.workflow_builder = DeepResearchWorkflow(self.service)
+                # 重新初始化工作流构建器，传入新的模型
+                self.workflow_builder = DeepResearchWorkflow(self.service, self.llm_model)
 
                 try:
                     actual_model_name = new_model.model_name()
@@ -616,6 +662,11 @@ class DeepResearchApp:
     def _format_stage_content(self, stage_info: Dict[str, str], include_metadata: bool = True) -> str:
         """格式化阶段内容显示"""
         content = stage_info["content"]
+        vertex_id = stage_info.get("vertex_id", "")
+
+        # 特殊处理WhileVertexGroup的迭代分析内容
+        if vertex_id == "while_analysis_steps_group":
+            content = self._format_iterative_analysis_content(content)
 
         if include_metadata:
             formatted_content = f"## {stage_info['icon']} {stage_info['name']}\n\n"
@@ -627,6 +678,78 @@ class DeepResearchApp:
             return formatted_content
         else:
             return content
+    
+    def _format_iterative_analysis_content(self, content: str) -> str:
+        """格式化迭代分析内容，突出显示循环结果"""
+        if not content:
+            return content
+            
+        # 尝试解析迭代结果
+        try:
+            # 如果内容是JSON字符串，尝试解析
+            if isinstance(content, str) and content.strip().startswith('{'):
+                import json
+                content_dict = json.loads(content)
+                iteration_count = content_dict.get('iteration_count', 0)
+                results = content_dict.get('results', [])
+                
+                formatted_content = f"## 🔄 迭代分析完成\n\n"
+                formatted_content += f"**总迭代次数**: {iteration_count}\n"
+                formatted_content += f"**分析步骤数**: {len(results)}\n\n"
+                
+                # 显示每个迭代的摘要
+                for i, result in enumerate(results[:5], 1):  # 最多显示前5个结果
+                    if isinstance(result, dict):
+                        step_info = result.get('step_info', {})
+                        step_name = step_info.get('step_name', f'步骤{i}')
+                        formatted_content += f"### 步骤 {i}: {step_name}\n"
+                        
+                        # 显示步骤结果的摘要
+                        step_result = result.get('step_result', '')
+                        if step_result:
+                            # 截取前200字符作为摘要
+                            summary = step_result[:200] + "..." if len(step_result) > 200 else step_result
+                            formatted_content += f"{summary}\n\n"
+                
+                if len(results) > 5:
+                    formatted_content += f"*... 还有 {len(results) - 5} 个步骤的结果*\n\n"
+                    
+                return formatted_content
+            elif isinstance(content, dict):
+                # 如果是字典类型，直接处理
+                iteration_count = content.get('iteration_count', 0)
+                results = content.get('results', [])
+                
+                formatted_content = f"## 🔄 迭代分析完成\n\n"
+                formatted_content += f"**总迭代次数**: {iteration_count}\n"
+                formatted_content += f"**分析步骤数**: {len(results)}\n\n"
+                
+                # 显示每个迭代的摘要
+                for i, result in enumerate(results[:3], 1):  # 最多显示前3个结果
+                    if isinstance(result, dict):
+                        step_info = result.get('step_info', {})
+                        step_name = step_info.get('step_name', f'步骤{i}')
+                        formatted_content += f"### 步骤 {i}: {step_name}\n"
+                        
+                        # 显示步骤结果的摘要
+                        step_result = result.get('step_result', '')
+                        if step_result:
+                            # 截取前150字符作为摘要
+                            summary = step_result[:150] + "..." if len(step_result) > 150 else step_result
+                            formatted_content += f"{summary}\n\n"
+                
+                if len(results) > 3:
+                    formatted_content += f"*... 还有 {len(results) - 3} 个步骤的结果*\n\n"
+                    
+                return formatted_content
+            else:
+                # 如果是字符串内容，添加迭代分析标识
+                return f"## 🔄 迭代分析结果\n\n{content}"
+                
+        except Exception as e:
+            logger.warning(f"格式化迭代分析内容失败: {e}")
+            # 如果解析失败，仍然添加迭代分析标识
+            return f"## 🔄 迭代分析结果\n\n{content}"
 
     def _create_stage_buttons(self) -> List[str]:
         """创建已完成阶段的按钮列表"""
@@ -962,6 +1085,14 @@ def create_gradio_interface(app: DeepResearchApp):
                     enable_stream = gr.Checkbox(label="流式模式", value=True, info="实时显示分析进度")
 
                 with gr.Row():
+                    current_language = gr.Radio(
+                        choices=[("English", "en"), ("中文", "zh")],
+                        value="en",
+                        label="提示词语言",
+                        info="选择提示词的语言，影响分析结果的输出语言",
+                    )
+
+                with gr.Row():
                     start_btn = gr.Button("🚀 开始深度研究", variant="primary", scale=2)
                     status_btn = gr.Button("📊 查看状态", scale=1)
 
@@ -1111,11 +1242,11 @@ def create_gradio_interface(app: DeepResearchApp):
             )
 
         # 事件绑定
-        def handle_start_research(topic, save_inter, save_final, stream_mode, format_mode):
+        def handle_start_research(topic, save_inter, save_final, stream_mode, format_mode, language):
             """处理开始研究事件"""
             if stream_mode:
                 # 流式模式：实时更新界面
-                for result in app.start_research(topic, save_inter, save_final, stream_mode):
+                for result in app.start_research(topic, save_inter, save_final, stream_mode, language):
                     if len(result) == 5:
                         status, content, progress, stage_buttons, _ = result
 
@@ -1187,7 +1318,7 @@ def create_gradio_interface(app: DeepResearchApp):
                         yield (result[0], "", "", gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
             else:
                 # 批量模式：一次性返回结果
-                results = list(app.start_research(topic, save_inter, save_final, stream_mode))
+                results = list(app.start_research(topic, save_inter, save_final, stream_mode, language))
                 if results:
                     final_result = results[-1]  # 取最后一个结果
                     if len(final_result) == 5:
@@ -1260,7 +1391,7 @@ def create_gradio_interface(app: DeepResearchApp):
             # 移除状态图标获取纯提供商名称
             provider = selected_provider.replace("✅ ", "").replace("❌ ", "")
             models = app.get_models_by_provider(provider)
-            return gr.Dropdown(choices=models)
+            return gr.Dropdown(choices=models, value=None)  # 重置选择值
 
         def switch_model_by_provider_and_model(selected_provider, selected_model):
             """根据提供商和模型切换"""
@@ -1357,7 +1488,7 @@ def create_gradio_interface(app: DeepResearchApp):
         # 绑定事件
         start_btn.click(
             handle_start_research,
-            inputs=[research_topic, save_intermediate, save_final_report, enable_stream, format_toggle],
+            inputs=[research_topic, save_intermediate, save_final_report, enable_stream, format_toggle, current_language],
             outputs=[
                 status_display,
                 current_stage_md,
@@ -1374,30 +1505,51 @@ def create_gradio_interface(app: DeepResearchApp):
         status_btn.click(handle_status_check, outputs=[status_display])
 
         # 绑定提供商选择事件 - 更新模型列表
-        provider_dropdown.change(update_models_by_provider, inputs=[provider_dropdown], outputs=[model_dropdown])
+        provider_dropdown.change(
+            update_models_by_provider, 
+            inputs=[provider_dropdown], 
+            outputs=[model_dropdown],
+            show_progress=False
+        )
 
         # 绑定模型切换事件
         switch_btn.click(
             switch_model_by_provider_and_model,
             inputs=[provider_dropdown, model_dropdown],
             outputs=[switch_result, model_info],
+            show_progress=False
         )
 
         # 绑定刷新事件
-        refresh_btn.click(refresh_provider_list, outputs=[provider_dropdown])
+        refresh_btn.click(
+            refresh_provider_list, 
+            outputs=[provider_dropdown],
+            show_progress=False
+        )
 
         # 绑定手动切换事件
-        manual_switch_btn.click(manual_switch_model, inputs=[provider_input], outputs=[switch_result, model_info])
+        manual_switch_btn.click(
+            manual_switch_model, 
+            inputs=[provider_input], 
+            outputs=[switch_result, model_info],
+            show_progress=False
+        )
 
         # 绑定格式切换事件
         format_toggle.change(
             handle_format_toggle,
             inputs=[format_toggle, research_report_md, research_report_text],
             outputs=[research_report_md, research_report_text, current_stage_md, current_stage_text],
+            show_progress=False
         )
 
         # 阶段选择事件 - 直接触发内容显示
-        stage_selector.change(handle_stage_selection, inputs=[stage_selector], outputs=[stage_detail_display])
+        stage_selector.change(
+            handle_stage_selection, 
+            inputs=[stage_selector], 
+            outputs=[stage_detail_display],
+            show_progress=False
+        )
 
     return demo
 

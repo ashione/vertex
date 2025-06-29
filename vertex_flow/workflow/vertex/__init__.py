@@ -34,8 +34,12 @@ from .vertex import (
     SourceVertex,
     Vertex,
 )
-from .vertex_group import SubgraphContext, VertexGroup
+from ..context import SubgraphContext
+from .vertex_group import VertexGroup
 from .while_vertex import (
     WhileCondition,
     WhileVertex,
+)
+from .while_vertex_group import (
+    WhileVertexGroup,
 )

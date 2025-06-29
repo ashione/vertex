@@ -63,7 +63,7 @@ class DeepResearchWorkflowTester:
             expected_vertices = [
                 "source",
                 "topic_analysis",
-                "research_planning",
+                "analysis_plan",
                 "information_collection",
                 "deep_analysis",
                 "cross_validation",
@@ -176,8 +176,8 @@ class DeepResearchWorkflowTester:
             prompt_methods = [
                 "_get_topic_analysis_system_prompt",
                 "_get_topic_analysis_user_prompt",
-                "_get_research_planning_system_prompt",
-                "_get_research_planning_user_prompt",
+                "_get_analysis_plan_system_prompt",
+                "_get_analysis_plan_user_prompt",
                 "_get_information_collection_system_prompt",
                 "_get_information_collection_user_prompt",
                 "_get_deep_analysis_system_prompt",

@@ -1,5 +1,7 @@
 # EmbeddingVertex 文档
 
+> **注意**: 关于变量依赖和数据传递的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
+
 ## 概述
 
 `EmbeddingVertex` 是 VertexFlow 框架中专门用于文本嵌入（Text Embedding）的顶点类型。它继承自 `Vertex` 基类，提供了将文本转换为向量表示的功能，是构建语义搜索、相似度计算、聚类分析等应用的核心组件。

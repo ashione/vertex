@@ -6,8 +6,9 @@ import weakref
 from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY
-from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.constants import (
+    LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY,)
+from vertex_flow.workflow.context import SubgraphContext, WorkflowContext
 from vertex_flow.workflow.edge import (
     Condition,
     Edge,
@@ -392,7 +393,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         return other
 
-    def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
+    def execute(self, inputs: Dict[str, T] = None, context: Union[WorkflowContext[T], SubgraphContext[T]] = None):
         raise NotImplementedError("Subclasses should implement this method.")
 
     def _replace_placeholders(self, text):
@@ -442,12 +443,8 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                             except Exception as e:
                                 logging.warning(f"Failed to resolve local variable {vertex_id}: {e}")
 
-                # 如果不是本地变量，尝试获取其他顶点的输出
-                replacement_value = self._get_replacement_value_via_dependencies(vertex_id, None)
-                if replacement_value is not None:
-                    text = text.replace(match.group(0), str(replacement_value))
-                    logging.debug(f"replaced vertex output {vertex_id}: {replacement_value}")
-                    continue
+                # 如果不是本地变量，跳过处理（避免错误调用_get_replacement_value_via_dependencies）
+                continue
 
             # 如果不是本地变量，按原来的逻辑处理
             replacement_value = self._get_replacement_value_via_dependencies(vertex_id, var_name)

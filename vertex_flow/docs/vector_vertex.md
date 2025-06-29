@@ -1,5 +1,7 @@
 # VectorVertex 文档
 
+> **注意**: 关于变量配置和数据流传递的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
+
 ## 概述
 
 `VectorVertex` 是 VertexFlow 框架中专门用于向量操作的顶点类型系列。它包含一个抽象基类 `VectorVertex` 和两个具体实现：`VectorStoreVertex`（向量存储）和 `VectorQueryVertex`（向量查询）。这些顶点类型是构建向量数据库应用、语义搜索和相似度匹配系统的核心组件。

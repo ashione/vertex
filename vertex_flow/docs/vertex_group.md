@@ -1,5 +1,7 @@
 # VertexGroup 文档
 
+> **注意**: 关于变量透出机制的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
+
 ## 概述
 
 `VertexGroup` 是 VertexFlow 框架中的一个重要组件，它允许将多个相关的 `Vertex` 组织成一个逻辑单元，形成一个子图（Subgraph）。`VertexGroup` 本身也继承自 `Vertex`，因此可以像普通顶点一样在工作流中使用，同时提供了强大的子图管理和变量暴露功能。
