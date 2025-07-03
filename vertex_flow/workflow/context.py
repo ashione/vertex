@@ -85,11 +85,11 @@ class SubgraphContext(Generic[T]):
         internal_output = self.get_internal_output(vertex_id)
         if internal_output is not None:
             return cast(T, internal_output)
-        
+
         # 如果子图中没有找到，代理到父上下文
         if self.parent_context:
             return self.parent_context.get_output(vertex_id)
-        
+
         return cast(T, None)
 
     def __str__(self) -> str:

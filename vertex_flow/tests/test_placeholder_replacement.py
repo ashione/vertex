@@ -54,9 +54,7 @@ def test_two_llm_placeholder_replacement(workflow, context):
             SYSTEM: "你是一个数据分析师",
             USER: ["请分析以下内容：{{llm1}}, {{source}}"],
         },
-        variables=[
-            {"source_scope": "source", "source_var": None, "local_var": "source"}
-        ]
+        variables=[{"source_scope": "source", "source_var": None, "local_var": "source"}],
     )
 
     # 4. 创建sink顶点

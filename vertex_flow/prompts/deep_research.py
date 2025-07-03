@@ -7,49 +7,50 @@
 """
 
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from .base import BasePromptTemplate
 
 
 class DeepResearchPrompts(BasePromptTemplate):
     """深度研究提示词管理类"""
-    
+
     def __init__(self, language: str = "en"):
         """
         初始化提示词管理器
-        
+
         Args:
             language: 语言选择，"en"为英文，"zh"为中文
         """
         self.language = language.lower()
         if self.language not in ["en", "zh"]:
             self.language = "en"  # 默认使用英文
-    
+
     def get_prompt_names(self) -> List[str]:
         """获取所有可用的提示词名称"""
         return [
             "topic_analysis",
             "analysis_plan",
-            "research_planning", 
+            "research_planning",
             "information_collection",
             "deep_analysis",
             "cross_validation",
-            "summary_report"
+            "summary_report",
         ]
-    
+
     def get_prompt_types(self) -> List[str]:
         """获取所有可用的提示词类型"""
         return ["system", "user"]
-    
+
     def get_available_languages(self) -> List[str]:
         """获取可用的语言列表"""
         return ["en", "zh"]
-    
+
     def set_language(self, language: str):
         """设置语言"""
         if language.lower() in ["en", "zh"]:
             self.language = language.lower()
-    
+
     def get_topic_analysis_system_prompt(self) -> str:
         """获取主题分析系统提示词"""
         if self.language == "zh":
@@ -1552,11 +1553,11 @@ Please provide a clear, professional, and practical summary report, highlighting
     def format_prompt(template: str, variables: Dict[str, Any]) -> str:
         """
         格式化提示词模板
-        
+
         Args:
             template: 提示词模板
             variables: 变量字典
-            
+
         Returns:
             格式化后的提示词
         """
@@ -1564,4 +1565,4 @@ Please provide a clear, professional, and practical summary report, highlighting
             return template.format(**variables)
         except KeyError as e:
             # 如果变量不存在，保持原样
-            return template 
+            return template

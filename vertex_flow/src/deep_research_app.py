@@ -47,25 +47,23 @@ logger = setup_logger(__name__)
 class DeepResearchApp:
     """深度研究工作流 Gradio 应用"""
 
-    # 类常量：阶段映射配置 - 更新以反映新的工作流结构
+    # 类常量：阶段映射配置 - 更新以反映新的工作流结构（已移除独立的信息收集阶段）
     STAGE_MAPPING = {
         "topic_analysis": ("主题分析", "🔍"),
         "analysis_plan": ("分析计划", "📋"),
         "extract_steps": ("步骤提取", "🔧"),
         "while_analysis_steps_group": ("迭代分析", "🔄"),
-        "information_collection": ("信息收集", "📚"),
         "deep_analysis": ("深度分析", "🔬"),
         "cross_validation": ("交叉验证", "✅"),
         "summary_report": ("总结报告", "📄"),
     }
 
-    # 阶段顺序列表 - 更新以反映新的工作流结构
+    # 阶段顺序列表 - 更新以反映新的工作流结构（已移除独立的信息收集阶段）
     STAGE_ORDER = [
         "topic_analysis",
-        "analysis_plan", 
+        "analysis_plan",
         "extract_steps",
         "while_analysis_steps_group",
-        "information_collection",
         "deep_analysis",
         "cross_validation",
         "summary_report",
@@ -104,9 +102,9 @@ class DeepResearchApp:
                 self.service = VertexFlowService(config_path)
 
             self._initialize_llm()
-            
-            # 初始化工作流构建器，传入当前模型和默认语言
-            self.workflow_builder = DeepResearchWorkflow(self.service, self.llm_model, language="en")
+
+            # 初始化工作流构建器，传入当前模型和默认语言（改为中文）
+            self.workflow_builder = DeepResearchWorkflow(self.service, self.llm_model, language="zh")
             self.current_workflow = None
 
             # 初始化阶段历史记录
@@ -114,7 +112,7 @@ class DeepResearchApp:
             self.completed_stages = set()
             self.current_research_topic = ""
             self.workflow_running = False
-            self.current_language = "en"  # 添加当前语言设置
+            self.current_language = "zh"  # 添加当前语言设置（改为中文）
 
             logger.info("Deep Research 应用初始化成功")
         except Exception as e:
@@ -140,7 +138,12 @@ class DeepResearchApp:
             raise
 
     def start_research(
-        self, research_topic: str, save_intermediate: bool, save_final_report: bool, enable_stream: bool, language: str = "en"
+        self,
+        research_topic: str,
+        save_intermediate: bool,
+        save_final_report: bool,
+        enable_stream: bool,
+        language: str = "en",
     ):
         """开始深度研究"""
         if not research_topic.strip():
@@ -202,43 +205,90 @@ class DeepResearchApp:
                         # 新完成的阶段
                         stage_name = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[0]
                         stage_icon = self.STAGE_MAPPING.get(vertex_id, (vertex_id, "📝"))[1]
-                        
+
                         # 特殊处理WhileVertexGroup的迭代分析阶段
                         if vertex_id == "while_analysis_steps_group":
                             # 获取迭代结果和统计信息
                             iteration_count = 0
                             iteration_results = []
                             if isinstance(output, dict):
-                                iteration_count = output.get('iteration_count', 0)
+                                iteration_count = output.get("iteration_count", 0)
                                 # 兼容results/iteration_results两种key
-                                iteration_results = output.get('results', []) or output.get('iteration_results', [])
+                                iteration_results = output.get("results", []) or output.get("iteration_results", [])
                             stage_name = f"分析步骤循环执行组 (共{iteration_count}轮)"
                             stage_icon = "🔄"
 
-                            # 结构化展示每一轮内容
-                            content = f"## 🔄 分析步骤循环执行组\n\n共执行 {iteration_count} 轮：\n\n"
-                            for i, result in enumerate(iteration_results, 1):
-                                step_info = result.get('step_info', {})
-                                step_name = step_info.get('step_name', f'步骤{i}')
-                                content += f"### 第{i}轮 - {step_name}\n"
-                                step_prepare = result.get('step_prepare', '')
-                                step_analysis = result.get('step_analysis', '')
-                                step_postprocess = result.get('step_postprocess', '')
-                                if step_prepare:
-                                    content += f"- 步骤准备: {step_prepare}\n"
-                                if step_analysis:
-                                    content += f"- 步骤分析: {step_analysis}\n"
-                                if step_postprocess:
-                                    content += f"- 步骤后处理: {step_postprocess}\n"
-                                step_result = result.get('step_result', '')
-                                if step_result:
-                                    summary = step_result[:200] + "..." if len(step_result) > 200 else step_result
-                                    content += f"- 步骤结果摘要: {summary}\n"
-                                content += "\n"
-                            if not iteration_results:
-                                content += "(无详细迭代结果)\n"
+                            # 结构化展示每一轮内容，增加更详细的信息
+                            content = (
+                                f"## 🔄 分析步骤循环执行组\n\n**执行概览:** 共完成 {iteration_count} 轮分析步骤\n\n"
+                            )
+
+                            if iteration_results:
+                                content += "---\n\n"
+                                for i, result in enumerate(iteration_results, 1):
+                                    step_info = result.get("step_info", {})
+                                    step_name = step_info.get("step_name", f"步骤{i}")
+                                    step_description = step_info.get("step_description", "")
+                                    step_type = step_info.get("step_type", "")
+
+                                    content += f"### 🔍 第{i}轮分析 - {step_name}\n\n"
+
+                                    if step_description:
+                                        content += f"**📋 步骤描述:** {step_description}\n\n"
+
+                                    if step_type:
+                                        content += f"**🏷️ 步骤类型:** {step_type}\n\n"
+
+                                    # 详细展示各个阶段的内容
+                                    step_prepare = result.get("step_prepare", "")
+                                    step_analysis = result.get("step_analysis", "")
+                                    step_postprocess = result.get("step_postprocess", "")
+                                    step_result = result.get("step_result", "")
+
+                                    if step_prepare:
+                                        content += f"#### 🛠️ 步骤准备阶段\n```\n{step_prepare[:500]}{'...' if len(step_prepare) > 500 else ''}\n```\n\n"
+
+                                    if step_analysis:
+                                        content += f"#### 🔬 步骤分析阶段\n```\n{step_analysis[:800]}{'...' if len(step_analysis) > 800 else ''}\n```\n\n"
+
+                                    if step_postprocess:
+                                        content += f"#### ⚙️ 步骤后处理阶段\n```\n{step_postprocess[:500]}{'...' if len(step_postprocess) > 500 else ''}\n```\n\n"
+
+                                    if step_result:
+                                        content += f"#### 📊 步骤执行结果\n\n"
+                                        # 如果结果很长，显示摘要和详细内容
+                                        if len(step_result) > 1000:
+                                            summary = step_result[:300] + "..."
+                                            content += f"**结果摘要:** {summary}\n\n"
+                                            content += f"<details>\n<summary>📖 点击查看完整结果 ({len(step_result)} 字符)</summary>\n\n```\n{step_result}\n```\n\n</details>\n\n"
+                                        else:
+                                            content += f"```\n{step_result}\n```\n\n"
+
+                                    # 添加分隔线
+                                    if i < len(iteration_results):
+                                        content += "---\n\n"
+
+                                # 添加总结信息
+                                content += f"\n## 📈 执行统计\n\n"
+                                content += f"- **总步骤数:** {iteration_count}\n"
+                                content += f"- **完成状态:** ✅ 全部完成\n"
+                                content += f"- **执行时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            else:
+                                content += "⚠️ 暂无详细的迭代结果数据\n"
                         else:
-                            content = str(output)
+                            # 为其他阶段增加更详细的内容展示
+                            if isinstance(output, dict):
+                                content = self._format_stage_content(vertex_id, stage_name, output)
+                            elif isinstance(output, str) and len(output) > 100:
+                                # 对长文本进行格式化处理
+                                content = f"## {stage_icon} {stage_name}\n\n"
+                                if len(output) > 2000:
+                                    content += f"**内容摘要:** {output[:500]}...\n\n"
+                                    content += f"<details>\n<summary>📖 点击查看完整内容 ({len(output)} 字符)</summary>\n\n```\n{output}\n```\n\n</details>\n"
+                                else:
+                                    content += f"```\n{output}\n```\n"
+                            else:
+                                content = str(output)
 
                         self.stage_history[vertex_id] = {
                             "name": stage_name,
@@ -456,13 +506,13 @@ class DeepResearchApp:
 
             if expected_button_text == stage_button_text:
                 logger.debug(f"找到阶段内容，长度: {len(stage_info['content'])}")
-                return self._format_stage_content(stage_info, include_metadata=True)
+                return self._format_stage_content_legacy(stage_info, include_metadata=True)
 
         # 如果没有精确匹配，尝试模糊匹配
         for stage_id, stage_info in self.stage_history.items():
             if stage_info["name"] in stage_button_text or stage_button_text in stage_info["name"]:
                 logger.debug(f"模糊匹配找到阶段内容: {stage_info['name']}")
-                return self._format_stage_content(stage_info, include_metadata=True)
+                return self._format_stage_content_legacy(stage_info, include_metadata=True)
 
         # 返回调试信息
         available_stages = [f"{info['icon']} {info['name']}" for info in self.stage_history.values()]
@@ -659,8 +709,96 @@ class DeepResearchApp:
 
         return content.strip()
 
-    def _format_stage_content(self, stage_info: Dict[str, str], include_metadata: bool = True) -> str:
-        """格式化阶段内容显示"""
+    def _format_stage_content(self, vertex_id: str, stage_name: str, output: dict) -> str:
+        """格式化阶段内容显示（处理字典类型输出）"""
+        content = f"## 📊 {stage_name}\n\n"
+
+        # 根据不同的阶段类型进行特殊处理
+        if vertex_id == "topic_analysis":
+            content += "### 🔍 主题分析结果\n\n"
+            if "analysis_result" in output:
+                content += f"```\n{output['analysis_result']}\n```\n\n"
+            if "key_aspects" in output:
+                content += "**关键方面:**\n"
+                aspects = output["key_aspects"]
+                if isinstance(aspects, list):
+                    for aspect in aspects:
+                        content += f"- {aspect}\n"
+                else:
+                    content += f"```\n{aspects}\n```\n"
+                content += "\n"
+
+        elif vertex_id == "analysis_plan":
+            content += "### 📋 分析计划详情\n\n"
+            if "plan_details" in output:
+                content += f"```\n{output['plan_details']}\n```\n\n"
+            if "research_framework" in output:
+                content += "**研究框架:**\n"
+                content += f"```\n{output['research_framework']}\n```\n\n"
+
+        elif vertex_id == "extract_steps":
+            content += "### 🔧 提取的分析步骤\n\n"
+            if "steps" in output:
+                steps = output["steps"]
+                if isinstance(steps, list):
+                    content += f"**共提取 {len(steps)} 个分析步骤:**\n\n"
+                    for i, step in enumerate(steps, 1):
+                        if isinstance(step, dict):
+                            step_name = step.get("step_name", f"步骤{i}")
+                            step_desc = step.get("step_description", "")
+                            content += f"#### {i}. {step_name}\n"
+                            if step_desc:
+                                content += f"{step_desc}\n\n"
+                        else:
+                            content += f"#### {i}. {step}\n\n"
+                else:
+                    content += f"```\n{steps}\n```\n\n"
+
+        elif vertex_id == "deep_analysis":
+            content += "### 🔬 深度分析结果\n\n"
+            if "analysis_result" in output:
+                analysis = output["analysis_result"]
+                if len(str(analysis)) > 1500:
+                    content += f"**分析摘要:** {str(analysis)[:400]}...\n\n"
+                    content += f"<details>\n<summary>📖 点击查看完整分析 ({len(str(analysis))} 字符)</summary>\n\n```\n{analysis}\n```\n\n</details>\n\n"
+                else:
+                    content += f"```\n{analysis}\n```\n\n"
+
+        elif vertex_id == "cross_validation":
+            content += "### ✅ 交叉验证结果\n\n"
+            if "validation_result" in output:
+                content += f"```\n{output['validation_result']}\n```\n\n"
+            if "confidence_score" in output:
+                content += f"**置信度评分:** {output['confidence_score']}\n\n"
+
+        elif vertex_id == "summary_report":
+            content += "### 📄 总结报告\n\n"
+            if "final_report" in output:
+                report = output["final_report"]
+                if len(str(report)) > 2000:
+                    content += f"**报告摘要:** {str(report)[:500]}...\n\n"
+                    content += f"<details>\n<summary>📖 点击查看完整报告 ({len(str(report))} 字符)</summary>\n\n```\n{report}\n```\n\n</details>\n\n"
+                else:
+                    content += f"```\n{report}\n```\n\n"
+        else:
+            # 通用处理：显示字典的所有键值对
+            content += "### 📋 详细信息\n\n"
+            for key, value in output.items():
+                content += f"**{key}:**\n"
+                if isinstance(value, (dict, list)):
+                    content += f"```json\n{json.dumps(value, ensure_ascii=False, indent=2)}\n```\n\n"
+                else:
+                    value_str = str(value)
+                    if len(value_str) > 800:
+                        content += f"{value_str[:200]}...\n\n"
+                        content += f"<details>\n<summary>📖 点击查看完整内容 ({len(value_str)} 字符)</summary>\n\n```\n{value_str}\n```\n\n</details>\n\n"
+                    else:
+                        content += f"```\n{value_str}\n```\n\n"
+
+        return content
+
+    def _format_stage_content_legacy(self, stage_info: Dict[str, str], include_metadata: bool = True) -> str:
+        """格式化阶段内容显示（原有方法，保持兼容性）"""
         content = stage_info["content"]
         vertex_id = stage_info.get("vertex_id", "")
 
@@ -678,74 +816,75 @@ class DeepResearchApp:
             return formatted_content
         else:
             return content
-    
+
     def _format_iterative_analysis_content(self, content: str) -> str:
         """格式化迭代分析内容，突出显示循环结果"""
         if not content:
             return content
-            
+
         # 尝试解析迭代结果
         try:
             # 如果内容是JSON字符串，尝试解析
-            if isinstance(content, str) and content.strip().startswith('{'):
+            if isinstance(content, str) and content.strip().startswith("{"):
                 import json
+
                 content_dict = json.loads(content)
-                iteration_count = content_dict.get('iteration_count', 0)
-                results = content_dict.get('results', [])
-                
+                iteration_count = content_dict.get("iteration_count", 0)
+                results = content_dict.get("results", [])
+
                 formatted_content = f"## 🔄 迭代分析完成\n\n"
                 formatted_content += f"**总迭代次数**: {iteration_count}\n"
                 formatted_content += f"**分析步骤数**: {len(results)}\n\n"
-                
+
                 # 显示每个迭代的摘要
                 for i, result in enumerate(results[:5], 1):  # 最多显示前5个结果
                     if isinstance(result, dict):
-                        step_info = result.get('step_info', {})
-                        step_name = step_info.get('step_name', f'步骤{i}')
+                        step_info = result.get("step_info", {})
+                        step_name = step_info.get("step_name", f"步骤{i}")
                         formatted_content += f"### 步骤 {i}: {step_name}\n"
-                        
+
                         # 显示步骤结果的摘要
-                        step_result = result.get('step_result', '')
+                        step_result = result.get("step_result", "")
                         if step_result:
                             # 截取前200字符作为摘要
                             summary = step_result[:200] + "..." if len(step_result) > 200 else step_result
                             formatted_content += f"{summary}\n\n"
-                
+
                 if len(results) > 5:
                     formatted_content += f"*... 还有 {len(results) - 5} 个步骤的结果*\n\n"
-                    
+
                 return formatted_content
             elif isinstance(content, dict):
                 # 如果是字典类型，直接处理
-                iteration_count = content.get('iteration_count', 0)
-                results = content.get('results', [])
-                
+                iteration_count = content.get("iteration_count", 0)
+                results = content.get("results", [])
+
                 formatted_content = f"## 🔄 迭代分析完成\n\n"
                 formatted_content += f"**总迭代次数**: {iteration_count}\n"
                 formatted_content += f"**分析步骤数**: {len(results)}\n\n"
-                
+
                 # 显示每个迭代的摘要
                 for i, result in enumerate(results[:3], 1):  # 最多显示前3个结果
                     if isinstance(result, dict):
-                        step_info = result.get('step_info', {})
-                        step_name = step_info.get('step_name', f'步骤{i}')
+                        step_info = result.get("step_info", {})
+                        step_name = step_info.get("step_name", f"步骤{i}")
                         formatted_content += f"### 步骤 {i}: {step_name}\n"
-                        
+
                         # 显示步骤结果的摘要
-                        step_result = result.get('step_result', '')
+                        step_result = result.get("step_result", "")
                         if step_result:
                             # 截取前150字符作为摘要
                             summary = step_result[:150] + "..." if len(step_result) > 150 else step_result
                             formatted_content += f"{summary}\n\n"
-                
+
                 if len(results) > 3:
                     formatted_content += f"*... 还有 {len(results) - 3} 个步骤的结果*\n\n"
-                    
+
                 return formatted_content
             else:
                 # 如果是字符串内容，添加迭代分析标识
                 return f"## 🔄 迭代分析结果\n\n{content}"
-                
+
         except Exception as e:
             logger.warning(f"格式化迭代分析内容失败: {e}")
             # 如果解析失败，仍然添加迭代分析标识
@@ -1057,13 +1196,14 @@ def create_gradio_interface(app: DeepResearchApp):
         
         **专业的自动化深度研究分析工具**
         
-        本工具通过六个连续的分析阶段，对复杂主题进行全面、深入的研究和分析：
+        本工具通过七个连续的分析阶段，对复杂主题进行全面、深入的研究和分析：
         1. 📊 **主题分析** - 分析研究主题的核心内容和研究范围
-        2. 📋 **研究规划** - 制定详细的研究计划和分析框架  
-        3. 📚 **信息收集** - 系统性收集基础信息和背景资料
-        4. 🔬 **深度分析** - 进行趋势分析和关联分析
-        5. ✅ **交叉验证** - 验证关键事实和数据准确性
-        6. 📄 **总结报告** - 整合所有研究成果生成完整报告
+        2. 📋 **分析计划** - 制定详细的研究计划和分析框架  
+        3. 🔧 **步骤提取** - 提取具体的分析步骤和执行计划
+        4. 🔄 **迭代分析** - 循环执行分析步骤，深入收集和分析信息
+        5. 🔬 **深度分析** - 进行趋势分析和关联分析
+        6. ✅ **交叉验证** - 验证关键事实和数据准确性
+        7. 📄 **总结报告** - 整合所有研究成果生成完整报告
         """
         )
 
@@ -1075,6 +1215,7 @@ def create_gradio_interface(app: DeepResearchApp):
                 research_topic = gr.Textbox(
                     label="研究主题",
                     placeholder="请输入您想要深度研究的主题，例如：人工智能在医疗领域的应用与发展趋势",
+                    value="人工智能在医疗领域的应用与发展趋势",
                     lines=3,
                     max_lines=5,
                 )
@@ -1087,7 +1228,7 @@ def create_gradio_interface(app: DeepResearchApp):
                 with gr.Row():
                     current_language = gr.Radio(
                         choices=[("English", "en"), ("中文", "zh")],
-                        value="en",
+                        value="zh",
                         label="提示词语言",
                         info="选择提示词的语言，影响分析结果的输出语言",
                     )
@@ -1488,7 +1629,14 @@ def create_gradio_interface(app: DeepResearchApp):
         # 绑定事件
         start_btn.click(
             handle_start_research,
-            inputs=[research_topic, save_intermediate, save_final_report, enable_stream, format_toggle, current_language],
+            inputs=[
+                research_topic,
+                save_intermediate,
+                save_final_report,
+                enable_stream,
+                format_toggle,
+                current_language,
+            ],
             outputs=[
                 status_display,
                 current_stage_md,
@@ -1506,10 +1654,7 @@ def create_gradio_interface(app: DeepResearchApp):
 
         # 绑定提供商选择事件 - 更新模型列表
         provider_dropdown.change(
-            update_models_by_provider, 
-            inputs=[provider_dropdown], 
-            outputs=[model_dropdown],
-            show_progress=False
+            update_models_by_provider, inputs=[provider_dropdown], outputs=[model_dropdown], show_progress=False
         )
 
         # 绑定模型切换事件
@@ -1517,22 +1662,15 @@ def create_gradio_interface(app: DeepResearchApp):
             switch_model_by_provider_and_model,
             inputs=[provider_dropdown, model_dropdown],
             outputs=[switch_result, model_info],
-            show_progress=False
+            show_progress=False,
         )
 
         # 绑定刷新事件
-        refresh_btn.click(
-            refresh_provider_list, 
-            outputs=[provider_dropdown],
-            show_progress=False
-        )
+        refresh_btn.click(refresh_provider_list, outputs=[provider_dropdown], show_progress=False)
 
         # 绑定手动切换事件
         manual_switch_btn.click(
-            manual_switch_model, 
-            inputs=[provider_input], 
-            outputs=[switch_result, model_info],
-            show_progress=False
+            manual_switch_model, inputs=[provider_input], outputs=[switch_result, model_info], show_progress=False
         )
 
         # 绑定格式切换事件
@@ -1540,15 +1678,12 @@ def create_gradio_interface(app: DeepResearchApp):
             handle_format_toggle,
             inputs=[format_toggle, research_report_md, research_report_text],
             outputs=[research_report_md, research_report_text, current_stage_md, current_stage_text],
-            show_progress=False
+            show_progress=False,
         )
 
         # 阶段选择事件 - 直接触发内容显示
         stage_selector.change(
-            handle_stage_selection, 
-            inputs=[stage_selector], 
-            outputs=[stage_detail_display],
-            show_progress=False
+            handle_stage_selection, inputs=[stage_selector], outputs=[stage_detail_display], show_progress=False
         )
 
     return demo

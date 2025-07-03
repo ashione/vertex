@@ -73,3 +73,6 @@ ENABLE_TOKEN_USAGE_KEY = "enable_token_usage"  # Key name for enable_token_usage
 # Content attribute constants
 CONTENT_ATTR = "content"  # Attribute name for regular content
 REASONING_CONTENT_ATTR = "reasoning_content"  # Attribute name for reasoning content
+
+# Loop index constants for WhileVertex and WhileVertexGroup
+ITERATION_INDEX_KEY = "iteration_index"  # Iteration index key

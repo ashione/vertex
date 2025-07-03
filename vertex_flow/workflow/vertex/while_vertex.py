@@ -3,7 +3,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import SOURCE_VAR
+from vertex_flow.workflow.constants import ITERATION_INDEX_KEY, SOURCE_VAR
 
 from .function_vertex import FunctionVertex
 from .vertex import T, WorkflowContext
@@ -87,12 +87,12 @@ class WhileVertex(FunctionVertex):
         self.conditions = conditions or []
         self.logical_operator = logical_operator
         self.max_iterations = max_iterations
-        
+
         # 内部状态管理
         self._iteration_index = 0
         self._loop_data = {}
         self._is_first_iteration = True
-        
+
         self._validate_conditions()
 
     def _validate_conditions(self):
@@ -219,11 +219,11 @@ class WhileVertex(FunctionVertex):
         """
         # 重置循环状态
         self.reset_loop_state()
-        
+
         # 初始化循环数据
         if inputs:
             self.set_loop_data(inputs)
-        
+
         results = []
         current_inputs = inputs.copy() if inputs else {}
 
@@ -237,20 +237,25 @@ class WhileVertex(FunctionVertex):
                     logging.info(f"Reached max iterations ({self.max_iterations}) in vertex {self.id}")
                     break
 
-                # 检查循环条件
-                if not self.should_continue(current_inputs, context):
-                    logging.info(f"Loop condition failed in vertex {self.id} at iteration {self._iteration_index}")
-                    break
+                # 在第一次迭代之前检查循环条件
+                if self._iteration_index == 0:
+                    if not self.should_continue(current_inputs, context):
+                        logging.info(f"Loop condition failed in vertex {self.id} at iteration {self._iteration_index}")
+                        break
 
                 # 执行循环体
                 sig = inspect.signature(self.execute_task)
                 has_context = "context" in sig.parameters
 
+                # 自动注入循环索引到inputs中
+                enhanced_inputs = current_inputs.copy()
+                enhanced_inputs[ITERATION_INDEX_KEY] = self._iteration_index
+
                 try:
                     if has_context:
-                        result = self.execute_task(inputs=current_inputs, context=context)
+                        result = self.execute_task(inputs=enhanced_inputs, context=context)
                     else:
-                        result = self.execute_task(inputs=current_inputs)
+                        result = self.execute_task(inputs=enhanced_inputs)
 
                     results.append(result)
 
@@ -262,8 +267,15 @@ class WhileVertex(FunctionVertex):
                     # 增加循环索引
                     self.increment_iteration_index()
                     self._is_first_iteration = False
-                    
+
                     logging.debug(f"Completed iteration {self._iteration_index} in vertex {self.id}")
+
+                    # 在执行完循环体后检查循环条件（除了第一次迭代）
+                    if not self.should_continue(current_inputs, context):
+                        logging.info(
+                            f"Loop condition failed in vertex {self.id} after iteration {self._iteration_index}"
+                        )
+                        break
 
                 except Exception as e:
                     logging.error(f"Error in execute_task at iteration {self._iteration_index}: {e}")
@@ -278,10 +290,10 @@ class WhileVertex(FunctionVertex):
         logging.info(f"While loop completed in vertex {self.id} after {self._iteration_index} iterations")
 
         return {
-            "results": results, 
-            "iteration_count": self._iteration_index, 
+            "results": results,
+            "iteration_count": self._iteration_index,
             "final_inputs": current_inputs,
-            "loop_data": self.get_loop_data()
+            "loop_data": self.get_loop_data(),
         }
 
     def get_iteration_index(self) -> int:

@@ -2,7 +2,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Optional
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
+from vertex_flow.workflow.constants import ITERATION_INDEX_KEY, LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
 from vertex_flow.workflow.edge import Edge
 
 from .vertex import T, Vertex, WorkflowContext
@@ -54,7 +54,7 @@ class WhileVertexGroup(VertexGroup[T]):
 
         # 创建内置的WhileVertex
         self.while_vertex_id = f"{id}_while_controller"
-        
+
         # 准备WhileVertex的参数，处理None值
         while_vertex_params = {
             "id": self.while_vertex_id,
@@ -62,7 +62,7 @@ class WhileVertexGroup(VertexGroup[T]):
             "execute_task": execute_task,
             "logical_operator": logical_operator,
         }
-        
+
         # 只有当值不为None时才添加参数
         if condition_task is not None:
             while_vertex_params["condition_task"] = condition_task
@@ -70,12 +70,12 @@ class WhileVertexGroup(VertexGroup[T]):
             while_vertex_params["conditions"] = conditions
         if max_iterations is not None:
             while_vertex_params["max_iterations"] = max_iterations
-            
+
         self.while_vertex = WhileVertex(**while_vertex_params)
 
         # 重写WhileVertex的should_continue方法，使其使用WhileVertexGroup的变量筛选逻辑
         original_should_continue = self.while_vertex.should_continue
-        
+
         def while_vertex_should_continue(inputs, context):
             """自定义的should_continue方法，使用WhileVertexGroup的变量筛选逻辑"""
             # 使用WhileVertexGroup的变量筛选逻辑
@@ -84,7 +84,7 @@ class WhileVertexGroup(VertexGroup[T]):
             final_inputs = {**(inputs or {}), **filtered_inputs}
             # 调用原始的should_continue方法
             return original_should_continue(final_inputs, context)
-        
+
         self.while_vertex.should_continue = while_vertex_should_continue
 
         # 调用父类构造函数
@@ -97,26 +97,35 @@ class WhileVertexGroup(VertexGroup[T]):
             variables=variables or [],
             exposed_variables=exposed_variables or [],
         )
-        
+
         # 重写task_type为专门的WHILE_VERTEX_GROUP类型
         self._task_type = "WHILE_VERTEX_GROUP"
 
-    def _execute_subgraph_as_task(self, inputs: Optional[Dict[str, Any]] = None, context: Optional[WorkflowContext[T]] = None):
+    def _execute_subgraph_as_task(
+        self, inputs: Optional[Dict[str, Any]] = None, context: Optional[WorkflowContext[T]] = None
+    ):
         """
         将子图执行包装为WhileVertex的execute_task
-        
+
         Args:
-            inputs: 输入数据
+            inputs: 输入数据（已包含自动注入的索引信息）
             context: 工作流上下文
-            
+
         Returns:
             子图执行的结果
         """
         try:
             if self.subgraph_context.parent_context is None and context is not None:
                 self.subgraph_context.parent_context = context
-            # 统一用父类的变量筛选逻辑
-            final_inputs = {**(inputs or {}), **self._filter_inputs(inputs, context)}
+
+            # 统一用父类的变量筛选逻辑，保留索引信息
+            filtered_inputs = self._filter_inputs(inputs, context)
+            final_inputs = {**(inputs or {}), **filtered_inputs}
+
+            # 确保索引信息被保留并传递到子图
+            if inputs and ITERATION_INDEX_KEY in inputs:
+                final_inputs[ITERATION_INDEX_KEY] = inputs[ITERATION_INDEX_KEY]
+
             result = self.execute_subgraph(inputs=final_inputs, context=context)
             # 直接返回结果，暴露输出处理由父类的execute_subgraph方法完成
             return result
@@ -128,22 +137,22 @@ class WhileVertexGroup(VertexGroup[T]):
     def execute(self, inputs: Optional[Dict[str, Any]] = None, context: Optional[WorkflowContext[T]] = None):
         """
         执行WhileVertexGroup，通过内置的WhileVertex进行循环控制
-        
+
         Args:
             inputs: 输入数据
             context: 工作流上下文
-            
+
         Returns:
             循环执行的结果
         """
         try:
             logging.info(f"Starting WhileVertexGroup {self.id} execution, inputs: {inputs}.")
             self._current_context = context
-            if hasattr(self, 'workflow') and self.workflow:
+            if hasattr(self, "workflow") and self.workflow:
                 self.while_vertex.workflow = self.workflow
                 for vertex in self.subgraph_vertices.values():
                     vertex.workflow = self.workflow
-            elif context is not None and hasattr(context, 'workflow') and context.workflow:
+            elif context is not None and hasattr(context, "workflow") and context.workflow:
                 self.while_vertex.workflow = context.workflow
                 for vertex in self.subgraph_vertices.values():
                     vertex.workflow = context.workflow
@@ -154,12 +163,12 @@ class WhileVertexGroup(VertexGroup[T]):
             else:
                 self.while_vertex.execute(inputs=final_inputs, context=None)
             self.output = self.while_vertex.output
-            iteration_count = self.output.get('iteration_count', 0) if self.output else 0
+            iteration_count = self.output.get("iteration_count", 0) if self.output else 0
             logging.info(f"WhileVertexGroup {self.id} completed with {iteration_count} iterations")
-            if self.output and 'final_inputs' in self.output:
-                return self.output['final_inputs']
-            elif self.output and 'results' in self.output and self.output['results']:
-                return self.output['results'][-1]
+            if self.output and "final_inputs" in self.output:
+                return self.output["final_inputs"]
+            elif self.output and "results" in self.output and self.output["results"]:
+                return self.output["results"][-1]
             else:
                 return self.output
         except Exception as e:
@@ -170,7 +179,7 @@ class WhileVertexGroup(VertexGroup[T]):
     def add_condition(self, condition: WhileCondition):
         """
         添加循环条件
-        
+
         Args:
             condition: WhileCondition实例
         """
@@ -181,7 +190,7 @@ class WhileVertexGroup(VertexGroup[T]):
     def set_condition_task(self, condition_task: Callable):
         """
         设置条件判断函数
-        
+
         Args:
             condition_task: 条件判断函数
         """
@@ -192,7 +201,7 @@ class WhileVertexGroup(VertexGroup[T]):
     def set_max_iterations(self, max_iterations: int):
         """
         设置最大迭代次数
-        
+
         Args:
             max_iterations: 最大迭代次数
         """
@@ -201,28 +210,28 @@ class WhileVertexGroup(VertexGroup[T]):
     def get_iteration_count(self) -> int:
         """
         获取当前迭代次数
-        
+
         Returns:
             当前迭代次数
         """
-        if hasattr(self.while_vertex, 'output') and self.while_vertex.output:
-            return self.while_vertex.output.get('iteration_count', 0)
+        if hasattr(self.while_vertex, "output") and self.while_vertex.output:
+            return self.while_vertex.output.get("iteration_count", 0)
         return 0
 
     def get_loop_results(self) -> List[Any]:
         """
         获取所有循环迭代的结果
-        
+
         Returns:
             循环结果列表
         """
-        if hasattr(self.while_vertex, 'output') and self.while_vertex.output:
-            return self.while_vertex.output.get('results', [])
+        if hasattr(self.while_vertex, "output") and self.while_vertex.output:
+            return self.while_vertex.output.get("results", [])
         return []
 
     def __str__(self) -> str:
-        max_iter = getattr(self.while_vertex, 'max_iterations', None)
+        max_iter = getattr(self.while_vertex, "max_iterations", None)
         return f"WhileVertexGroup(id={self.id}, vertices={len(self.subgraph_vertices)}, edges={len(self.subgraph_edges)}, max_iterations={max_iter})"
 
     def __repr__(self) -> str:
-        return self.__str__() 
+        return self.__str__()

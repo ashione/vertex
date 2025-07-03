@@ -55,7 +55,7 @@ class VertexGroup(Vertex[T]):
             self.add_subgraph_vertex(v)
         self.subgraph_edges = set(subgraph_edges or [])
         self.subgraph_context = SubgraphContext()
-        
+
         # 设置暴露变量列表
         self.exposed_variables = exposed_variables or []
 
@@ -95,8 +95,10 @@ class VertexGroup(Vertex[T]):
             source_scope = var_def.get(SOURCE_SCOPE)
             if source_scope and source_scope not in self.subgraph_vertices:
                 # 如果source_scope不在子图中，记录警告但不报错，因为可能是外部依赖
-                logging.info(f"Variable source_scope '{source_scope}' not found in subgraph {self.id}, "
-                           f"will be resolved from external workflow at runtime")
+                logging.info(
+                    f"Variable source_scope '{source_scope}' not found in subgraph {self.id}, "
+                    f"will be resolved from external workflow at runtime"
+                )
 
     def add_subgraph_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         """添加顶点到子图"""
@@ -106,8 +108,7 @@ class VertexGroup(Vertex[T]):
         if hasattr(self, "workflow") and self.workflow:
             vertex.workflow = self.workflow
 
-
-        def vertex_group_resolve_dependencies(variable_selector=None,inputs={}):
+        def vertex_group_resolve_dependencies(variable_selector=None, inputs={}):
             return self.resolve_dependencies(vertex, inputs, self.subgraph_context)
 
         vertex.resolve_dependencies = vertex_group_resolve_dependencies
@@ -234,7 +235,6 @@ class VertexGroup(Vertex[T]):
                     resolved_values[local_var] = source_value
                     continue
                 logging.info(f"Source value for {local_var} is {source_value}, {inputs}")
-                
 
             # 如果外部输入中没有找到，尝试从子图内部获取
             if source_value is None:
@@ -293,7 +293,7 @@ class VertexGroup(Vertex[T]):
                 source_scope = var_def.get(SOURCE_SCOPE)
                 source_var = var_def.get(SOURCE_VAR)
                 local_var = var_def.get(LOCAL_VAR)
-                
+
                 # 如果source_scope是SUBGRAPH_SOURCE，从inputs中获取变量
                 if source_scope == SUBGRAPH_SOURCE:
                     if source_var in (inputs or {}):
@@ -444,14 +444,16 @@ class VertexGroup(Vertex[T]):
         filtered_inputs = {}
         logging.info(f"_filter_inputs called with inputs: {inputs}, context: {context}")
         logging.info(f"self.variables: {self.variables}")
-        
+
         if self.variables:
             for var_def in self.variables:
                 source_scope = var_def.get(SOURCE_SCOPE)
                 source_var = var_def.get(SOURCE_VAR)
                 local_var = var_def.get(LOCAL_VAR, source_var)
-                logging.info(f"Processing variable: source_scope={source_scope}, source_var={source_var}, local_var={local_var}")
-                
+                logging.info(
+                    f"Processing variable: source_scope={source_scope}, source_var={source_var}, local_var={local_var}"
+                )
+
                 # 如果source_scope是SUBGRAPH_SOURCE，从inputs中获取变量
                 if source_scope == SUBGRAPH_SOURCE:
                     if source_var in (inputs or {}):
@@ -486,7 +488,7 @@ class VertexGroup(Vertex[T]):
                 if value is not None:
                     filtered_inputs[local_var] = value
                     logging.info(f"Final filtered variable: {local_var} = {value}")
-        
+
         logging.info(f"_filter_inputs result: {filtered_inputs}")
         return filtered_inputs
 

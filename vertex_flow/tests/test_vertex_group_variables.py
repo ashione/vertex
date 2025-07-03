@@ -3,32 +3,32 @@
 测试VertexGroup的变量筛选和变量暴露功能
 """
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from vertex_flow.workflow.vertex.vertex_group import VertexGroup
+from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
 from vertex_flow.workflow.vertex.function_vertex import FunctionVertex
-from vertex_flow.workflow.constants import SOURCE_SCOPE, SOURCE_VAR, LOCAL_VAR, SUBGRAPH_SOURCE
+from vertex_flow.workflow.vertex.vertex_group import VertexGroup
+
 
 def test_vertex_group_basic():
     """测试VertexGroup的基本变量筛选和暴露功能"""
     print("=== 测试VertexGroup基本功能 ===")
-    
+
     # 创建测试顶点
     def test_function(inputs):
         input_value = inputs.get("input_value", 0)
         return {"result": input_value * 2, "status": "success"}
-    
+
     test_vertex = FunctionVertex(
         id="test_vertex",
         name="Test Vertex",
         task=test_function,
-        variables=[
-            {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}
-        ]
+        variables=[{SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}],
     )
-    
+
     # 创建VertexGroup
     vertex_group = VertexGroup(
         id="test_group",
@@ -41,58 +41,56 @@ def test_vertex_group_basic():
         exposed_variables=[
             # 变量暴露：将子图内部test_vertex的result暴露给外部
             {SOURCE_SCOPE: "test_vertex", SOURCE_VAR: "result", LOCAL_VAR: "exposed_result"}
-        ]
+        ],
     )
-    
+
     # 执行VertexGroup
     result = vertex_group.execute(inputs={"input_value": 5})
     print(f"VertexGroup执行结果: {result}")
-    
+
     # 验证结果
     assert "exposed_result" in result, "暴露变量exposed_result未找到"
     assert result["exposed_result"] == 10, f"期望值为10，实际值为{result['exposed_result']}"
     assert "status" not in result, "未暴露的变量status不应该出现在结果中"
-    
+
     print("✓ VertexGroup基本功能测试通过")
+
 
 def test_vertex_group_no_exposed_variables():
     """测试VertexGroup没有暴露变量时的情况"""
     print("\n=== 测试VertexGroup无暴露变量 ===")
-    
+
     # 创建测试顶点
     def test_function(inputs):
         input_value = inputs.get("input_value", 0)
         return {"result": input_value * 2, "status": "success"}
-    
+
     test_vertex = FunctionVertex(
         id="test_vertex",
         name="Test Vertex",
         task=test_function,
-        variables=[
-            {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}
-        ]
+        variables=[{SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}],
     )
-    
+
     # 创建VertexGroup，不设置exposed_variables
     vertex_group = VertexGroup(
         id="test_group_no_expose",
         name="Test Group No Expose",
         subgraph_vertices=[test_vertex],
-        variables=[
-            {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}
-        ]
+        variables=[{SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "input_value", LOCAL_VAR: "input_value"}],
         # 不设置exposed_variables
     )
-    
+
     # 执行VertexGroup
     result = vertex_group.execute(inputs={"input_value": 5})
     print(f"VertexGroup执行结果: {result}")
-    
+
     # 验证结果应该包含执行摘要
     assert "execution_summary" in result, "应该包含执行摘要"
     assert result["execution_summary"]["success"] == True, "执行应该成功"
-    
+
     print("✓ VertexGroup无暴露变量测试通过")
+
 
 def main():
     """主测试函数"""
@@ -103,7 +101,9 @@ def main():
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
 
+
 if __name__ == "__main__":
-    main() 
+    main()

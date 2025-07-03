@@ -7,7 +7,12 @@ from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import (
-    LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY,)
+    LOCAL_VAR,
+    OUTPUT_KEY,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
+    VERTEX_ID_KEY,
+)
 from vertex_flow.workflow.context import SubgraphContext, WorkflowContext
 from vertex_flow.workflow.edge import (
     Condition,

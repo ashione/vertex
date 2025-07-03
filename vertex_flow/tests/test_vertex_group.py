@@ -2,8 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
 from vertex_flow.workflow.context import WorkflowContext
-from vertex_flow.workflow.constants import SOURCE_SCOPE, SOURCE_VAR, LOCAL_VAR
 from vertex_flow.workflow.edge import Always, Edge
 from vertex_flow.workflow.vertex import FunctionVertex, SubgraphContext, VertexGroup
 
@@ -126,7 +126,7 @@ class TestVertexGroup:
 
         # 现在外部依赖是允许的，只记录警告而不抛出异常
         group = VertexGroup(id="invalid_group", subgraph_vertices=[vertex1, vertex2], variables=variables)
-        
+
         # 验证VertexGroup仍然可以正常创建
         assert group.id == "invalid_group"
         assert len(group.subgraph_vertices) == 2

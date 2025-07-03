@@ -5,7 +5,7 @@ from functools import partial
 from types import FunctionType
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import SOURCE_VAR, LOCAL_VAR
+from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_VAR
 
 from .vertex import (
     Any,

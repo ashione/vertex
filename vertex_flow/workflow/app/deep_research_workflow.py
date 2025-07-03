@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """深度研究工作流模块
 
-本模块实现了一个完整的自动化深度研究分析工作流，包含六个主要阶段：
+本模块实现了一个完整的自动化深度研究分析工作流，包含五个主要阶段：
 1. 主题分析：对研究主题进行深入分析，确定研究范围和关键问题
 2. 分析框架制定：为自动化研究流程制定分析框架和策略
-3. 信息收集与初步分析：使用Web搜索工具收集信息并进行初步分析
+3. 步骤化分析执行：根据分析计划循环执行各个分析步骤（包含信息收集）
 4. 深度分析：对收集的信息进行深入分析和处理
 5. 交叉验证：验证分析结果的准确性和可靠性
 6. 综合分析报告：生成完整的综合分析报告并保存为文件
@@ -14,7 +14,7 @@
 - 专注于自动化分析而非人工操作指导
 - 每个阶段都有专门的系统提示词和用户提示词
 - 支持流式输出，实时显示分析进展
-- 集成Web搜索工具，获取最新信息
+- 信息收集功能集成在步骤循环中，支持Web搜索工具
 - 可配置保存每个阶段的中间结果和最终报告
 - 包含时间信息，确保分析的时效性
 - 使用LLMVertex的postprocess机制保存中间结果
@@ -31,25 +31,25 @@ from typing import Any, Dict
 
 from vertex_flow.prompts.deep_research import DeepResearchPrompts
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.app.analysis_plan_parser import parse_analysis_plan
 from vertex_flow.workflow.constants import (
     ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
+    ITERATION_INDEX_KEY,
     LOCAL_VAR,
     POSTPROCESS,
     SOURCE_SCOPE,
     SOURCE_VAR,
     STAGE_CROSS_VALIDATION,
     STAGE_DEEP_ANALYSIS,
-    STAGE_INFORMATION_COLLECTION,
     STAGE_TOPIC_ANALYSIS,
+    SUBGRAPH_SOURCE,
     SYSTEM,
     USER,
-    SUBGRAPH_SOURCE,
 )
 from vertex_flow.workflow.context import WorkflowContext
-from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow
 from vertex_flow.workflow.vertex import WhileVertex, WhileVertexGroup
-from vertex_flow.workflow.app.analysis_plan_parser import parse_analysis_plan
+from vertex_flow.workflow.workflow import FunctionVertex, LLMVertex, SinkVertex, SourceVertex, Workflow
 
 logger = LoggerUtil.get_logger()
 
@@ -80,11 +80,11 @@ class DeepResearchWorkflow:
             Workflow: 配置好的工作流实例
         """
         logger.info(f"开始创建深度研究工作流, {input_data}...")
-        
+
         # 获取语言设置，优先使用输入数据中的语言，否则使用实例默认语言
         language = input_data.get("language", self.language)
         self.prompts.set_language(language)  # 更新提示词语言
-        
+
         # 创建工作流上下文
         context = WorkflowContext(
             env_parameters=input_data.get("env_vars", {}), user_parameters=input_data.get("user_vars", {})
@@ -136,6 +136,9 @@ class DeepResearchWorkflow:
             id="topic_analysis",
             task=None,
             params=topic_analysis_params,
+            variables=[
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
+            ],
         )
 
         # 2. 分析计划顶点（输出JSON分析计划）
@@ -152,6 +155,9 @@ class DeepResearchWorkflow:
             id="analysis_plan",
             task=None,
             params=analysis_plan_params,
+            variables=[
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
+            ],
         )
 
         # 3. 分析计划解析器（提取steps）
@@ -173,34 +179,44 @@ class DeepResearchWorkflow:
                 research_topic = context.get_variable("research_topic", "未知主题")
                 logger.info(f"为研究主题 '{research_topic}' 创建默认分析计划")
                 from vertex_flow.workflow.app.analysis_plan_parser import create_default_analysis_plan
+
                 default_steps = create_default_analysis_plan(research_topic)
                 logger.info(f"使用默认分析计划，steps类型: {type(default_steps)}")
                 return {"steps": default_steps, "step_index": 0}
-                
+
         extract_steps = FunctionVertex(
             id="extract_steps",
             task=extract_steps_task,
-            variables=[
-                {SOURCE_SCOPE: "analysis_plan", SOURCE_VAR: None, LOCAL_VAR: "analysis_plan"}
-            ],
+            variables=[{SOURCE_SCOPE: "analysis_plan", SOURCE_VAR: None, LOCAL_VAR: "analysis_plan"}],
         )
 
         # 4. WhileVertexGroup循环执行每个step（包含复杂子图）
         # 创建步骤执行子图中的顶点
-        
+
         # 4.1 步骤准备顶点：准备当前步骤的上下文
         def step_prepare_task(inputs, context):
-            # 直接从inputs获取steps和step_index
+            # 从inputs获取steps和自动注入的iteration_index
             steps = inputs.get("steps", [])
-            step_index = inputs.get("step_index", 0)
+            step_index = inputs.get(ITERATION_INDEX_KEY, 0)  # 使用自动注入的循环索引
 
+            # 防护逻辑：检查索引是否超出范围
+            # 这种情况可能在WhileVertexGroup的条件检查时机问题中出现
             if step_index >= len(steps):
-                logger.warning(f"步骤索引超出范围: {step_index} >= {len(steps)}")
-                return {"current_step": None, "step_index": step_index, "total_steps": len(steps)}
-            
+                logger.warning(f"步骤索引超出范围: {step_index} >= {len(steps)}，跳过执行")
+                # 返回一个标记，表示应该停止循环
+                return {
+                    "current_step": None,
+                    "step_index": step_index,
+                    "total_steps": len(steps),
+                    "should_stop": True,  # 添加停止标记
+                    "error": "索引超出范围",
+                }
+
             current_step = steps[step_index]
-            logger.info(f"准备执行步骤 {step_index + 1}/{len(steps)}: {current_step.get('step_name', '未知步骤')}")
-            
+            # 显示正确的进度（确保不超出范围）
+            progress_current = min(step_index + 1, len(steps))
+            logger.info(f"准备执行步骤 {progress_current}/{len(steps)}: {current_step.get('step_name', '未知步骤')}")
+
             return {
                 "current_step": current_step,
                 "step_index": step_index,
@@ -209,17 +225,18 @@ class DeepResearchWorkflow:
                 "step_name": current_step.get("step_name", ""),
                 "step_description": current_step.get("description", ""),
                 "step_method": current_step.get("method", ""),
+                "should_stop": False,  # 正常情况下不停止
             }
-        
+
         step_prepare = FunctionVertex(
             id="step_prepare",
             task=step_prepare_task,
             variables=[
                 {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
-                {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
-            ]
+                # iteration_index 会被 WhileVertexGroup 自动注入，无需手动配置
+            ],
         )
-        
+
         # 4.2 步骤分析顶点：执行具体的分析工作
         step_analysis_params = {
             "model": model_to_use,
@@ -230,7 +247,7 @@ class DeepResearchWorkflow:
             "max_tokens": 4096,
             ENABLE_SEARCH_KEY: True,
         }
-        
+
         step_analysis = LLMVertex(
             id="step_analysis",
             task=None,
@@ -245,62 +262,68 @@ class DeepResearchWorkflow:
                 {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_method", LOCAL_VAR: "step_method"},
                 {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
-            ]
+            ],
         )
-        
-        # 4.3 步骤后处理顶点：保存结果并更新索引
+
+        # 4.3 步骤后处理顶点：保存结果
         def step_postprocess_task(inputs, context):
             # 从上游获取数据
             step_prepare_output = inputs.get("step_prepare_output", {})
             step_analysis_output = inputs.get("step_analysis_output", {})
             steps = inputs.get("steps", [])
-            step_index = 0
+            step_index = inputs.get(ITERATION_INDEX_KEY, 0)  # 使用自动注入的循环索引
+            total_steps = len(steps)
 
-            if inputs.get("step_index") is not None:
-                step_index = inputs.get("step_index")
+            # 检查是否有停止标记
+            should_stop = step_prepare_output.get("should_stop", False)
+            if should_stop:
+                logger.warning(f"检测到停止标记，步骤执行异常终止")
+            else:
+                logger.info(f"步骤 {step_index + 1}/{total_steps} 执行完成")
 
-            total_steps = step_prepare_output.get("total_steps", 0)
-
-            if inputs.get("total_steps") is not None:
-                total_steps = inputs.get("total_steps")
-
-            # 更新步骤索引
-            next_step_index = step_index + 1
-            logger.info(f"步骤 {step_index + 1}/{total_steps} 执行完成，下一步索引: {next_step_index}")
             return {
                 "steps": steps,
-                "step_index": next_step_index,
                 "completed_step": step_prepare_output.get("current_step", {}),
-                "step_result": step_analysis_output
+                "step_result": step_analysis_output,
+                "should_stop": should_stop,  # 传递停止标记
             }
-        
+
         step_postprocess = FunctionVertex(
             id="step_postprocess",
             task=step_postprocess_task,
             variables=[
-                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: "step_prepare", LOCAL_VAR: "step_prepare_output"},
-                {SOURCE_SCOPE: "step_analysis", SOURCE_VAR: "step_analysis", LOCAL_VAR: "step_analysis_output"},
-                {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: None, LOCAL_VAR: "step_prepare_output"},
+                {SOURCE_SCOPE: "step_analysis", SOURCE_VAR: None, LOCAL_VAR: "step_analysis_output"},
+                {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                # iteration_index 会被 WhileVertexGroup 自动注入，无需手动配置
             ],
         )
-        
+
         # 创建子图边
-        from vertex_flow.workflow.edge import Edge, Always
+        from vertex_flow.workflow.edge import Always, Edge
+
         step_edge1 = Edge(step_prepare, step_analysis, Always())
         step_edge2 = Edge(step_analysis, step_postprocess, Always())
-        
+
         # 创建循环条件函数
         def step_condition_task(inputs, context):
-            # 从WhileVertexGroup的内部暴露变量中获取更新后的step_index
+            # 使用自动注入的iteration_index来判断循环条件
             logger.info(f"步骤循环条件检查: {inputs}")
             steps = inputs.get("steps", [])
-            # 优先从内部暴露的变量中获取step_index，如果没有则使用默认值0
-            step_index = inputs.get("step_index", 0)
+            step_index = inputs.get(ITERATION_INDEX_KEY, 0)  # 使用自动注入的循环索引
+
+            # 检查是否有停止标记（来自step_postprocess的输出）
+            should_stop = inputs.get("should_stop", False)
+            if should_stop:
+                logger.info(f"检测到停止标记，终止循环")
+                return False
+
+            # 正常的循环条件检查
             should_continue = step_index < len(steps)
             logger.info(f"步骤循环条件检查: 当前索引={step_index}, 总步骤数={len(steps)}, 继续循环={should_continue}")
             return should_continue
-        
-        # 创建WhileVertexGroup（移除外部变量引用，通过边连接传递数据）
+
+        # 创建WhileVertexGroup（使用新的循环索引增强功能）
         while_vertex_group = WhileVertexGroup(
             id="while_analysis_steps_group",
             name="分析步骤循环执行组",
@@ -309,47 +332,19 @@ class DeepResearchWorkflow:
             condition_task=step_condition_task,
             variables=[
                 {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
-                {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "total_steps", LOCAL_VAR: "total_steps"},
-                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
-            ],
-            exposed_variables=[
-                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "step_index", LOCAL_VAR: "step_index"},
-                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
                 {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
-            ]
+            ],
+            exposed_variables=[
+                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "should_stop", LOCAL_VAR: "should_stop"},
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
+                # iteration_index 会被自动暴露，无需手动配置
+            ],
         )
 
-        # 3. 信息收集顶点（集成Web搜索工具）
-        information_collection_params = {
-            "model": model_to_use,  # 使用指定的模型
-            SYSTEM: self.prompts.get_information_collection_system_prompt(),
-            USER: [self.prompts.get_information_collection_user_prompt()],
-            ENABLE_STREAM: stream_mode,
-            "temperature": 0.6,  # 保持准确性，适度创新
-            "max_tokens": 8192,  # 信息收集需要更多空间
-            ENABLE_SEARCH_KEY: True,
-        }
-        if save_intermediate:
-            information_collection_params[POSTPROCESS] = lambda content, inputs, context: self._postprocess_with_save(
-                content, inputs, context, STAGE_INFORMATION_COLLECTION
-            )
-
-        web_search_tool = None 
-        try :
-            web_search_tool = self.vertex_service.get_web_search_tool()
-        except Exception as e:
-            logger.error(f"Web搜索工具初始化失败: {e}")
-            web_search_tool = None
-
-        information_collection = LLMVertex(
-            id="information_collection",
-            task=None,
-            params=information_collection_params,
-            # - - 贵，有选择使用。
-            # tools= [self.vertex_service.get_web_search_tool()]
-            tools=[self.vertex_service.get_finance_tool()] + [web_search_tool] if web_search_tool else []
-        )
+        # 3. 信息收集阶段已集成到步骤循环中，此处删除独立的信息收集顶点
 
         # 4. 深度分析顶点
         deep_analysis_params = {
@@ -370,6 +365,9 @@ class DeepResearchWorkflow:
             id="deep_analysis",
             task=None,
             params=deep_analysis_params,
+            variables=[
+                {SOURCE_SCOPE: "while_analysis_steps_group", SOURCE_VAR: "steps", LOCAL_VAR: "analysis_steps"},
+            ],
         )
 
         # 5. 交叉验证顶点
@@ -391,6 +389,9 @@ class DeepResearchWorkflow:
             id="cross_validation",
             task=None,
             params=cross_validation_params,
+            variables=[
+                {SOURCE_SCOPE: "deep_analysis", SOURCE_VAR: None, LOCAL_VAR: "deep_analysis"},
+            ],
         )
 
         # 6. 总结报告顶点
@@ -411,23 +412,8 @@ class DeepResearchWorkflow:
         summary_report.add_variables(
             [
                 {
-                    SOURCE_SCOPE: "topic_analysis",
-                    SOURCE_VAR: "topic_analysis",
-                    LOCAL_VAR: "topic_analysis",
-                },
-                {
-                    SOURCE_SCOPE: "information_collection",
-                    SOURCE_VAR: "information_collection",
-                    LOCAL_VAR: "information_collection",
-                },
-                {
-                    SOURCE_SCOPE: "deep_analysis",
-                    SOURCE_VAR: "deep_analysis",
-                    LOCAL_VAR: "deep_analysis",
-                },
-                {
                     SOURCE_SCOPE: "cross_validation",
-                    SOURCE_VAR: "cross_validation",
+                    SOURCE_VAR: None,
                     LOCAL_VAR: "cross_validation",
                 },
             ]
@@ -442,33 +428,71 @@ class DeepResearchWorkflow:
                 variables=[
                     {
                         SOURCE_SCOPE: "summary_report",
-                        SOURCE_VAR: "summary_report",
+                        SOURCE_VAR: None,
                         LOCAL_VAR: "summary_report",
-                    }
+                    },
+                    {
+                        SOURCE_SCOPE: "source",
+                        SOURCE_VAR: "research_topic",
+                        LOCAL_VAR: "research_topic",
+                    },
                 ],
             )
 
         # 创建汇聚顶点
         if save_final_report:
+
             def sink_task(inputs, context):
                 context.set_output("final_report", inputs.get("summary_report", ""))
                 context.set_output("file_path", inputs.get("file_path", ""))
                 context.set_output("message", "深度研究工作流执行完成，报告已保存到文件")
                 context.set_output("research_topic", research_topic)
                 return None
+
             sink = SinkVertex(
                 id="sink",
                 task=sink_task,
+                variables=(
+                    [
+                        {
+                            SOURCE_SCOPE: "summary_report",
+                            SOURCE_VAR: None,
+                            LOCAL_VAR: "summary_report",
+                        },
+                        {
+                            SOURCE_SCOPE: "file_save",
+                            SOURCE_VAR: "file_path",
+                            LOCAL_VAR: "file_path",
+                        },
+                    ]
+                    if save_final_report
+                    else [
+                        {
+                            SOURCE_SCOPE: "summary_report",
+                            SOURCE_VAR: None,
+                            LOCAL_VAR: "summary_report",
+                        }
+                    ]
+                ),
             )
         else:
+
             def sink_task(inputs, context):
                 context.set_output("final_report", inputs.get("summary_report", ""))
                 context.set_output("message", "深度研究工作流执行完成")
                 context.set_output("research_topic", research_topic)
                 return None
+
             sink = SinkVertex(
                 id="sink",
                 task=sink_task,
+                variables=[
+                    {
+                        SOURCE_SCOPE: "summary_report",
+                        SOURCE_VAR: None,
+                        LOCAL_VAR: "summary_report",
+                    }
+                ],
             )
 
         # 添加所有顶点到工作流
@@ -477,7 +501,6 @@ class DeepResearchWorkflow:
         workflow.add_vertex(analysis_plan)
         workflow.add_vertex(extract_steps)
         workflow.add_vertex(while_vertex_group)
-        workflow.add_vertex(information_collection)
         workflow.add_vertex(deep_analysis)
         workflow.add_vertex(cross_validation)
         workflow.add_vertex(summary_report)
@@ -490,8 +513,7 @@ class DeepResearchWorkflow:
         topic_analysis | analysis_plan
         analysis_plan | extract_steps
         extract_steps | while_vertex_group
-        while_vertex_group | information_collection
-        information_collection | deep_analysis
+        while_vertex_group | deep_analysis
         deep_analysis | cross_validation
         cross_validation | summary_report
 
@@ -673,6 +695,7 @@ class DeepResearchWorkflow:
                 # 即使保存失败也传递报告内容
                 "summary_report": inputs.get("summary_report", ""),
             }
+
 
 def create_deep_research_workflow(vertex_service):
     """创建深度研究工作流的工厂函数
