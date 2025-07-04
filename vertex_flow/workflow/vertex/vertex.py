@@ -435,9 +435,9 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                             # 这是一个本地变量，构造variable_selector来解析
                             try:
                                 variable_selector = {
-                                    SOURCE_SCOPE: var_def.get("source_scope"),
-                                    SOURCE_VAR: var_def.get("source_var"),
-                                    LOCAL_VAR: var_def.get("local_var"),
+                                    SOURCE_SCOPE: var_def.get(SOURCE_SCOPE),
+                                    SOURCE_VAR: var_def.get(SOURCE_VAR),
+                                    LOCAL_VAR: var_def.get(LOCAL_VAR),
                                 }
                                 resolved_values = self.resolve_dependencies(variable_selector=variable_selector)
                                 if vertex_id in resolved_values:

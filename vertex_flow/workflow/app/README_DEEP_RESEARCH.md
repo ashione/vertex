@@ -277,7 +277,7 @@ competitive_analysis = LLMVertex(
 )
 
 # 插入到工作流中
-information_collection | competitive_analysis
+step_execution | competitive_analysis
 competitive_analysis | deep_analysis
 ```
 

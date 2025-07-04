@@ -109,6 +109,7 @@ def test_deep_research_streaming():
 
         # 订阅流式事件
         from vertex_flow.workflow.event_channel import EventType
+
         workflow.subscribe(EventType.MESSAGES, on_streaming_event)
 
         # 执行工作流

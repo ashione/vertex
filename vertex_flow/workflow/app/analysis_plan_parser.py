@@ -227,18 +227,11 @@ def create_default_analysis_plan(research_topic: str) -> List[Dict[str, Any]]:
     """
     default_steps = [
         {
-            "step_id": "background_research",
-            "step_name": "背景研究",
-            "description": f"对'{research_topic}'进行背景研究，了解基本概念、发展历程和当前状况",
-            "method": "文献调研分析",
-            "dependencies": [],
-        },
-        {
             "step_id": "current_status_analysis",
             "step_name": "现状分析",
             "description": f"分析'{research_topic}'的当前发展状况、主要特点和关键参与者",
             "method": "现状调研分析",
-            "dependencies": ["background_research"],
+            "dependencies": [],
         },
         {
             "step_id": "trend_analysis",
@@ -253,6 +246,13 @@ def create_default_analysis_plan(research_topic: str) -> List[Dict[str, Any]]:
             "description": f"评估'{research_topic}'对相关领域和社会的影响",
             "method": "影响评估分析",
             "dependencies": ["trend_analysis"],
+        },
+        {
+            "step_id": "solution_analysis",
+            "step_name": "解决方案分析",
+            "description": f"分析'{research_topic}'相关的解决方案、最佳实践和创新方法",
+            "method": "方案分析法",
+            "dependencies": ["impact_assessment"],
         },
     ]
 

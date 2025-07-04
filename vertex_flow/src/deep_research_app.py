@@ -161,6 +161,7 @@ class DeepResearchApp:
             # 准备输入数据
             input_data = {
                 "content": research_topic.strip(),
+                "research_topic": research_topic.strip(),  # 添加research_topic字段以确保兼容性
                 "stream": enable_stream,
                 "save_intermediate": save_intermediate,
                 "save_final_report": save_final_report,
@@ -319,7 +320,7 @@ class DeepResearchApp:
                         if vertex_id in self.STAGE_MAPPING:
                             # 实时显示流式内容
                             stage_name = self.STAGE_MAPPING[vertex_id][0]
-                            logger.info(f"流式消息: {stage_name} - {message[:100]}...")
+                            logger.debug(f"流式消息: {stage_name} - {message[:100]}...")
 
                             # 更新当前阶段的流式内容
                             if vertex_id not in self.stage_history:
@@ -339,7 +340,7 @@ class DeepResearchApp:
                             # 检查是否属于while_analysis_steps_group的子顶点
                             while_group_id = "while_analysis_steps_group"
                             if while_group_id in self.STAGE_MAPPING:
-                                logger.info(f"While循环内部流式消息: {vertex_id} - {message[:100]}...")
+                                logger.debug(f"While循环内部流式消息: {vertex_id} - {message[:100]}...")
 
                                 # 如果while组还没有在历史中，创建它
                                 if while_group_id not in self.stage_history:
@@ -350,10 +351,49 @@ class DeepResearchApp:
                                         "status": "streaming",
                                         "cost_time": 0,
                                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "sub_stages": {},  # 添加子阶段跟踪
+                                        "current_iteration": 0,  # 当前迭代轮次
                                     }
                                 else:
-                                    # 追加流式内容到while组
-                                    self.stage_history[while_group_id]["content"] += f"\n\n**{vertex_id}:** {message}"
+                                    # 更新while组的流式内容，支持多阶段展示
+                                    current_content = self.stage_history[while_group_id]["content"]
+
+                                    # 检测是否是新的迭代轮次（通过vertex_id变化判断）
+                                    if vertex_id == "step_prepare":
+                                        # 开始新的迭代轮次
+                                        self.stage_history[while_group_id]["current_iteration"] += 1
+                                        iteration_num = self.stage_history[while_group_id]["current_iteration"]
+                                        self.stage_history[while_group_id][
+                                            "content"
+                                        ] += f"\n\n---\n\n## 🔄 第{iteration_num}轮分析\n\n"
+
+                                    # 根据不同的子顶点类型格式化消息
+                                    if vertex_id == "step_prepare":
+                                        # 检查是否已经有该阶段的标题
+                                        if "### 🛠️ 步骤准备" not in self.stage_history[while_group_id]["content"]:
+                                            self.stage_history[while_group_id]["content"] += f"### 🛠️ 步骤准备\n"
+                                        self.stage_history[while_group_id]["content"] += message
+                                    elif vertex_id == "step_analysis":
+                                        # 检查是否已经有该阶段的标题
+                                        current_content = self.stage_history[while_group_id]["content"]
+                                        iteration_num = self.stage_history[while_group_id]["current_iteration"]
+                                        analysis_header = f"### 🔬 步骤分析 (第{iteration_num}轮)"
+
+                                        if analysis_header not in current_content:
+                                            self.stage_history[while_group_id]["content"] += f"\n{analysis_header}\n\n"
+
+                                        # 追加消息内容，确保格式正确
+                                        self.stage_history[while_group_id]["content"] += message
+                                    elif vertex_id == "step_postprocess":
+                                        # 检查是否已经有该阶段的标题
+                                        if "### ⚙️ 步骤后处理" not in self.stage_history[while_group_id]["content"]:
+                                            self.stage_history[while_group_id]["content"] += f"\n### ⚙️ 步骤后处理\n\n"
+                                        self.stage_history[while_group_id]["content"] += message
+                                    else:
+                                        # 其他子顶点
+                                        self.stage_history[while_group_id][
+                                            "content"
+                                        ] += f"\n\n**{vertex_id}:** {message}"
                 except Exception as e:
                     logger.error(f"处理流式消息事件失败: {e}")
 
@@ -840,7 +880,7 @@ class DeepResearchApp:
             return content
 
     def _format_iterative_analysis_content(self, content: str) -> str:
-        """格式化迭代分析内容，突出显示循环结果"""
+        """格式化迭代分析内容，显示完整的循环结果"""
         if not content:
             return content
 
@@ -858,22 +898,24 @@ class DeepResearchApp:
                 formatted_content += f"**总迭代次数**: {iteration_count}\n"
                 formatted_content += f"**分析步骤数**: {len(results)}\n\n"
 
-                # 显示每个迭代的摘要
-                for i, result in enumerate(results[:5], 1):  # 最多显示前5个结果
+                # 显示所有步骤的完整内容
+                for i, result in enumerate(results, 1):
                     if isinstance(result, dict):
                         step_info = result.get("step_info", {})
                         step_name = step_info.get("step_name", f"步骤{i}")
-                        formatted_content += f"### 步骤 {i}: {step_name}\n"
+                        step_method = step_info.get("step_method", "")
 
-                        # 显示步骤结果的摘要
+                        formatted_content += f"### 步骤 {i}: {step_name}\n\n"
+
+                        if step_method:
+                            formatted_content += f"**分析方法**: {step_method}\n\n"
+
+                        # 显示完整的步骤结果
                         step_result = result.get("step_result", "")
                         if step_result:
-                            # 截取前200字符作为摘要
-                            summary = step_result[:200] + "..." if len(step_result) > 200 else step_result
-                            formatted_content += f"{summary}\n\n"
+                            formatted_content += f"**分析结果与结论**:\n\n{step_result}\n\n"
 
-                if len(results) > 5:
-                    formatted_content += f"*... 还有 {len(results) - 5} 个步骤的结果*\n\n"
+                        formatted_content += "---\n\n"
 
                 return formatted_content
             elif isinstance(content, dict):
@@ -885,22 +927,24 @@ class DeepResearchApp:
                 formatted_content += f"**总迭代次数**: {iteration_count}\n"
                 formatted_content += f"**分析步骤数**: {len(results)}\n\n"
 
-                # 显示每个迭代的摘要
-                for i, result in enumerate(results[:3], 1):  # 最多显示前3个结果
+                # 显示所有步骤的完整内容
+                for i, result in enumerate(results, 1):
                     if isinstance(result, dict):
                         step_info = result.get("step_info", {})
                         step_name = step_info.get("step_name", f"步骤{i}")
-                        formatted_content += f"### 步骤 {i}: {step_name}\n"
+                        step_method = step_info.get("step_method", "")
 
-                        # 显示步骤结果的摘要
+                        formatted_content += f"### 步骤 {i}: {step_name}\n\n"
+
+                        if step_method:
+                            formatted_content += f"**分析方法**: {step_method}\n\n"
+
+                        # 显示完整的步骤结果
                         step_result = result.get("step_result", "")
                         if step_result:
-                            # 截取前150字符作为摘要
-                            summary = step_result[:150] + "..." if len(step_result) > 150 else step_result
-                            formatted_content += f"{summary}\n\n"
+                            formatted_content += f"**分析结果与结论**:\n\n{step_result}\n\n"
 
-                if len(results) > 3:
-                    formatted_content += f"*... 还有 {len(results) - 3} 个步骤的结果*\n\n"
+                        formatted_content += "---\n\n"
 
                 return formatted_content
             else:
@@ -1645,6 +1689,10 @@ def create_gradio_interface(app: DeepResearchApp):
                     "## 🔍 查看已完成阶段内容\n\n> ⏳ **提示:** 工作流正在运行中，以下是已完成阶段的内容\n\n---\n\n"
                 )
                 content = status_note + content
+
+            # 对内容进行markdown增强处理，确保能正确渲染
+            if app.is_markdown_content(content):
+                content = app.enhance_markdown_content(content)
 
             return content
 

@@ -265,7 +265,7 @@ class DeepResearchWorkflow:
             ],
         )
 
-        # 4.3 步骤后处理顶点：保存结果
+        # 4.3 步骤后处理顶点：保存结果并累积所有步骤的分析结果
         def step_postprocess_task(inputs, context):
             # 从上游获取数据
             step_prepare_output = inputs.get("step_prepare_output", {})
@@ -281,10 +281,27 @@ class DeepResearchWorkflow:
             else:
                 logger.info(f"步骤 {step_index + 1}/{total_steps} 执行完成")
 
+            # 从context中获取或初始化累积的步骤结果
+            accumulated_results = context.get_variable("accumulated_step_results", [])
+
+            # 添加当前步骤的结果
+            if not should_stop:
+                current_result = {
+                    "step_index": step_index,
+                    "step_info": step_prepare_output.get("current_step", {}),
+                    "analysis_result": step_analysis_output,
+                    "completed_at": step_index + 1,
+                }
+                accumulated_results.append(current_result)
+
+            # 更新context中的累积结果
+            context.set_variable("accumulated_step_results", accumulated_results)
+
             return {
                 "steps": steps,
                 "completed_step": step_prepare_output.get("current_step", {}),
                 "step_result": step_analysis_output,
+                "accumulated_step_results": accumulated_results,  # 新增：累积的所有步骤结果
                 "should_stop": should_stop,  # 传递停止标记
             }
 
@@ -336,7 +353,12 @@ class DeepResearchWorkflow:
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
             ],
             exposed_variables=[
-                {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                {
+                    SOURCE_SCOPE: "step_postprocess",
+                    SOURCE_VAR: "accumulated_step_results",
+                    LOCAL_VAR: "step_analysis_results",
+                },
                 {SOURCE_SCOPE: "step_postprocess", SOURCE_VAR: "should_stop", LOCAL_VAR: "should_stop"},
                 {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
@@ -367,6 +389,14 @@ class DeepResearchWorkflow:
             params=deep_analysis_params,
             variables=[
                 {SOURCE_SCOPE: "while_analysis_steps_group", SOURCE_VAR: "steps", LOCAL_VAR: "analysis_steps"},
+                {
+                    SOURCE_SCOPE: "while_analysis_steps_group",
+                    SOURCE_VAR: "step_analysis_results",
+                    LOCAL_VAR: "step_analysis_results",
+                },
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
+                {SOURCE_SCOPE: "analysis_plan", SOURCE_VAR: None, LOCAL_VAR: "analysis_plan"},
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
             ],
         )
 
@@ -391,6 +421,15 @@ class DeepResearchWorkflow:
             params=cross_validation_params,
             variables=[
                 {SOURCE_SCOPE: "deep_analysis", SOURCE_VAR: None, LOCAL_VAR: "deep_analysis"},
+                {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
+                {SOURCE_SCOPE: "analysis_plan", SOURCE_VAR: None, LOCAL_VAR: "analysis_plan"},
+                {SOURCE_SCOPE: "while_analysis_steps_group", SOURCE_VAR: "steps", LOCAL_VAR: "analysis_steps"},
+                {
+                    SOURCE_SCOPE: "while_analysis_steps_group",
+                    SOURCE_VAR: "step_analysis_results",
+                    LOCAL_VAR: "step_analysis_results",
+                },
+                {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
             ],
         )
 
@@ -415,6 +454,36 @@ class DeepResearchWorkflow:
                     SOURCE_SCOPE: "cross_validation",
                     SOURCE_VAR: None,
                     LOCAL_VAR: "cross_validation",
+                },
+                {
+                    SOURCE_SCOPE: "topic_analysis",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "topic_analysis",
+                },
+                {
+                    SOURCE_SCOPE: "analysis_plan",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "analysis_plan",
+                },
+                {
+                    SOURCE_SCOPE: "deep_analysis",
+                    SOURCE_VAR: None,
+                    LOCAL_VAR: "deep_analysis",
+                },
+                {
+                    SOURCE_SCOPE: "while_analysis_steps_group",
+                    SOURCE_VAR: "steps",
+                    LOCAL_VAR: "analysis_steps",
+                },
+                {
+                    SOURCE_SCOPE: "while_analysis_steps_group",
+                    SOURCE_VAR: "step_analysis_results",
+                    LOCAL_VAR: "step_analysis_results",
+                },
+                {
+                    SOURCE_SCOPE: "source",
+                    SOURCE_VAR: "research_topic",
+                    LOCAL_VAR: "research_topic",
                 },
             ]
         )
@@ -446,41 +515,7 @@ class DeepResearchWorkflow:
                 context.set_output("final_report", inputs.get("summary_report", ""))
                 context.set_output("file_path", inputs.get("file_path", ""))
                 context.set_output("message", "深度研究工作流执行完成，报告已保存到文件")
-                context.set_output("research_topic", research_topic)
-                return None
-
-            sink = SinkVertex(
-                id="sink",
-                task=sink_task,
-                variables=(
-                    [
-                        {
-                            SOURCE_SCOPE: "summary_report",
-                            SOURCE_VAR: None,
-                            LOCAL_VAR: "summary_report",
-                        },
-                        {
-                            SOURCE_SCOPE: "file_save",
-                            SOURCE_VAR: "file_path",
-                            LOCAL_VAR: "file_path",
-                        },
-                    ]
-                    if save_final_report
-                    else [
-                        {
-                            SOURCE_SCOPE: "summary_report",
-                            SOURCE_VAR: None,
-                            LOCAL_VAR: "summary_report",
-                        }
-                    ]
-                ),
-            )
-        else:
-
-            def sink_task(inputs, context):
-                context.set_output("final_report", inputs.get("summary_report", ""))
-                context.set_output("message", "深度研究工作流执行完成")
-                context.set_output("research_topic", research_topic)
+                context.set_output("research_topic", inputs.get("research_topic", ""))
                 return None
 
             sink = SinkVertex(
@@ -491,7 +526,41 @@ class DeepResearchWorkflow:
                         SOURCE_SCOPE: "summary_report",
                         SOURCE_VAR: None,
                         LOCAL_VAR: "summary_report",
-                    }
+                    },
+                    {
+                        SOURCE_SCOPE: "file_save",
+                        SOURCE_VAR: "file_path",
+                        LOCAL_VAR: "file_path",
+                    },
+                    {
+                        SOURCE_SCOPE: "source",
+                        SOURCE_VAR: "research_topic",
+                        LOCAL_VAR: "research_topic",
+                    },
+                ],
+            )
+        else:
+
+            def sink_task(inputs, context):
+                context.set_output("final_report", inputs.get("summary_report", ""))
+                context.set_output("message", "深度研究工作流执行完成")
+                context.set_output("research_topic", inputs.get("research_topic", ""))
+                return None
+
+            sink = SinkVertex(
+                id="sink",
+                task=sink_task,
+                variables=[
+                    {
+                        SOURCE_SCOPE: "summary_report",
+                        SOURCE_VAR: None,
+                        LOCAL_VAR: "summary_report",
+                    },
+                    {
+                        SOURCE_SCOPE: "source",
+                        SOURCE_VAR: "research_topic",
+                        LOCAL_VAR: "research_topic",
+                    },
                 ],
             )
 
@@ -598,12 +667,8 @@ class DeepResearchWorkflow:
             str: 原始内容（不修改）
         """
         try:
-            # 获取研究主题
-            research_topic = ""
-            if hasattr(context, "outputs") and "source" in context.outputs:
-                source_data = context.outputs["source"]
-                if isinstance(source_data, dict):
-                    research_topic = source_data.get("research_topic", "")
+            # 从输入数据获取研究主题
+            research_topic = inputs.get("research_topic", "")
 
             # 保存中间结果
             self._save_intermediate_result(stage_name, content, research_topic)
@@ -633,12 +698,8 @@ class DeepResearchWorkflow:
                 logger.warning("报告内容为空，无法保存文件")
                 return {"file_path": "", "success": False, "message": "报告内容为空"}
 
-            # 从源数据获取研究主题
-            research_topic = ""
-            if hasattr(context, "outputs") and "source" in context.outputs:
-                source_data = context.outputs["source"]
-                if isinstance(source_data, dict):
-                    research_topic = source_data.get("research_topic", "")
+            # 从输入数据获取研究主题
+            research_topic = inputs.get("research_topic", "")
 
             # 生成文件名（清理特殊字符）
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")

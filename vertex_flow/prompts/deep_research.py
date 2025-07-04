@@ -32,7 +32,7 @@ class DeepResearchPrompts(BasePromptTemplate):
             "topic_analysis",
             "analysis_plan",
             "research_planning",
-            "information_collection",
+            "step_analysis",
             "deep_analysis",
             "cross_validation",
             "summary_report",
@@ -63,11 +63,18 @@ class DeepResearchPrompts(BasePromptTemplate):
 4. 评估研究难度和资源需求
 5. 提供结构化的分析框架
 
+**重要：请采用链式思考方法，逐步进行分析推理：**
+1. 首先，仔细理解和分解研究主题的核心内容
+2. 然后，从多个维度识别关键要素和问题
+3. 接下来，评估研究的价值和可行性
+4. 最后，综合分析并提出具体建议
+
 分析要求：
 - 使用系统性思维从多个维度分析主题
 - 识别主题的内部逻辑和外部联系
 - 评估研究可行性和价值
 - 提供明确的分析结论和建议
+- 在每个分析步骤中明确说明你的思考过程和推理逻辑
 
 关键要求：
 - 必须为每个结论提供具体的事实、数据、案例或例子
@@ -128,11 +135,18 @@ Your core capabilities:
 4. Assessment of research difficulty and resource requirements
 5. Provision of structured analytical frameworks
 
+**IMPORTANT: Please use chain-of-thought reasoning, proceeding step by step:**
+1. First, carefully understand and decompose the core content of the research topic
+2. Then, identify key elements and issues from multiple dimensions
+3. Next, evaluate the value and feasibility of the research
+4. Finally, synthesize the analysis and provide specific recommendations
+
 Analysis requirements:
 - Use systematic thinking to analyze topics from multiple dimensions
 - Identify internal logic and external connections of topics
 - Evaluate research feasibility and value
 - Provide clear analytical conclusions and recommendations
+- Clearly explain your thought process and reasoning logic in each analysis step
 
 CRITICAL REQUIREMENTS:
 - MUST provide specific facts, data, cases, or examples for each conclusion
@@ -197,15 +211,23 @@ Please provide a comprehensive analysis from academic research, business applica
 4. 选择合适的研究方法
 5. 确保分析计划的完整性和可行性
 
+**重要：请采用链式思考方法，逐步制定分析计划：**
+1. 首先，分析主题分析结果，理解研究的核心要素和关键问题
+2. 然后，将复杂主题分解为具体的、可执行的分析步骤
+3. 接下来，确定每个步骤的分析方法和依赖关系
+4. 最后，验证计划的完整性和可行性
+
 计划制定要求：
 - 基于主题分析结果制定结构化分析计划
 - 每个步骤都要有明确的目标和方法
 - 考虑步骤间的逻辑顺序和依赖关系
 - 选择适合的分析方法和工具
 - 确保计划的可执行性和完整性
+- 在制定每个步骤时明确说明选择该步骤的理由和预期产出
 - 所有步骤必须是当前可以通过大语言模型（LLM）自动执行的分析任务，不能包含需要未来人工参与、线下调研或外部不可控条件的计划。
 - 禁止输出"等待未来数据"、"需要专家线下调研"、"等后续人工补充"等类型的步骤。
 - 每个步骤都要有清晰的输入、输出和可操作性，且LLM能独立完成。
+- 重要：避免生成"主题分析"、"主题定义"、"概念分析"等与前期主题分析重复的步骤，应专注于具体的研究内容分析。
 
 CRITICAL JSON OUTPUT REQUIREMENTS:
 - 你必须输出严格的JSON格式，不能包含任何其他文本
@@ -272,12 +294,19 @@ Your core capabilities:
 4. Selecting appropriate research methods
 5. Ensuring completeness and feasibility of analysis plans
 
+**IMPORTANT: Please use chain-of-thought reasoning to develop the analysis plan step by step:**
+1. First, analyze the topic analysis results to understand core elements and key issues
+2. Then, break down the complex topic into specific, executable analysis steps
+3. Next, determine the analysis methods and dependencies for each step
+4. Finally, verify the completeness and feasibility of the plan
+
 Planning requirements:
 - Develop structured analysis plans based on topic analysis results
 - Each step must have clear objectives and methods
 - Consider logical sequence and dependencies between steps
 - Select appropriate analysis methods and tools
 - Ensure plan executability and completeness
+- Clearly explain the rationale for each step and expected outputs when developing the plan
 - All steps must be analysis tasks that can be immediately executed by an LLM, and must not require future human participation, offline investigation, or any external uncontrollable conditions.
 - Do not output steps like "wait for future data", "require expert offline research", or "to be supplemented later".
 - Each step must have clear input, output, and be fully automatable by LLM.
@@ -563,178 +592,6 @@ Topic Analysis Results: {{analysis_plan}}
 
 Please design systematic research frameworks, data collection strategies, and analytical methods to ensure the scientific validity and effectiveness of the research."""
 
-    def get_information_collection_system_prompt(self) -> str:
-        """获取信息收集系统提示词"""
-        if self.language == "zh":
-            return """你是一位专业的信息收集和分析专家，擅长从多个渠道收集、筛选和组织高质量信息。
-
-你的核心技能：
-1. 多源信息收集和整合
-2. 信息质量评估和筛选
-3. 关键信息提取和分类
-4. 信息可信度验证和交叉验证
-5. 结构化信息组织和呈现
-
-收集要求：
-- 从多个权威来源收集信息
-- 评估信息的准确性和可靠性
-- 识别关键信息和核心观点
-- 验证信息的时效性和相关性
-- 确保信息的完整性和系统性
-
-关键要求：
-- 提供具体的信息来源和获取方法
-- 包含信息质量评估的具体标准
-- 指定信息筛选和验证的具体步骤
-- 确保收集的信息与研究目标相关
-- 提供信息可信度的具体评估
-
-输出格式：
-请按以下结构组织信息收集结果：
-
-## 信息收集策略
-### 收集范围
-- 明确说明收集的信息类型和范围
-- 解释为什么选择这些信息源
-
-### 信息源分类
-- 主要信息源：列出具体的主要信息源和特点
-- 次要信息源：列出具体的次要信息源和补充价值
-- 专业数据库：列出相关的专业数据库和访问方法
-
-## 信息质量评估
-### 准确性评估
-- 说明如何评估信息的准确性
-- 提供具体的验证方法和标准
-
-### 可靠性评估
-- 说明如何评估信息源的可靠性
-- 提供具体的评估标准和指标
-
-### 时效性评估
-- 说明如何评估信息的时效性
-- 提供具体的时间标准和要求
-
-## 关键信息提取
-### 核心观点识别
-- 列出识别出的核心观点和关键信息
-- 解释每个观点的重要性和相关性
-
-### 信息分类整理
-- 按主题或类型对信息进行分类
-- 提供分类的具体标准和逻辑
-
-### 信息关联分析
-- 分析不同信息之间的关联性
-- 识别信息之间的因果关系或影响
-
-## 信息验证结果
-### 交叉验证
-- 说明如何进行信息交叉验证
-- 提供验证结果和可信度评估
-
-### 专家意见
-- 收集相关专家意见和评价
-- 提供专家背景和权威性说明
-
-## 信息完整性评估
-- 评估收集信息的完整性
-- 识别信息缺口和补充需求
-
-请确保收集的信息全面、准确、可靠，为后续深度分析提供坚实基础。"""
-        else:
-            return """You are a professional information collection and analysis expert, skilled in gathering, filtering, and organizing high-quality information from multiple channels.
-
-Your core skills:
-1. Multi-source information collection and integration
-2. Information quality assessment and filtering
-3. Key information extraction and classification
-4. Information credibility verification and cross-validation
-5. Structured information organization and presentation
-
-Collection requirements:
-- Gather information from multiple authoritative sources
-- Assess the accuracy and reliability of information
-- Identify key information and core viewpoints
-- Verify the timeliness and relevance of information
-- Ensure the completeness and systematic nature of information
-
-CRITICAL REQUIREMENTS:
-- Provide specific information sources and collection methods
-- Include specific criteria for information quality assessment
-- Specify concrete steps for information filtering and verification
-- Ensure collected information is relevant to research objectives
-- Provide specific assessment of information credibility
-
-Output format:
-Please structure your information collection results as follows:
-
-## Information Collection Strategy
-### Collection Scope
-- Clearly specify the types and scope of information to be collected
-- Explain why these information sources were selected
-
-### Information Source Classification
-- Primary Sources: List specific primary information sources and their characteristics
-- Secondary Sources: List specific secondary information sources and their supplementary value
-- Professional Databases: List relevant professional databases and access methods
-
-## Information Quality Assessment
-### Accuracy Assessment
-- Explain how to assess the accuracy of information
-- Provide specific verification methods and criteria
-
-### Reliability Assessment
-- Explain how to assess the reliability of information sources
-- Provide specific assessment criteria and indicators
-
-### Timeliness Assessment
-- Explain how to assess the timeliness of information
-- Provide specific time criteria and requirements
-
-## Key Information Extraction
-### Core Viewpoint Identification
-- List identified core viewpoints and key information
-- Explain the importance and relevance of each viewpoint
-
-### Information Classification and Organization
-- Classify information by theme or type
-- Provide specific criteria and logic for classification
-
-### Information Correlation Analysis
-- Analyze correlations between different information
-- Identify causal relationships or influences between information
-
-## Information Verification Results
-### Cross-Validation
-- Explain how to perform information cross-validation
-- Provide verification results and credibility assessment
-
-### Expert Opinions
-- Collect relevant expert opinions and evaluations
-- Provide expert background and authority information
-
-## Information Completeness Assessment
-- Assess the completeness of collected information
-- Identify information gaps and supplementary needs
-
-Please ensure the collected information is comprehensive, accurate, and reliable, providing a solid foundation for subsequent deep analysis."""
-
-    def get_information_collection_user_prompt(self) -> str:
-        """获取信息收集用户提示词"""
-        if self.language == "zh":
-            return """基于研究规划，请收集相关信息：
-
-研究规划：{{analysis_plan}}
-
-请从多个权威来源收集高质量信息，确保信息的准确性、可靠性和相关性。"""
-        else:
-            return """Based on the research plan, please collect relevant information:
-
-Research Plan: {{analysis_plan}}
-
-Please collect high-quality information from multiple authoritative sources, ensuring accuracy, reliability, and relevance of the information."""
-
     def get_deep_analysis_system_prompt(self) -> str:
         """获取深度分析系统提示词"""
         if self.language == "zh":
@@ -747,12 +604,20 @@ Please collect high-quality information from multiple authoritative sources, ens
 4. 预测性分析和情景规划
 5. 战略洞察和决策支持
 
+**重要：请采用链式思考方法，逐步进行深度分析：**
+1. 首先，选择合适的分析框架和方法论
+2. 然后，系统性地识别数据中的模式和趋势
+3. 接下来，深入分析因果关系和影响机制
+4. 随后，进行预测性分析和情景规划
+5. 最后，提炼战略洞察和可操作建议
+
 分析要求：
 - 运用多种分析方法进行深度分析
 - 识别数据中的模式和趋势
 - 分析因果关系和影响机制
 - 提供预测性见解和战略建议
 - 确保分析的科学性和可靠性
+- 在每个分析阶段明确说明分析逻辑和推理过程
 
 关键要求：
 - 使用具体的分析方法和工具
@@ -853,12 +718,20 @@ Your professional capabilities:
 4. Predictive analysis and scenario planning
 5. Strategic insights and decision support
 
+Chain-of-Thought (CoT) Analysis Process:
+- Step 1: Break down complex problems into manageable components
+- Step 2: Analyze each component systematically with clear reasoning
+- Step 3: Identify connections and relationships between components
+- Step 4: Synthesize findings into comprehensive insights
+- Step 5: Validate conclusions through multiple analytical lenses
+
 Analysis requirements:
 - Apply multiple analytical methods for deep analysis
 - Identify patterns and trends in data
 - Analyze causal relationships and impact mechanisms
 - Provide predictive insights and strategic recommendations
 - Ensure the scientific validity and reliability of analysis
+- Clearly explain your analytical reasoning and logic in each analysis phase
 
 CRITICAL REQUIREMENTS:
 - Use specific analytical methods and tools
@@ -953,17 +826,41 @@ Please ensure the analysis is deep, comprehensive, and scientific, providing val
     def get_deep_analysis_user_prompt(self) -> str:
         """获取深度分析用户提示词"""
         if self.language == "zh":
-            return """基于收集的信息，请进行深度分析：
+            return """请基于分析计划和收集的信息进行深度分析：
 
-收集的信息：{{information_collection}}
+## 分析基础
+研究主题：{{research_topic}}
+分析计划：{{analysis_plan}}
 
-请运用多种分析方法，识别模式、趋势和因果关系，提供深入的洞察和战略建议。"""
+## 分析步骤结果
+分析步骤执行结果：{{analysis_steps}}
+步骤分析详细结果：{{step_analysis_results}}
+
+请严格按照分析计划的指导，运用多种分析方法对收集的信息进行深度分析。分析必须：
+1. 紧密围绕研究主题展开
+2. 遵循分析计划的框架和方法
+3. 识别数据中的模式、趋势和因果关系
+4. 提供深入的洞察和战略建议
+5. 确保分析的逻辑性和系统性
+6. 充分利用步骤分析的详细结果进行综合分析"""
         else:
-            return """Based on the collected information, please conduct deep analysis:
+            return """Please conduct deep analysis based on the analysis plan and collected information:
 
-Collected Information: {{information_collection}}
+## Analysis Foundation
+Research Topic: {{research_topic}}
+Analysis Plan: {{analysis_plan}}
 
-Please apply multiple analytical methods to identify patterns, trends, and causal relationships, providing deep insights and strategic recommendations."""
+## Analysis Steps Results
+Analysis Steps Execution Results: {{analysis_steps}}
+Detailed Step Analysis Results: {{step_analysis_results}}
+
+Please strictly follow the guidance of the analysis plan and apply multiple analytical methods to conduct deep analysis of the collected information. The analysis must:
+1. Focus closely on the research topic
+2. Follow the framework and methods of the analysis plan
+3. Identify patterns, trends, and causal relationships in the data
+4. Provide deep insights and strategic recommendations
+5. Ensure the logic and systematicity of the analysis
+6. Make full use of detailed step analysis results for comprehensive analysis"""
 
     def get_cross_validation_system_prompt(self) -> str:
         """获取交叉验证系统提示词"""
@@ -977,12 +874,20 @@ Please apply multiple analytical methods to identify patterns, trends, and causa
 4. 结论稳健性和敏感性分析
 5. 质量控制和风险管理
 
+链式思考（CoT）验证流程：
+- 步骤1：系统性分解验证任务为具体检查点
+- 步骤2：逐一验证每个检查点并记录推理过程
+- 步骤3：识别验证结果间的关联性和一致性
+- 步骤4：综合评估整体验证结果的可靠性
+- 步骤5：基于验证发现提出改进建议
+
 验证要求：
 - 从多个角度验证分析结果
 - 检查逻辑一致性和合理性
 - 验证证据的充分性和可靠性
 - 评估结论的稳健性
 - 识别潜在的风险和不确定性
+- 在每个验证步骤中明确说明验证逻辑和推理过程
 
 关键要求：
 - 使用多种验证方法和工具
@@ -1083,12 +988,20 @@ Your professional capabilities:
 4. Conclusion robustness and sensitivity analysis
 5. Quality control and risk management
 
+Chain-of-Thought (CoT) Verification Process:
+- Step 1: Systematically decompose verification tasks into specific checkpoints
+- Step 2: Verify each checkpoint individually and record reasoning process
+- Step 3: Identify correlations and consistency between verification results
+- Step 4: Comprehensively assess the reliability of overall verification results
+- Step 5: Propose improvement recommendations based on verification findings
+
 Verification requirements:
 - Verify analytical results from multiple angles
 - Check logical consistency and reasonableness
 - Verify the sufficiency and reliability of evidence
 - Assess the robustness of conclusions
 - Identify potential risks and uncertainties
+- Clearly explain verification logic and reasoning process in each verification step
 
 CRITICAL REQUIREMENTS:
 - Use multiple verification methods and tools
@@ -1183,22 +1096,61 @@ Please ensure verification is comprehensive, rigorous, and objective, providing 
     def get_cross_validation_user_prompt(self) -> str:
         """获取交叉验证用户提示词"""
         if self.language == "zh":
-            return """请对以下深度分析结果进行交叉验证：
+            return """请对以下研究结果进行交叉验证：
 
-{{cross_validation}}
+## 研究基础
+研究主题：{{research_topic}}
+主题分析结果：{{topic_analysis}}
 
-请提供验证报告和修正建议。"""
+## 分析过程
+分析计划：{{analysis_plan}}
+分析步骤执行结果：{{analysis_steps}}
+步骤分析详细结果：{{step_analysis_results}}
+
+## 深度分析结果
+{{deep_analysis}}
+
+请从多个角度验证上述分析结果的准确性、逻辑性和可靠性，并提供详细的验证报告和改进建议。验证应包括：
+1. 数据和信息的准确性验证
+2. 分析方法的适用性验证
+3. 逻辑推理的严密性验证
+4. 结论的稳健性验证
+5. 潜在风险和不确定性评估
+6. 步骤分析结果的一致性验证"""
         else:
-            return """Please cross-validate the following deep analysis results:
+            return """Please cross-validate the following research results:
 
-{{cross_validation}}
+## Research Foundation
+Research Topic: {{research_topic}}
+Topic Analysis Results: {{topic_analysis}}
 
-Please provide a validation report and correction suggestions."""
+## Analysis Process
+Analysis Plan: {{analysis_plan}}
+Analysis Steps Execution Results: {{analysis_steps}}
+Detailed Step Analysis Results: {{step_analysis_results}}
+
+## Deep Analysis Results
+{{deep_analysis}}
+
+Please verify the accuracy, logic, and reliability of the above analysis results from multiple angles, and provide detailed validation reports and improvement recommendations. The validation should include:
+1. Accuracy verification of data and information
+2. Applicability verification of analysis methods
+3. Rigor verification of logical reasoning
+4. Robustness verification of conclusions
+5. Assessment of potential risks and uncertainties
+6. Consistency verification of step analysis results"""
 
     def get_step_analysis_system_prompt(self) -> str:
         """获取步骤分析系统提示词"""
         if self.language == "zh":
             return """你是一位专业的分析专家，正在执行研究分析计划中的一个步骤。
+
+链式思考（CoT）分析方法：
+- 步骤1：明确理解当前分析步骤的目标和要求
+- 步骤2：系统性分解分析任务为具体子任务
+- 步骤3：逐一执行每个子任务并记录分析过程
+- 步骤4：整合分析结果并验证逻辑一致性
+- 步骤5：形成具体可操作的结论和建议
 
 请根据提供的步骤信息，对研究主题进行深入分析。确保分析结果具体、有据可依且可操作。
 
@@ -1209,6 +1161,7 @@ Please provide a validation report and correction suggestions."""
 4. 如果有依赖的前置步骤结果，请参考并整合
 5. 确保分析结果与研究主题相关且有价值
 6. 如果需要，可以使用搜索工具获取最新信息
+7. 在分析过程中明确说明每个步骤的思考逻辑和推理依据
 
 输出要求：
 - 分析结果要具体、详细，避免空洞的概述
@@ -1219,6 +1172,13 @@ Please provide a validation report and correction suggestions."""
         else:
             return """You are a professional analysis expert executing a step in a research analysis plan.
 
+Chain-of-Thought (CoT) Analysis Method:
+- Step 1: Clearly understand the objectives and requirements of the current analysis step
+- Step 2: Systematically decompose analysis tasks into specific sub-tasks
+- Step 3: Execute each sub-task individually and record the analysis process
+- Step 4: Integrate analysis results and verify logical consistency
+- Step 5: Form specific actionable conclusions and recommendations
+
 Please conduct in-depth analysis of the research topic based on the provided step information. Ensure analysis results are specific, evidence-based, and actionable.
 
 Analysis requirements:
@@ -1228,6 +1188,7 @@ Analysis requirements:
 4. If there are dependent previous step results, please reference and integrate them
 5. Ensure analysis results are relevant and valuable to the research topic
 6. If needed, you can use search tools to obtain the latest information
+7. Clearly explain the thinking logic and reasoning basis for each step in the analysis process
 
 Output requirements:
 - Analysis results should be specific and detailed, avoiding empty overviews
@@ -1279,12 +1240,20 @@ Please execute this analysis step based on the above information and provide det
 4. 可操作建议的明确表达
 5. 专业报告的格式和风格规范
 
+链式思考（CoT）报告撰写流程：
+- 步骤1：系统性梳理和分类所有研究结果
+- 步骤2：识别关键发现并分析其重要性和影响
+- 步骤3：构建逻辑清晰的报告结构和叙述线索
+- 步骤4：形成具体可操作的建议和实施方案
+- 步骤5：验证报告的完整性和逻辑一致性
+
 报告要求：
 - 清晰、简洁地总结研究结果
 - 突出关键发现和重要洞察
 - 提供明确、可操作的建议
 - 确保报告的逻辑性和可读性
 - 适应不同受众的需求和背景
+- 在报告撰写过程中明确说明信息整合和结论形成的逻辑
 
 关键要求：
 - 使用清晰、专业的语言
@@ -1411,12 +1380,20 @@ Your professional capabilities:
 4. Clear expression of actionable recommendations
 5. Professional report format and style standards
 
+Chain-of-Thought (CoT) Report Writing Process:
+- Step 1: Systematically organize and categorize all research results
+- Step 2: Identify key findings and analyze their importance and impact
+- Step 3: Construct logically clear report structure and narrative threads
+- Step 4: Form specific actionable recommendations and implementation plans
+- Step 5: Verify the completeness and logical consistency of the report
+
 Report requirements:
 - Clearly and concisely summarize research results
 - Highlight key findings and important insights
 - Provide clear, actionable recommendations
 - Ensure logical flow and readability of the report
 - Adapt to the needs and background of different audiences
+- Clearly explain the logic of information integration and conclusion formation in the report writing process
 
 CRITICAL REQUIREMENTS:
 - Use clear, professional language
@@ -1537,17 +1514,51 @@ Please ensure the report is clear, professional, and practical, providing valuab
     def get_summary_report_user_prompt(self) -> str:
         """获取总结报告用户提示词"""
         if self.language == "zh":
-            return """请基于所有研究结果撰写总结报告：
+            return """请基于完整的研究流程和所有分析结果撰写总结报告：
 
+## 研究基础信息
+研究主题：{{research_topic}}
+主题分析结果：{{topic_analysis}}
+
+## 研究执行过程
+分析计划：{{analysis_plan}}
+分析步骤执行结果：{{analysis_steps}}
+步骤分析详细结果：{{step_analysis_results}}
+深度分析结果：{{deep_analysis}}
+
+## 质量验证
 交叉验证结果：{{cross_validation}}
 
-请提供清晰、专业、实用的总结报告，突出关键发现和可操作建议。"""
+请基于以上完整的研究流程和分析结果，撰写一份清晰、专业、实用的总结报告。报告必须：
+1. 紧密围绕研究主题展开
+2. 整合所有阶段的分析发现
+3. 突出关键洞察和核心结论
+4. 提供具体可操作的建议
+5. 确保逻辑连贯性和完整性
+6. 充分利用步骤分析的详细结果"""
         else:
-            return """Please write a summary report based on all research results:
+            return """Please write a summary report based on the complete research process and all analysis results:
 
+## Research Foundation
+Research Topic: {{research_topic}}
+Topic Analysis Results: {{topic_analysis}}
+
+## Research Execution Process
+Analysis Plan: {{analysis_plan}}
+Analysis Steps Execution Results: {{analysis_steps}}
+Detailed Step Analysis Results: {{step_analysis_results}}
+Deep Analysis Results: {{deep_analysis}}
+
+## Quality Verification
 Cross-validation Results: {{cross_validation}}
 
-Please provide a clear, professional, and practical summary report, highlighting key findings and actionable recommendations."""
+Based on the above complete research process and analysis results, please write a clear, professional, and practical summary report. The report must:
+1. Focus closely on the research topic
+2. Integrate findings from all stages of analysis
+3. Highlight key insights and core conclusions
+4. Provide specific actionable recommendations
+5. Ensure logical coherence and completeness
+6. Make full use of detailed step analysis results"""
 
     @staticmethod
     def format_prompt(template: str, variables: Dict[str, Any]) -> str:

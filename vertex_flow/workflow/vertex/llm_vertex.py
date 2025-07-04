@@ -126,7 +126,7 @@ class LLMVertex(Vertex[T]):
 
     def messages_redirect(self, inputs, context: WorkflowContext[T]):
 
-        logging.info(f"{self.id} chat context inputs {inputs}")
+        logging.debug(f"{self.id} chat context inputs {inputs}")
 
         # Add system message if provided
         if self.system_message:
@@ -252,7 +252,7 @@ class LLMVertex(Vertex[T]):
                 text_content = self._replace_placeholders(text_content)
                 message["content"] = text_content
 
-        logging.info(f"{self}, {self.id} chat context messages {self.messages}")
+        logging.debug(f"{self}, {self.id} chat context messages {self.messages}")
 
     def _handle_token_usage(self):
         """处理token使用统计的通用方法，供子类调用"""

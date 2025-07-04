@@ -61,10 +61,9 @@ class DeepResearchWorkflowTester:
 
             # 验证顶点连接
             expected_vertices = [
-                "source",
                 "topic_analysis",
                 "analysis_plan",
-                "information_collection",
+                "step_execution",
                 "deep_analysis",
                 "cross_validation",
                 "summary_report",
@@ -178,8 +177,8 @@ class DeepResearchWorkflowTester:
                 "_get_topic_analysis_user_prompt",
                 "_get_analysis_plan_system_prompt",
                 "_get_analysis_plan_user_prompt",
-                "_get_information_collection_system_prompt",
-                "_get_information_collection_user_prompt",
+                "_get_step_analysis_system_prompt",
+                "_get_step_analysis_user_prompt",
                 "_get_deep_analysis_system_prompt",
                 "_get_deep_analysis_user_prompt",
                 "_get_cross_validation_system_prompt",
