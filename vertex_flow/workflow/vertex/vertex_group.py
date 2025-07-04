@@ -23,8 +23,8 @@ class VertexGroup(Vertex[T]):
         subgraph_vertices: List[Vertex[T]] = None,
         subgraph_edges: List[Edge[T]] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, Any]] = None,
-        exposed_variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
+        exposed_variables: List[Dict[str, str | None]] = None,
     ):
         """
         初始化VertexGroup
@@ -283,6 +283,18 @@ class VertexGroup(Vertex[T]):
         return final_inputs
 
     def execute_subgraph(self, inputs: Dict[str, Any] = None, context: WorkflowContext[T] = None):
+        """
+        执行子图，遇到异常立即抛出
+        """
+        try:
+            result = self._execute_subgraph_impl(inputs, context)
+            return result
+        except Exception as e:
+            # 记录日志并立刻抛出异常
+            logging.error(f"VertexGroup {self.id} 子图执行异常: {e}")
+            raise
+
+    def _execute_subgraph_impl(self, inputs: Dict[str, Any] = None, context: WorkflowContext[T] = None):
         """执行子图"""
         logging.info(f"Starting execution of VertexGroup {self.id}")
 
@@ -344,24 +356,14 @@ class VertexGroup(Vertex[T]):
                     traceback.print_exc()
                     raise e
 
-            # 处理暴露的输出
-            self._process_exposed_outputs()
+            # 构建最终输出 - 直接返回子图执行的结果
+            # 注意：暴露输出的处理由调用方决定
+            result = {}
 
-            # 构建最终输出 - 直接返回暴露的变量
-            exposed_vars = self.subgraph_context.get_exposed_variables()
-
-            # 如果没有暴露的变量，返回执行摘要
-            if not exposed_vars:
-                result = {
-                    "execution_summary": {
-                        "executed_vertices": [v.id for v in execution_order],
-                        "total_vertices": len(self.subgraph_vertices),
-                        "success": True,
-                    }
-                }
-            else:
-                # 返回暴露的变量作为主要输出
-                result = exposed_vars.copy()
+            # 获取所有子图顶点的输出
+            for vertex in execution_order:
+                if hasattr(vertex, "output") and vertex.output:
+                    result[vertex.id] = vertex.output
 
             logging.info(f"VertexGroup {self.id} execution completed successfully")
             return result
@@ -374,11 +376,32 @@ class VertexGroup(Vertex[T]):
             raise e
 
     def _process_exposed_outputs(self):
-        """处理暴露给外部的输出"""
+        """处理暴露给外部的输出，支持SUBGRAPH_SOURCE从group output暴露，支持别名映射"""
         for var_def in self.exposed_variables:
             source_scope = var_def.get(SOURCE_SCOPE)
             source_var = var_def.get(SOURCE_VAR)
             local_var = var_def.get(LOCAL_VAR, source_var)
+
+            if source_scope == SUBGRAPH_SOURCE:
+                value = None
+                # 优先从group的output中获取source_var
+                if self.output and isinstance(self.output, dict):
+                    if source_var in self.output:
+                        value = self.output[source_var]
+                    # 支持别名暴露：如果source_var不在output，但output中有其他key，且source_var是别名
+                    elif local_var in self.output:
+                        value = self.output[local_var]
+                    # 进一步支持：如果source_var和local_var都不在output，尝试自动查找output中与配置相关的key
+                    else:
+                        for k in self.output:
+                            # 如果配置的source_var是accumulated_step_results，local_var是step_analysis_results，output里只有accumulated_step_results
+                            if k == source_var or k == local_var:
+                                value = self.output[k]
+                                break
+                if value is not None:
+                    self.subgraph_context.store_output(local_var, value)
+                    self.subgraph_context.expose_variable(source_scope, source_var, local_var)
+                continue
 
             if source_scope and source_scope in self.subgraph_vertices:
                 self.subgraph_context.expose_variable(source_scope, source_var, local_var)
@@ -407,6 +430,12 @@ class VertexGroup(Vertex[T]):
                 result = self.execute_subgraph(inputs, context)
                 self.output = result
                 logging.info(f"VertexGroup {self.id} executed subgraph with output: {self.output}")
+
+                # 处理暴露的输出，保持与WhileVertexGroup的一致性
+                self._process_exposed_outputs()
+                exposed_vars = self.subgraph_context.get_exposed_variables()
+                if exposed_vars:
+                    self.output = exposed_vars
                 return self.output
 
             except Exception as e:

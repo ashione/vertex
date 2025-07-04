@@ -173,12 +173,12 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             }
         )
 
-    def add_variables(self, variables: List[Dict[str, str]]):
+    def add_variables(self, variables: List[Dict[str, str | None]]):
         """
         Adds multiple variable definitions to the Vertex's variables list.
 
         Args:
-            variables (List[Dict[str, str]]): A list of dictionaries containing variable definitions.
+            variables (List[Dict[str, str | None]]): A list of dictionaries containing variable definitions.
 
         Raises:
             ValueError: If one of the dictionaries does not contain all required keys.
@@ -558,7 +558,7 @@ class SourceVertex(Vertex[T]):
         self,
         id: str,
         name: str = None,
-        variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
     ):
@@ -603,7 +603,7 @@ class SinkVertex(Vertex[T]):
         id: str,
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], None] = None,
-        variables: List[Dict[str, str]] = None,
+        variables: List[Dict[str, str | None]] = None,
         params: Dict[str, Any] = None,
     ):
         super().__init__(

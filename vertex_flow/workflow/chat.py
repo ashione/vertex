@@ -117,8 +117,8 @@ class ChatModel(abc.ABC):
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
-        # 支持enable_search参数
-        if "enable_search" in filtered_option:
+        # 支持enable_search参数（仅通义千问支持）
+        if "enable_search" in filtered_option and self.provider == "tongyi":
             api_params["enable_search"] = filtered_option["enable_search"]
         return api_params
 
@@ -282,11 +282,15 @@ class Tongyi(ChatModel):
         )
 
     def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
-        """Tongyi专属：流式时自动加stream_options.include_usage"""
+        """Tongyi专属：流式时自动加stream_options.include_usage，并处理enable_search参数"""
         api_params = self._build_api_params(messages, option, stream, tools)
         # 仅Tongyi流式加usage
         if stream:
             api_params["stream_options"] = {"include_usage": True}
+        # 处理enable_search参数（仅通义千问支持）
+        if "enable_search" in api_params:
+            # 确保enable_search参数被正确传递
+            logging.info(f"Tongyi enable_search enabled: {api_params.get('enable_search')}")
         try:
             completion = self.client.chat.completions.create(**api_params)
             return completion

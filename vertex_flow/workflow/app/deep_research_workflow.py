@@ -267,6 +267,11 @@ class DeepResearchWorkflow:
 
         # 4.3 步骤后处理顶点：保存结果并累积所有步骤的分析结果
         def step_postprocess_task(inputs, context):
+            # 从inputs或context中获取或初始化累积的步骤结果
+            accumulated_results = inputs.get("accumulated_step_results")
+            if accumulated_results is None:
+                accumulated_results = context.get_output("accumulated_step_results") or []
+
             # 从上游获取数据
             step_prepare_output = inputs.get("step_prepare_output", {})
             step_analysis_output = inputs.get("step_analysis_output", {})
@@ -281,9 +286,6 @@ class DeepResearchWorkflow:
             else:
                 logger.info(f"步骤 {step_index + 1}/{total_steps} 执行完成")
 
-            # 从context中获取或初始化累积的步骤结果
-            accumulated_results = context.get_variable("accumulated_step_results", [])
-
             # 添加当前步骤的结果
             if not should_stop:
                 current_result = {
@@ -295,7 +297,7 @@ class DeepResearchWorkflow:
                 accumulated_results.append(current_result)
 
             # 更新context中的累积结果
-            context.set_variable("accumulated_step_results", accumulated_results)
+            context.store_output("accumulated_step_results", accumulated_results)
 
             return {
                 "steps": steps,
@@ -312,6 +314,12 @@ class DeepResearchWorkflow:
                 {SOURCE_SCOPE: "step_prepare", SOURCE_VAR: None, LOCAL_VAR: "step_prepare_output"},
                 {SOURCE_SCOPE: "step_analysis", SOURCE_VAR: None, LOCAL_VAR: "step_analysis_output"},
                 {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
+                # 添加对之前累积结果的依赖
+                {
+                    SOURCE_SCOPE: SUBGRAPH_SOURCE,
+                    SOURCE_VAR: "accumulated_step_results",
+                    LOCAL_VAR: "accumulated_step_results",
+                },
                 # iteration_index 会被 WhileVertexGroup 自动注入，无需手动配置
             ],
         )
@@ -351,6 +359,12 @@ class DeepResearchWorkflow:
                 {SOURCE_SCOPE: "extract_steps", SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
                 {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: "topic_analysis", LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "source", SOURCE_VAR: "research_topic", LOCAL_VAR: "research_topic"},
+                # 添加累积结果的传递，确保在循环中能正确传递
+                {
+                    SOURCE_SCOPE: SUBGRAPH_SOURCE,
+                    SOURCE_VAR: "accumulated_step_results",
+                    LOCAL_VAR: "accumulated_step_results",
+                },
             ],
             exposed_variables=[
                 {SOURCE_SCOPE: SUBGRAPH_SOURCE, SOURCE_VAR: "steps", LOCAL_VAR: "steps"},
@@ -388,7 +402,6 @@ class DeepResearchWorkflow:
             task=None,
             params=deep_analysis_params,
             variables=[
-                {SOURCE_SCOPE: "while_analysis_steps_group", SOURCE_VAR: "steps", LOCAL_VAR: "analysis_steps"},
                 {
                     SOURCE_SCOPE: "while_analysis_steps_group",
                     SOURCE_VAR: "step_analysis_results",
@@ -423,7 +436,6 @@ class DeepResearchWorkflow:
                 {SOURCE_SCOPE: "deep_analysis", SOURCE_VAR: None, LOCAL_VAR: "deep_analysis"},
                 {SOURCE_SCOPE: "topic_analysis", SOURCE_VAR: None, LOCAL_VAR: "topic_analysis"},
                 {SOURCE_SCOPE: "analysis_plan", SOURCE_VAR: None, LOCAL_VAR: "analysis_plan"},
-                {SOURCE_SCOPE: "while_analysis_steps_group", SOURCE_VAR: "steps", LOCAL_VAR: "analysis_steps"},
                 {
                     SOURCE_SCOPE: "while_analysis_steps_group",
                     SOURCE_VAR: "step_analysis_results",
@@ -469,11 +481,6 @@ class DeepResearchWorkflow:
                     SOURCE_SCOPE: "deep_analysis",
                     SOURCE_VAR: None,
                     LOCAL_VAR: "deep_analysis",
-                },
-                {
-                    SOURCE_SCOPE: "while_analysis_steps_group",
-                    SOURCE_VAR: "steps",
-                    LOCAL_VAR: "analysis_steps",
                 },
                 {
                     SOURCE_SCOPE: "while_analysis_steps_group",

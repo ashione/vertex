@@ -9,6 +9,7 @@ from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
     ENABLE_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
@@ -193,8 +194,14 @@ class LLMVertex(Vertex[T]):
                     # 纯文本消息
                     self.messages.append({"role": "user", "content": str(current_message)})
 
+        system_contains = False
         # replace by env parameters, user parameters and inputs.
         for message in self.messages:
+            if message["role"] == "system":
+                if system_contains:
+                    continue
+                system_contains = True
+
             if "content" not in message or message["content"] is None:
                 continue
 
@@ -533,6 +540,10 @@ class LLMVertex(Vertex[T]):
         # Add reasoning parameters (for display control)
         if SHOW_REASONING_KEY in self.params:
             option[SHOW_REASONING_KEY] = self.params[SHOW_REASONING_KEY]
+
+        # Add enable_search parameter for web search
+        if ENABLE_SEARCH_KEY in self.params:
+            option[ENABLE_SEARCH_KEY] = self.params[ENABLE_SEARCH_KEY]
 
         # Add tools if available
         if self.tools:

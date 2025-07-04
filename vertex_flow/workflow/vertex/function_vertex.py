@@ -32,7 +32,7 @@ class FunctionVertex(Vertex[T]):
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
     ):
         subtype = None
         if params and FunctionVertex.SubTypeKey in params:

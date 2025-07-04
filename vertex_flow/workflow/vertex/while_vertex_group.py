@@ -82,6 +82,11 @@ class WhileVertexGroup(VertexGroup[T]):
             filtered_inputs = self._filter_inputs(inputs, context)
             # 合并原始输入和筛选后的输入
             final_inputs = {**(inputs or {}), **filtered_inputs}
+
+            # 确保ITERATION_INDEX_KEY在条件检查时可用
+            if ITERATION_INDEX_KEY not in final_inputs and hasattr(self.while_vertex, "_iteration_index"):
+                final_inputs[ITERATION_INDEX_KEY] = self.while_vertex._iteration_index
+
             # 调用原始的should_continue方法
             return original_should_continue(final_inputs, context)
 
@@ -126,8 +131,8 @@ class WhileVertexGroup(VertexGroup[T]):
             if inputs and ITERATION_INDEX_KEY in inputs:
                 final_inputs[ITERATION_INDEX_KEY] = inputs[ITERATION_INDEX_KEY]
 
-            result = self.execute_subgraph(inputs=final_inputs, context=context)
-            # 直接返回结果，暴露输出处理由父类的execute_subgraph方法完成
+            # 执行子图，但不处理暴露的输出（由最终的execute方法处理）
+            result = self._execute_subgraph_impl(inputs=final_inputs, context=context)
             return result
         except Exception as e:
             logging.error(f"Error executing subgraph in WhileVertexGroup {self.id}: {e}")
@@ -165,12 +170,13 @@ class WhileVertexGroup(VertexGroup[T]):
             self.output = self.while_vertex.output
             iteration_count = self.output.get("iteration_count", 0) if self.output else 0
             logging.info(f"WhileVertexGroup {self.id} completed with {iteration_count} iterations")
-            if self.output and "final_inputs" in self.output:
-                return self.output["final_inputs"]
-            elif self.output and "results" in self.output and self.output["results"]:
-                return self.output["results"][-1]
-            else:
-                return self.output
+
+            # 复用父类的变量暴露逻辑
+            self._process_exposed_outputs()
+            exposed_vars = self.subgraph_context.get_exposed_variables()
+            if exposed_vars:
+                self.output = exposed_vars
+            return self.output
         except Exception as e:
             logging.error(f"Error executing WhileVertexGroup {self.id}: {e}")
             traceback.print_exc()
