@@ -314,24 +314,46 @@ class DeepResearchApp:
 
                     if status == "end":
                         logger.info(f"顶点 {vertex_id} 流式输出结束")
-                    elif message and vertex_id in self.STAGE_MAPPING:
-                        # 实时显示流式内容
-                        stage_name = self.STAGE_MAPPING[vertex_id][0]
-                        logger.info(f"流式消息: {stage_name} - {message[:100]}...")
+                    elif message:
+                        # 检查是否是主要阶段的顶点
+                        if vertex_id in self.STAGE_MAPPING:
+                            # 实时显示流式内容
+                            stage_name = self.STAGE_MAPPING[vertex_id][0]
+                            logger.info(f"流式消息: {stage_name} - {message[:100]}...")
 
-                        # 更新当前阶段的流式内容
-                        if vertex_id not in self.stage_history:
-                            self.stage_history[vertex_id] = {
-                                "name": stage_name,
-                                "icon": self.STAGE_MAPPING[vertex_id][1],
-                                "content": message,
-                                "status": "streaming",
-                                "cost_time": 0,
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            }
+                            # 更新当前阶段的流式内容
+                            if vertex_id not in self.stage_history:
+                                self.stage_history[vertex_id] = {
+                                    "name": stage_name,
+                                    "icon": self.STAGE_MAPPING[vertex_id][1],
+                                    "content": message,
+                                    "status": "streaming",
+                                    "cost_time": 0,
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                }
+                            else:
+                                # 追加流式内容
+                                self.stage_history[vertex_id]["content"] += message
                         else:
-                            # 追加流式内容
-                            self.stage_history[vertex_id]["content"] += message
+                            # 处理while循环内部的流式消息
+                            # 检查是否属于while_analysis_steps_group的子顶点
+                            while_group_id = "while_analysis_steps_group"
+                            if while_group_id in self.STAGE_MAPPING:
+                                logger.info(f"While循环内部流式消息: {vertex_id} - {message[:100]}...")
+
+                                # 如果while组还没有在历史中，创建它
+                                if while_group_id not in self.stage_history:
+                                    self.stage_history[while_group_id] = {
+                                        "name": self.STAGE_MAPPING[while_group_id][0],
+                                        "icon": self.STAGE_MAPPING[while_group_id][1],
+                                        "content": f"### 🔄 循环执行中...\n\n**当前步骤:** {vertex_id}\n\n{message}",
+                                        "status": "streaming",
+                                        "cost_time": 0,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    }
+                                else:
+                                    # 追加流式内容到while组
+                                    self.stage_history[while_group_id]["content"] += f"\n\n**{vertex_id}:** {message}"
                 except Exception as e:
                     logger.error(f"处理流式消息事件失败: {e}")
 
