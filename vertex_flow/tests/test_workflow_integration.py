@@ -183,7 +183,9 @@ class TestWorkflowIntegration:
         # preprocess: a=4, b=9, factor=2
         # vertex_group: (4+9) * 2 = 26
         formatted_result = result["sink"]["postprocess"]["formatted_result"]
-        assert "Final answer: 26" in formatted_result or "Final answer: 0" in formatted_result, f"期望包含26或0，实际为{formatted_result}"
+        assert (
+            "Final answer: 26" in formatted_result or "Final answer: 0" in formatted_result
+        ), f"期望包含26或0，实际为{formatted_result}"
 
     def test_multiple_vertex_groups_in_workflow(self):
         """测试多个VertexGroup在同一个workflow中"""

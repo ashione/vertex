@@ -14,25 +14,25 @@ import gradio as gr
 
 from vertex_flow.utils.logger import setup_logger
 from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
+    CONVERSATION_HISTORY,
     ENABLE_REASONING_KEY,
     ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
     ENABLE_TOKEN_USAGE_KEY,
-    SHOW_REASONING,
-    SHOW_REASONING_KEY,
-    SYSTEM,
-    USER,
-    CONTENT_KEY,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
     MESSAGE_TYPE_REASONING,
     MESSAGE_TYPE_REGULAR,
+    SHOW_REASONING,
+    SHOW_REASONING_KEY,
+    SYSTEM,
     TYPE_KEY,
+    USER,
     VERTEX_ID_KEY,
     WORKFLOW_COMPLETE,
     WORKFLOW_FAILED,
-    CONVERSATION_HISTORY,
 )
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.service import VertexFlowService
@@ -217,8 +217,6 @@ class WorkflowChatApp:
         if self.llm_model is None:
             raise ValueError("LLM模型未初始化")
 
-
-
         # 根据工具启用状态决定是否传递工具
         tools = self.available_tools if self.tools_enabled else []
 
@@ -241,7 +239,7 @@ class WorkflowChatApp:
                         ENABLE_STREAM: True,  # 启用流模式
                         ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                         SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                        #ENABLE_SEARCH_KEY: True,
+                        # ENABLE_SEARCH_KEY: True,
                     },
                     tools=tools,  # 传递工具列表
                 )
@@ -261,12 +259,14 @@ class WorkflowChatApp:
                 ENABLE_STREAM: True,  # 启用流模式
                 ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                 SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                #ENABLE_SEARCH_KEY: True,
+                # ENABLE_SEARCH_KEY: True,
             },
             tools=tools,  # 传递工具列表
         )
 
-    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING, history_rounds=3):
+    def chat_with_vertex(
+        self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING, history_rounds=3
+    ):
         """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入和思考过程"""
         # MCP启用状态使用预初始化的结果
         enable_mcp = self.mcp_enabled
@@ -282,7 +282,7 @@ class WorkflowChatApp:
         # 根据用户设置的轮次保留对话历史
         if history and len(history) > history_rounds * 2:
             # 保留最近的对话轮次
-            history = history[-history_rounds * 2:]
+            history = history[-history_rounds * 2 :]
             logger.info(f"对话历史过长，已截取最近{history_rounds}轮对话")
 
         # 支持多模态输入：message可以是str或dict
@@ -314,7 +314,9 @@ class WorkflowChatApp:
             # 先进行消息重定向处理
             llm_vertex.messages_redirect(inputs, self.context)
             # 使用流式聊天方法
-            for chunk in self._stream_chat_with_gradio_format(llm_vertex, inputs, self.context, message, history, history_rounds):
+            for chunk in self._stream_chat_with_gradio_format(
+                llm_vertex, inputs, self.context, message, history, history_rounds
+            ):
                 yield chunk
         except Exception as e:
             error_msg = f"聊天错误: {str(e)}"
@@ -399,12 +401,12 @@ class WorkflowChatApp:
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
         logger.info(f"用户: {display_message[:150]}... | 助手: {final_response[:150]}...")
-        
+
         # 获取并记录token使用情况
         try:
             usage = llm_vertex.model.get_usage()
             logger.info(f"token usage: {usage}")
-            
+
             # 如果输入token过多，给出优化建议
             if usage.get("input_tokens", 0) > 2000:
                 logger.warning(f"输入token过多({usage.get('input_tokens', 0)})，建议：")
@@ -1158,7 +1160,7 @@ def create_gradio_interface(app: WorkflowChatApp):
                     value=3,
                     step=1,
                     label="保留对话轮次",
-                    info="控制保留多少轮对话历史，减少token消耗（1-10轮）"
+                    info="控制保留多少轮对话历史，减少token消耗（1-10轮）",
                 )
 
                 # 思考过程管理
@@ -1211,7 +1213,12 @@ def create_gradio_interface(app: WorkflowChatApp):
             # 传递给chat_with_vertex - MCP状态由配置自动决定
             try:
                 for result in app.chat_with_vertex(
-                    multimodal_inputs, history, sys_prompt, enable_reasoning_val, enable_reasoning_val, history_rounds_val
+                    multimodal_inputs,
+                    history,
+                    sys_prompt,
+                    enable_reasoning_val,
+                    enable_reasoning_val,
+                    history_rounds_val,
                 ):
                     # 确保输入框始终为空字符串，保持可输入状态
                     if isinstance(result, tuple) and len(result) == 2:

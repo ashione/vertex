@@ -10,9 +10,9 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import (
     CONTENT_ATTR,
     ENABLE_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
     REASONING_CONTENT_ATTR,
     SHOW_REASONING_KEY,
-    ENABLE_SEARCH_KEY,
 )
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
@@ -315,7 +315,8 @@ class Tongyi(ChatModel):
         if ENABLE_SEARCH_KEY in default_option:
             logging.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
             api_params["extra_body"] = {
-                "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options" : True}}
+                "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options": True}
+            }
 
         try:
             completion = self.client.chat.completions.create(**api_params)

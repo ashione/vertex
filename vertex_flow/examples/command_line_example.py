@@ -10,19 +10,19 @@ import logging
 
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    CONVERSATION_HISTORY,
+    ENABLE_STREAM,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
     MESSAGE_TYPE_REASONING,
     MESSAGE_TYPE_REGULAR,
+    SYSTEM,
     TYPE_KEY,
+    USER,
     VERTEX_ID_KEY,
     WORKFLOW_COMPLETE,
     WORKFLOW_FAILED,
-    CONVERSATION_HISTORY,
-    ENABLE_STREAM,
-    SYSTEM,
-    USER,
 )
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.command_line import create_command_line_tool

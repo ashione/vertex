@@ -216,9 +216,9 @@ class TestVertexGroup:
     def test_execute_subgraph_no_vertices(self):
         """测试没有顶点的子图执行"""
         vertex_group = VertexGroup(id="empty_group", name="Empty Group")
-        
+
         result = vertex_group.execute_subgraph()
-        
+
         # 根据当前实现，应该返回空字典而不是execution_summary
         assert isinstance(result, dict), "应该返回字典"
         # 空子图应该返回空字典

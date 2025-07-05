@@ -10,10 +10,10 @@ Extends the base LLM vertex with minimal code duplication and full streaming sup
 import asyncio
 import inspect
 import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Generator, List, Optional, Union
-import re
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex

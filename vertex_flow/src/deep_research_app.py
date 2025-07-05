@@ -367,7 +367,7 @@ class DeepResearchApp:
                                             sub_title = {
                                                 "step_prepare": "🛠️ 步骤准备",
                                                 "step_analysis": "🔬 步骤分析",
-                                                "step_postprocess": "⚙️ 步骤后处理"
+                                                "step_postprocess": "⚙️ 步骤后处理",
                                             }[sub_vertex]
                                             content += f"### {sub_title}\n\n{group['sub_stages'][i][sub_vertex]}\n\n"
                                     content += "---\n\n"
@@ -481,12 +481,18 @@ class DeepResearchApp:
                         completion_msg += f"\n📁 报告已保存到: {file_path}"
 
                     # 这里返回原始报告和格式化报告，保证页面有内容
-                    yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", current_stage_buttons, gr.update(value=final_report, visible=True)
+                    yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", current_stage_buttons, gr.update(
+                        value=final_report, visible=True
+                    )
                 else:
-                    yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但无结果", current_stage_buttons, gr.update(value="", visible=True)
+                    yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但无结果", current_stage_buttons, gr.update(
+                        value="", visible=True
+                    )
             except Exception as e:
                 logger.error(f"获取结果失败: {e}")
-                yield "❌ 获取结果失败", f"错误: {str(e)}", f"获取结果时发生错误: {str(e)}", current_stage_buttons, gr.update(value="", visible=True)
+                yield "❌ 获取结果失败", f"错误: {str(e)}", f"获取结果时发生错误: {str(e)}", current_stage_buttons, gr.update(
+                    value="", visible=True
+                )
 
         except Exception as e:
             error_msg = f"❌ 流式执行失败: {str(e)}"
@@ -514,9 +520,13 @@ class DeepResearchApp:
                     completion_msg += f"\n📁 报告已保存到: {file_path}"
 
                 formatted_report = self._format_content_for_display(final_report, "Markdown渲染", True)
-                yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", [], gr.update(value=final_report, visible=True)
+                yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", [], gr.update(
+                    value=final_report, visible=True
+                )
             else:
-                yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但结果为空", [], gr.update(value="", visible=True)
+                yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但结果为空", [], gr.update(
+                    value="", visible=True
+                )
 
         except Exception as e:
             error_msg = f"❌ 批量执行失败: {str(e)}"

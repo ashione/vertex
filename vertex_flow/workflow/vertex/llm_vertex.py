@@ -8,6 +8,7 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    CONVERSATION_HISTORY,
     ENABLE_REASONING_KEY,
     ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
@@ -30,7 +31,6 @@ from vertex_flow.workflow.constants import (
     TYPE_KEY,
     USER,
     VERTEX_ID_KEY,
-    CONVERSATION_HISTORY,
 )
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.utils import (
@@ -114,7 +114,7 @@ class LLMVertex(Vertex[T]):
             # 更精确的清空策略：只在没有conversation_history时清空，避免影响多轮对话
             if not (inputs and CONVERSATION_HISTORY in inputs):
                 self.messages = []
-            
+
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
             has_context = "context" in sig.parameters

@@ -19,21 +19,21 @@ from unittest.mock import Mock, patch
 import pytest
 
 from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
+    CONVERSATION_HISTORY,
     ENABLE_REASONING_KEY,
     ENABLE_STREAM,
-    SYSTEM,
-    USER,
-    CONTENT_KEY,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
     MESSAGE_TYPE_REASONING,
     MESSAGE_TYPE_REGULAR,
+    SYSTEM,
     TYPE_KEY,
+    USER,
     VERTEX_ID_KEY,
     WORKFLOW_COMPLETE,
     WORKFLOW_FAILED,
-    CONVERSATION_HISTORY,
 )
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Edge
