@@ -8,7 +8,22 @@ Command Line Tool 使用示例
 import json
 import logging
 
-from vertex_flow.workflow.constants import ENABLE_STREAM, SYSTEM, USER
+from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
+    MESSAGE_KEY,
+    MESSAGE_TYPE_END,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_REASONING,
+    MESSAGE_TYPE_REGULAR,
+    TYPE_KEY,
+    VERTEX_ID_KEY,
+    WORKFLOW_COMPLETE,
+    WORKFLOW_FAILED,
+    CONVERSATION_HISTORY,
+    ENABLE_STREAM,
+    SYSTEM,
+    USER,
+)
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.tools.command_line import create_command_line_tool
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
@@ -85,7 +100,7 @@ def test_command_line_with_llm():
             print(f"\n用户请求: {message}")
 
             # 准备输入
-            inputs = {"conversation_history": [], "current_message": message}
+            inputs = {CONVERSATION_HISTORY: [], "current_message": message}
 
             # 发送消息并获取响应
             try:

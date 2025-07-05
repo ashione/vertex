@@ -22,6 +22,17 @@ from vertex_flow.workflow.constants import (
     SHOW_REASONING_KEY,
     SYSTEM,
     USER,
+    CONTENT_KEY,
+    MESSAGE_KEY,
+    MESSAGE_TYPE_END,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_REASONING,
+    MESSAGE_TYPE_REGULAR,
+    TYPE_KEY,
+    VERTEX_ID_KEY,
+    WORKFLOW_COMPLETE,
+    WORKFLOW_FAILED,
+    CONVERSATION_HISTORY,
 )
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.service import VertexFlowService
@@ -206,6 +217,8 @@ class WorkflowChatApp:
         if self.llm_model is None:
             raise ValueError("LLM模型未初始化")
 
+
+
         # 根据工具启用状态决定是否传递工具
         tools = self.available_tools if self.tools_enabled else []
 
@@ -228,7 +241,7 @@ class WorkflowChatApp:
                         ENABLE_STREAM: True,  # 启用流模式
                         ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                         SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                        ENABLE_SEARCH_KEY: True,
+                        #ENABLE_SEARCH_KEY: True,
                     },
                     tools=tools,  # 传递工具列表
                 )
@@ -248,12 +261,12 @@ class WorkflowChatApp:
                 ENABLE_STREAM: True,  # 启用流模式
                 ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                 SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                ENABLE_SEARCH_KEY: True,
+                #ENABLE_SEARCH_KEY: True,
             },
             tools=tools,  # 传递工具列表
         )
 
-    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING):
+    def chat_with_vertex(self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING, history_rounds=3):
         """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入和思考过程"""
         # MCP启用状态使用预初始化的结果
         enable_mcp = self.mcp_enabled
@@ -265,6 +278,13 @@ class WorkflowChatApp:
         except:
             logger.info(f"当前使用的模型: {self.llm_model}, MCP启用: {enable_mcp}")
 
+        # 限制对话历史长度，避免token消耗过多
+        # 根据用户设置的轮次保留对话历史
+        if history and len(history) > history_rounds * 2:
+            # 保留最近的对话轮次
+            history = history[-history_rounds * 2:]
+            logger.info(f"对话历史过长，已截取最近{history_rounds}轮对话")
+
         # 支持多模态输入：message可以是str或dict
         if isinstance(message, dict):
             # 多模态输入
@@ -274,7 +294,7 @@ class WorkflowChatApp:
                 yield "", history
                 return
             inputs = {
-                "conversation_history": history,
+                CONVERSATION_HISTORY: history,
                 "current_message": text,
             }
             if image_url:
@@ -285,7 +305,7 @@ class WorkflowChatApp:
                 yield "", history
                 return
             inputs = {
-                "conversation_history": history,
+                CONVERSATION_HISTORY: history,
                 "current_message": message,
             }
         try:
@@ -294,7 +314,7 @@ class WorkflowChatApp:
             # 先进行消息重定向处理
             llm_vertex.messages_redirect(inputs, self.context)
             # 使用流式聊天方法
-            for chunk in self._stream_chat_with_gradio_format(llm_vertex, inputs, self.context, message, history):
+            for chunk in self._stream_chat_with_gradio_format(llm_vertex, inputs, self.context, message, history, history_rounds):
                 yield chunk
         except Exception as e:
             error_msg = f"聊天错误: {str(e)}"
@@ -305,7 +325,7 @@ class WorkflowChatApp:
             new_history = history + [(str(message), error_msg)]
             yield "", new_history
 
-    def _stream_chat_with_gradio_format(self, llm_vertex, inputs, context, message, history):
+    def _stream_chat_with_gradio_format(self, llm_vertex, inputs, context, message, history, history_rounds=3):
         """统一的流式聊天方法，返回Gradio格式的结果"""
         response_parts = []
         # 确保传递给Gradio的消息格式正确
@@ -379,7 +399,20 @@ class WorkflowChatApp:
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
         logger.info(f"用户: {display_message[:150]}... | 助手: {final_response[:150]}...")
-        logger.info(f"token usage: {llm_vertex.model.get_usage()}")
+        
+        # 获取并记录token使用情况
+        try:
+            usage = llm_vertex.model.get_usage()
+            logger.info(f"token usage: {usage}")
+            
+            # 如果输入token过多，给出优化建议
+            if usage.get("input_tokens", 0) > 2000:
+                logger.warning(f"输入token过多({usage.get('input_tokens', 0)})，建议：")
+                logger.warning(f"1. 减少对话历史长度（当前保留轮次：{history_rounds}）")
+                logger.warning("2. 使用更简洁的system prompt")
+                logger.warning("3. 避免发送过长的消息")
+        except Exception as e:
+            logger.warning(f"无法获取token使用情况: {e}")
 
     def get_available_providers(self) -> List[str]:
         """获取可用的提供商列表"""
@@ -521,41 +554,9 @@ def create_gradio_interface(app: WorkflowChatApp):
 
     # 默认系统提示
     default_system_prompt = (
-        "你是一个友好、聪明且乐于助人的AI助手。"
-        "请根据用户的问题提供准确、有用的回答。"
-        "如果不确定答案，请诚实地说明。"
-        "\n\n🛠️ 你可以使用以下工具来协助用户："
-        "\n\n📡 **网络搜索工具 (Web Search)**"
-        "\n- 当用户询问最新新闻、实时信息、股价、天气等时，请主动使用搜索功能"
-        "\n- 当需要查证事实、获取准确数据时，建议进行网络搜索"
-        "\n- 搜索后请基于搜索结果提供准确、有用的回答"
-        "\n- 支持多种搜索引擎：DuckDuckGo、SerpAPI、SearchAPI等"
-        "\n\n💻 **命令行工具 (Command Line)**"
-        "\n- 可以执行系统命令、查看文件、运行脚本等"
-        "\n- 支持的命令如：ls, pwd, python, git, ps, grep等"
-        "\n- 具有安全防护，会自动拦截危险命令"
-        "\n- 适用于：文件操作、系统查询、开发调试、环境检查"
-        "\n\n💰 **金融工具 (Finance)**"
-        "\n- 查询股票价格、市场数据、财经新闻"
-        "\n- 支持股票代码查询、价格走势分析"
-        "\n- 获取实时金融市场信息"
-        "\n\n🧮 **数学计算工具 (Calculate)**"
-        "\n- 执行数学运算和表达式计算"
-        "\n- 支持基本四则运算、括号优先级"
-        "\n- 安全的数学表达式求值"
-        "\n\n📝 **文本处理工具 (Text Processing)**"
-        "\n- 文本统计：字数统计、字符计数"
-        "\n- 文本转换：大小写转换、文本反转"
-        "\n- 文本分析和格式化处理"
-        "\n\n🔗 **MCP工具集成 (Model Context Protocol)**"
-        "\n- 如果配置了MCP客户端，可以访问额外的工具和资源"
-        "\n- 支持文件系统访问、数据库查询、外部API调用等"
-        "\n- MCP工具会自动加载并可通过function calling使用"
-        "\n\n💡 **使用建议：**"
-        "\n- 根据用户需求主动选择最适合的工具"
-        "\n- 多个工具可以组合使用解决复杂问题"
-        "\n- 使用工具前可以简单说明将要执行的操作"
-        "\n- 工具执行后请解释结果并提供有用的见解"
+        "你是一个友好、专业且乐于助人的AI助手。"
+        "请根据用户的问题提供准确、有用的回答。如果不确定答案，请诚实地说明。"
+        "你可以根据需要调用可用的工具来帮助用户解决问题。"
     )
 
     with gr.Blocks(
@@ -1148,6 +1149,18 @@ def create_gradio_interface(app: WorkflowChatApp):
                     info=f"共有 {len(app.available_tools)} 个工具可用",
                 )
 
+                # 对话历史管理
+                gr.Markdown("### 💬 对话历史")
+
+                history_rounds = gr.Slider(
+                    minimum=1,
+                    maximum=10,
+                    value=3,
+                    step=1,
+                    label="保留对话轮次",
+                    info="控制保留多少轮对话历史，减少token消耗（1-10轮）"
+                )
+
                 # 思考过程管理
                 gr.Markdown("### 🤔 思考过程")
 
@@ -1175,7 +1188,7 @@ def create_gradio_interface(app: WorkflowChatApp):
                     cmd_result = gr.JSON(label="执行结果", visible=True)
 
         # 事件绑定
-        def respond(message, history, sys_prompt, image_url, enable_reasoning_val):
+        def respond(message, history, sys_prompt, image_url, enable_reasoning_val, history_rounds_val):
             multimodal_inputs = {}
             # 文本
             if message:
@@ -1198,7 +1211,7 @@ def create_gradio_interface(app: WorkflowChatApp):
             # 传递给chat_with_vertex - MCP状态由配置自动决定
             try:
                 for result in app.chat_with_vertex(
-                    multimodal_inputs, history, sys_prompt, enable_reasoning_val, enable_reasoning_val
+                    multimodal_inputs, history, sys_prompt, enable_reasoning_val, enable_reasoning_val, history_rounds_val
                 ):
                     # 确保输入框始终为空字符串，保持可输入状态
                     if isinstance(result, tuple) and len(result) == 2:
@@ -1333,13 +1346,13 @@ def create_gradio_interface(app: WorkflowChatApp):
         # 绑定发送消息事件（支持流式输出）
         msg.submit(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning],
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )
         send_btn.click(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning],
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )

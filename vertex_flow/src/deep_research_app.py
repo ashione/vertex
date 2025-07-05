@@ -308,7 +308,6 @@ class DeepResearchApp:
                 """处理流式消息事件（messages类型）"""
                 try:
                     vertex_id = event_data.get(VERTEX_ID_KEY)
-                    # 统一处理不同的消息键名，支持向后兼容
                     message = event_data.get(CONTENT_KEY) or event_data.get(MESSAGE_KEY) or ""
                     status = event_data.get("status")
                     message_type = event_data.get(TYPE_KEY, MESSAGE_TYPE_REGULAR)
@@ -316,13 +315,10 @@ class DeepResearchApp:
                     if status == "end":
                         logger.info(f"顶点 {vertex_id} 流式输出结束")
                     elif message:
-                        # 检查是否是主要阶段的顶点
                         if vertex_id in self.STAGE_MAPPING:
-                            # 实时显示流式内容
+                            # 主要阶段，原逻辑
                             stage_name = self.STAGE_MAPPING[vertex_id][0]
                             logger.debug(f"流式消息: {stage_name} - {message[:100]}...")
-
-                            # 更新当前阶段的流式内容
                             if vertex_id not in self.stage_history:
                                 self.stage_history[vertex_id] = {
                                     "name": stage_name,
@@ -333,67 +329,49 @@ class DeepResearchApp:
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 }
                             else:
-                                # 追加流式内容
                                 self.stage_history[vertex_id]["content"] += message
                         else:
-                            # 处理while循环内部的流式消息
-                            # 检查是否属于while_analysis_steps_group的子顶点
+                            # while循环内部流式消息
                             while_group_id = "while_analysis_steps_group"
                             if while_group_id in self.STAGE_MAPPING:
-                                logger.debug(f"While循环内部流式消息: {vertex_id} - {message[:100]}...")
-
-                                # 如果while组还没有在历史中，创建它
+                                # 初始化结构化存储
                                 if while_group_id not in self.stage_history:
                                     self.stage_history[while_group_id] = {
                                         "name": self.STAGE_MAPPING[while_group_id][0],
                                         "icon": self.STAGE_MAPPING[while_group_id][1],
-                                        "content": f"### 🔄 循环执行中...\n\n**当前步骤:** {vertex_id}\n\n{message}",
+                                        "content": "",
                                         "status": "streaming",
                                         "cost_time": 0,
                                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                        "sub_stages": {},  # 添加子阶段跟踪
-                                        "current_iteration": 0,  # 当前迭代轮次
+                                        "sub_stages": {},  # {iteration_num: {vertex_id: content}}
+                                        "current_iteration": 1,
                                     }
+                                group = self.stage_history[while_group_id]
+                                # 判断是否是新一轮
+                                if vertex_id == "step_prepare":
+                                    group["current_iteration"] += 1
+                                iteration = group["current_iteration"]
+                                if iteration not in group["sub_stages"]:
+                                    group["sub_stages"][iteration] = {}
+                                # 累加每个子阶段内容
+                                if vertex_id not in group["sub_stages"][iteration]:
+                                    group["sub_stages"][iteration][vertex_id] = message
                                 else:
-                                    # 更新while组的流式内容，支持多阶段展示
-                                    current_content = self.stage_history[while_group_id]["content"]
-
-                                    # 检测是否是新的迭代轮次（通过vertex_id变化判断）
-                                    if vertex_id == "step_prepare":
-                                        # 开始新的迭代轮次
-                                        self.stage_history[while_group_id]["current_iteration"] += 1
-                                        iteration_num = self.stage_history[while_group_id]["current_iteration"]
-                                        self.stage_history[while_group_id][
-                                            "content"
-                                        ] += f"\n\n---\n\n## 🔄 第{iteration_num}轮分析\n\n"
-
-                                    # 根据不同的子顶点类型格式化消息
-                                    if vertex_id == "step_prepare":
-                                        # 检查是否已经有该阶段的标题
-                                        if "### 🛠️ 步骤准备" not in self.stage_history[while_group_id]["content"]:
-                                            self.stage_history[while_group_id]["content"] += f"### 🛠️ 步骤准备\n"
-                                        self.stage_history[while_group_id]["content"] += message
-                                    elif vertex_id == "step_analysis":
-                                        # 检查是否已经有该阶段的标题
-                                        current_content = self.stage_history[while_group_id]["content"]
-                                        iteration_num = self.stage_history[while_group_id]["current_iteration"]
-                                        analysis_header = f"### 🔬 步骤分析 (第{iteration_num}轮)"
-
-                                        if analysis_header not in current_content:
-                                            self.stage_history[while_group_id]["content"] += f"\n{analysis_header}\n\n"
-
-                                        # 追加消息内容，确保格式正确
-                                        self.stage_history[while_group_id]["content"] += message
-                                    elif vertex_id == "step_postprocess":
-                                        # 检查是否已经有该阶段的标题
-                                        if "### ⚙️ 步骤后处理" not in self.stage_history[while_group_id]["content"]:
-                                            self.stage_history[while_group_id]["content"] += f"\n### ⚙️ 步骤后处理\n\n"
-                                        self.stage_history[while_group_id]["content"] += message
-                                    else:
-                                        # 其他子顶点
-                                        self.stage_history[while_group_id][
-                                            "content"
-                                        ] += f"\n\n**{vertex_id}:** {message}"
+                                    group["sub_stages"][iteration][vertex_id] += message
+                                # 渲染所有轮次内容
+                                content = ""
+                                for i in sorted(group["sub_stages"].keys()):
+                                    content += f"## 🔄 第{i}轮分析\n\n"
+                                    for sub_vertex in ["step_prepare", "step_analysis", "step_postprocess"]:
+                                        if sub_vertex in group["sub_stages"][i]:
+                                            sub_title = {
+                                                "step_prepare": "🛠️ 步骤准备",
+                                                "step_analysis": "🔬 步骤分析",
+                                                "step_postprocess": "⚙️ 步骤后处理"
+                                            }[sub_vertex]
+                                            content += f"### {sub_title}\n\n{group['sub_stages'][i][sub_vertex]}\n\n"
+                                    content += "---\n\n"
+                                group["content"] = content
                 except Exception as e:
                     logger.error(f"处理流式消息事件失败: {e}")
 
@@ -496,18 +474,19 @@ class DeepResearchApp:
                     file_path = results["sink"].get("file_path", "")
 
                     # 格式化最终报告
-                    formatted_report = self._format_content_for_display(final_report, "markdown", True)
+                    formatted_report = self._format_content_for_display(final_report, "Markdown渲染", True)
 
                     completion_msg = "✅ 深度研究完成!"
                     if file_path:
                         completion_msg += f"\n📁 报告已保存到: {file_path}"
 
-                    yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", current_stage_buttons, gr.update()
+                    # 这里返回原始报告和格式化报告，保证页面有内容
+                    yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", current_stage_buttons, gr.update(value=final_report, visible=True)
                 else:
-                    yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但无结果", current_stage_buttons, gr.update()
+                    yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但无结果", current_stage_buttons, gr.update(value="", visible=True)
             except Exception as e:
                 logger.error(f"获取结果失败: {e}")
-                yield "❌ 获取结果失败", f"错误: {str(e)}", f"获取结果时发生错误: {str(e)}", current_stage_buttons, gr.update()
+                yield "❌ 获取结果失败", f"错误: {str(e)}", f"获取结果时发生错误: {str(e)}", current_stage_buttons, gr.update(value="", visible=True)
 
         except Exception as e:
             error_msg = f"❌ 流式执行失败: {str(e)}"
@@ -534,9 +513,10 @@ class DeepResearchApp:
                 if file_path:
                     completion_msg += f"\n📁 报告已保存到: {file_path}"
 
-                yield completion_msg, final_report, f"研究完成，生成了 {len(final_report)} 字符的报告", [], gr.update()
+                formatted_report = self._format_content_for_display(final_report, "Markdown渲染", True)
+                yield completion_msg, formatted_report, f"研究完成，生成了 {len(final_report)} 字符的报告", [], gr.update(value=final_report, visible=True)
             else:
-                yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但结果为空", [], gr.update()
+                yield "❌ 工作流执行完成但没有获取到结果", "", "执行完成但结果为空", [], gr.update(value="", visible=True)
 
         except Exception as e:
             error_msg = f"❌ 批量执行失败: {str(e)}"
@@ -913,7 +893,14 @@ class DeepResearchApp:
                         # 显示完整的步骤结果
                         step_result = result.get("step_result", "")
                         if step_result:
-                            formatted_content += f"**分析结果与结论**:\n\n{step_result}\n\n"
+                            formatted_content += f"**分析结果与结论**:\n\n"
+                            # 如果结果很长，显示摘要和详细内容
+                            if len(step_result) > 1000:
+                                summary = step_result[:300] + "..."
+                                formatted_content += f"**结果摘要:** {summary}\n\n"
+                                formatted_content += f"<details>\n<summary>📖 点击查看完整结果 ({len(step_result)} 字符)</summary>\n\n```\n{step_result}\n```\n\n</details>\n\n"
+                            else:
+                                formatted_content += f"```\n{step_result}\n```\n\n"
 
                         formatted_content += "---\n\n"
 
@@ -942,7 +929,14 @@ class DeepResearchApp:
                         # 显示完整的步骤结果
                         step_result = result.get("step_result", "")
                         if step_result:
-                            formatted_content += f"**分析结果与结论**:\n\n{step_result}\n\n"
+                            formatted_content += f"**分析结果与结论**:\n\n"
+                            # 如果结果很长，显示摘要和详细内容
+                            if len(step_result) > 1000:
+                                summary = step_result[:300] + "..."
+                                formatted_content += f"**结果摘要:** {summary}\n\n"
+                                formatted_content += f"<details>\n<summary>📖 点击查看完整结果 ({len(step_result)} 字符)</summary>\n\n```\n{step_result}\n```\n\n</details>\n\n"
+                            else:
+                                formatted_content += f"```\n{step_result}\n```\n\n"
 
                         formatted_content += "---\n\n"
 

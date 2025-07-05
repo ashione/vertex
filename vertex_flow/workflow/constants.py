@@ -35,6 +35,7 @@ ERROR_KEY = "error"
 VERTEX_ID_KEY = "vertex_id"
 TYPE_KEY = "type"
 ROLE_KEY = "role"
+CONVERSATION_HISTORY = "conversation_history"  # 对话历史常量
 
 # 消息类型常量
 MESSAGE_TYPE_REGULAR = "regular"

@@ -11,6 +11,8 @@ from vertex_flow.workflow.constants import (
     ENABLE_REASONING_KEY,
     ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
+    ITERATION_INDEX_KEY,
+    LOCAL_VAR,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
@@ -19,12 +21,16 @@ from vertex_flow.workflow.constants import (
     MODEL,
     POSTPROCESS,
     PREPROCESS,
+    REASONING_CONTENT_ATTR,
     SHOW_REASONING,
     SHOW_REASONING_KEY,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
     SYSTEM,
     TYPE_KEY,
     USER,
     VERTEX_ID_KEY,
+    CONVERSATION_HISTORY,
 )
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.utils import (
@@ -105,6 +111,10 @@ class LLMVertex(Vertex[T]):
             dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             all_inputs = {**dependencies_outputs, **(inputs or {})}
 
+            # 更精确的清空策略：只在没有conversation_history时清空，避免影响多轮对话
+            if not (inputs and CONVERSATION_HISTORY in inputs):
+                self.messages = []
+            
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
             has_context = "context" in sig.parameters
@@ -139,8 +149,8 @@ class LLMVertex(Vertex[T]):
             self.user_messages = self.preprocess(self.user_messages, inputs, context)
 
         # Handle conversation history if provided in inputs
-        if inputs and "conversation_history" in inputs:
-            conversation_history = inputs["conversation_history"]
+        if inputs and CONVERSATION_HISTORY in inputs:
+            conversation_history = inputs[CONVERSATION_HISTORY]
             if isinstance(conversation_history, list):
                 # Add each message in the conversation history
                 for msg in conversation_history:
@@ -225,8 +235,8 @@ class LLMVertex(Vertex[T]):
                         # 替换输入参数
                         if inputs:
                             for key, value in inputs.items():
-                                if key in ["conversation_history", "current_message", "image_url", "text"]:
-                                    continue  # Skip special keys
+                                if key in [CONVERSATION_HISTORY, "current_message", "image_url", "text"]:
+                                    continue  # Skip special keys that we've already handled
                                 value = value if isinstance(value, str) else str(value)
                                 input_placeholder = "{{" + key + "}}"
                                 text_content = text_content.replace(input_placeholder, value)
@@ -249,7 +259,7 @@ class LLMVertex(Vertex[T]):
                 # replace by inputs parameters
                 if inputs:
                     for key, value in inputs.items():
-                        if key in ["conversation_history", "current_message", "image_url", "text"]:
+                        if key in [CONVERSATION_HISTORY, "current_message", "image_url", "text"]:
                             continue  # Skip special keys that we've already handled
                         value = value if isinstance(value, str) else str(value)
                         # Support {{inputs.key}} format

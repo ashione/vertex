@@ -28,9 +28,9 @@ Variables 机制是 VertexFlow 框架中的核心功能，用于实现顶点之�
 - 从外部输入或父工作流传递到当前顶点
 - `source_scope` 为空或 `None`
 
-#### 暴露变量（Exposed Variables）
-- 从子图内部暴露给外部使用
-- 通过 VertexGroup 的 `exposed_outputs` 配置
+#### 子图源变量（Subgraph Source Variables）
+- 从子图外部传递到子图内部的变量
+- `source_scope` 为 `"__subgraph_source__"`
 
 ## 变量透出机制
 
@@ -74,16 +74,16 @@ def resolve_dependencies(self, variable_selector=None, inputs=None):
 group = VertexGroup(
     id="processing_group",
     subgraph_vertices=[vertex1, vertex2, vertex3],
-    exposed_outputs=[
+    exposed_variables=[
         {
-            "vertex_id": "vertex1",
-            "variable": "result",
-            "exposed_as": "step1_output"
+            "source_scope": "vertex1",
+            "source_var": "result",
+            "local_var": "step1_output"
         },
         {
-            "vertex_id": "vertex2", 
-            "variable": "processed_data",
-            "exposed_as": "final_result"
+            "source_scope": "vertex2", 
+            "source_var": "processed_data",
+            "local_var": "final_result"
         }
     ]
 )
@@ -319,21 +319,21 @@ vector_query_vertex = VectorQueryVertex(
 processing_group = VertexGroup(
     id="complex_processing",
     subgraph_vertices=[step1, step2, step3],
-    exposed_outputs=[
+    exposed_variables=[
         {
-            "vertex_id": "step1",
-            "variable": "initial_result",
-            "exposed_as": "step1_output"
+            "source_scope": "step1",
+            "source_var": "initial_result",
+            "local_var": "step1_output"
         },
         {
-            "vertex_id": "step2",
-            "variable": "intermediate_result",
-            "exposed_as": "step2_output"
+            "source_scope": "step2",
+            "source_var": "intermediate_result",
+            "local_var": "step2_output"
         },
         {
-            "vertex_id": "step3",
-            "variable": "final_result",
-            "exposed_as": "final_output"
+            "source_scope": "step3",
+            "source_var": "final_result",
+            "local_var": "final_output"
         }
     ]
 )
@@ -350,90 +350,6 @@ external_vertex = FunctionVertex(
         }
     ]
 )
-```
-
-## 高级特性
-
-### 1. 变量验证
-
-#### 变量存在性检查
-```python
-def validate_variables(self, template, variables):
-    """验证模板中使用的变量是否都已提供"""
-    import re
-    
-    # 提取模板中的变量占位符
-    pattern = r'\{(\w+)\}'
-    required_vars = set(re.findall(pattern, template))
-    provided_vars = set(variables.keys())
-    
-    missing_vars = required_vars - provided_vars
-    if missing_vars:
-        raise ValueError(f"Missing required variables: {missing_vars}")
-    
-    return variables
-```
-
-#### 类型检查
-```python
-def validate_variable_types(self, variables, expected_types):
-    """验证变量类型"""
-    for var_name, expected_type in expected_types.items():
-        if var_name in variables:
-            value = variables[var_name]
-            if not isinstance(value, expected_type):
-                raise TypeError(
-                    f"Variable {var_name} expected {expected_type}, got {type(value)}"
-                )
-```
-
-### 2. 变量转换
-
-#### 自动类型转换
-```python
-def convert_variables(self, variables, conversions):
-    """根据配置自动转换变量类型"""
-    converted = {}
-    
-    for var_name, value in variables.items():
-        if var_name in conversions:
-            conversion_func = conversions[var_name]
-            converted[var_name] = conversion_func(value)
-        else:
-            converted[var_name] = value
-    
-    return converted
-```
-
-#### 数据格式转换
-```python
-# 示例：文本到列表的转换
-conversions = {
-    "text_list": lambda x: x.split('\n') if isinstance(x, str) else x,
-    "json_data": lambda x: json.loads(x) if isinstance(x, str) else x
-}
-```
-
-### 3. 变量缓存
-
-#### 缓存机制
-```python
-class VariableCache:
-    def __init__(self):
-        self.cache = {}
-        self.ttl = 300  # 5分钟TTL
-    
-    def get(self, key):
-        if key in self.cache:
-            value, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl:
-                return value
-            else:
-                del self.cache[key]
-        return None
-    
-    def set(self, key, value):
-        self.cache[key] = (value, time.time())
 ```
 
 ## 错误处理
@@ -505,72 +421,6 @@ def resolve_variables_with_retry(self, inputs, context, max_retries=3):
                 raise
             logging.warning(f"Attempt {attempt + 1} failed: {e}, retrying...")
             time.sleep(1)
-```
-
-## 性能优化
-
-### 1. 变量解析优化
-
-#### 延迟解析
-```python
-class LazyVariableResolver:
-    def __init__(self):
-        self.resolved_cache = {}
-    
-    def get_variable(self, var_def, inputs, context):
-        cache_key = f"{var_def['source_scope']}:{var_def['source_var']}"
-        
-        if cache_key not in self.resolved_cache:
-            self.resolved_cache[cache_key] = self._resolve_variable(var_def, inputs, context)
-        
-        return self.resolved_cache[cache_key]
-```
-
-#### 批量解析
-```python
-def resolve_variables_batch(self, variable_defs, inputs, context):
-    """批量解析多个变量"""
-    resolved = {}
-    
-    # 按源顶点分组
-    vertex_groups = {}
-    for var_def in variable_defs:
-        source_scope = var_def.get("source_scope")
-        if source_scope not in vertex_groups:
-            vertex_groups[source_scope] = []
-        vertex_groups[source_scope].append(var_def)
-    
-    # 批量获取每个顶点的输出
-    for source_scope, vars in vertex_groups.items():
-        if source_scope:
-            source_vertex = self.workflow.get_vertice_by_id(source_scope)
-            if source_vertex and source_vertex.output:
-                for var_def in vars:
-                    source_var = var_def["source_var"]
-                    local_var = var_def.get("local_var", source_var)
-                    resolved[local_var] = source_vertex.output.get(source_var)
-    
-    return resolved
-```
-
-### 2. 内存优化
-
-#### 变量引用计数
-```python
-class VariableReferenceManager:
-    def __init__(self):
-        self.reference_counts = {}
-    
-    def add_reference(self, variable_key):
-        self.reference_counts[variable_key] = self.reference_counts.get(variable_key, 0) + 1
-    
-    def remove_reference(self, variable_key):
-        if variable_key in self.reference_counts:
-            self.reference_counts[variable_key] -= 1
-            if self.reference_counts[variable_key] <= 0:
-                del self.reference_counts[variable_key]
-                return True  # 可以清理
-        return False
 ```
 
 ## 最佳实践
@@ -698,6 +548,41 @@ def expensive_variable_computation(self, input_data):
     return processed_result
 ```
 
+## 当前实现说明
+
+### VertexGroup 输出机制
+
+当前实现中，VertexGroup 的输出机制如下：
+
+1. **子图顶点输出**: VertexGroup 返回所有子图顶点的输出，格式为：
+   ```python
+   {
+       "vertex1": {"result": "value1"},
+       "vertex2": {"result": "value2"}
+   }
+   ```
+
+2. **变量暴露**: 通过 `exposed_variables` 配置暴露特定变量，但当前实现主要返回子图顶点输出
+
+3. **外部访问**: 其他顶点通过子图顶点ID访问结果：
+   ```python
+   variables=[
+       {
+           "source_scope": "vertex_group",
+           "source_var": "vertex1",  # 访问特定子图顶点
+           "local_var": "result"
+       }
+   ]
+   ```
+
+### WhileVertexGroup 循环机制
+
+当前实现中，WhileVertexGroup 的循环机制：
+
+1. **循环索引**: 自动注入 `iteration_index` 变量
+2. **条件检查**: 基于条件函数判断是否继续循环
+3. **变量传递**: 支持在循环中传递累积结果
+
 ## 总结
 
 Variables 机制是 VertexFlow 框架的核心功能，提供了灵活、强大的数据流控制能力。通过合理使用变量透出和选择机制，可以构建复杂而高效的工作流系统。
@@ -707,6 +592,6 @@ Variables 机制是 VertexFlow 框架的核心功能，提供了灵活、强大�
 2. **透出机制**：支持顶点间、子图间和工作流间的变量传递
 3. **选择机制**：提供灵活的条件选择和优先级控制
 4. **错误处理**：完善的错误检测和恢复机制
-5. **性能优化**：多种优化策略提升执行效率
+5. **当前实现**：VertexGroup 主要返回子图顶点输出，WhileVertexGroup 支持循环索引
 
 通过遵循最佳实践，可以充分发挥 Variables 机制的潜力，构建高质量的工作流应用。 

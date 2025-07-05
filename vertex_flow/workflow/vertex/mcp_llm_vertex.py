@@ -13,6 +13,7 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Generator, List, Optional, Union
+import re
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
@@ -72,6 +73,8 @@ class MCPLLMVertex(LLMVertex):
         # Thread pool for async operations
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mcp_llm")
 
+        self._last_mcp_context = None
+
         logger.info(f"MCPLLMVertex {id} initialized with MCP enabled: {self.mcp_enabled}")
 
     def __del__(self):
@@ -91,33 +94,31 @@ class MCPLLMVertex(LLMVertex):
 
         # Add MCP context if enabled
         if self.mcp_enabled and self.mcp_context_enabled:
-            self._add_mcp_context_to_messages()
+            self._update_mcp_context_in_system_message()
 
-    def _add_mcp_context_to_messages(self):
-        """Add MCP context to messages in a thread-safe way"""
-        try:
-            # Get MCP context (with caching)
-            mcp_context = self._get_mcp_context_sync()
+    def _update_mcp_context_in_system_message(self):
+        mcp_context = self._get_mcp_context_sync()
+        if mcp_context == self._last_mcp_context:
+            # 没有变化，不做任何修改
+            return
+        self._last_mcp_context = mcp_context
 
-            if mcp_context:
-                # Find or create system message
-                system_message_idx = None
-                for i, msg in enumerate(self.messages):
-                    if msg.get("role") == "system":
-                        system_message_idx = i
-                        break
+        # 查找system message
+        system_message_idx = None
+        for i, msg in enumerate(self.messages):
+            if msg.get("role") == "system":
+                system_message_idx = i
+                break
 
-                if system_message_idx is not None:
-                    # Append to existing system message
-                    self.messages[system_message_idx]["content"] += f"\n\nMCP Context:\n{mcp_context}"
-                else:
-                    # Insert new system message at the beginning
-                    self.messages.insert(0, {"role": "system", "content": f"MCP Context:\n{mcp_context}"})
-
-                logger.debug("Added MCP context to messages")
-
-        except Exception as e:
-            logger.warning(f"Failed to add MCP context: {e}")
+        mcp_pattern = re.compile(r"(.*?)(\n\nMCP Context:.*)?$", re.DOTALL)
+        if system_message_idx is not None:
+            base_content = self.messages[system_message_idx]["content"]
+            # 去除原有MCP Context部分
+            match = mcp_pattern.match(base_content)
+            base = match.group(1) if match else base_content
+            self.messages[system_message_idx]["content"] = f"{base}\n\nMCP Context:\n{mcp_context}"
+        else:
+            self.messages.insert(0, {"role": "system", "content": f"MCP Context:\n{mcp_context}"})
 
     def _get_mcp_context_sync(self) -> Optional[str]:
         """Get MCP context synchronously with caching"""
