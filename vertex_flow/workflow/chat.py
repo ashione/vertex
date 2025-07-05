@@ -12,6 +12,7 @@ from vertex_flow.workflow.constants import (
     ENABLE_REASONING_KEY,
     REASONING_CONTENT_ATTR,
     SHOW_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
 )
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
@@ -280,7 +281,7 @@ class Tongyi(ChatModel):
 
     def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
         """Tongyi专属：流式时自动加stream_options.include_usage，并处理enable_search参数"""
-        # 先构建基础API参数（不包含enable_search）
+        # 先构建基础API参数
         default_option = {
             "temperature": 1.0,
             "max_tokens": 4096,
@@ -296,11 +297,11 @@ class Tongyi(ChatModel):
         # 处理多模态消息
         processed_messages = self._process_multimodal_messages(messages)
 
-        # 构建API调用参数 - 过滤掉自定义参数和enable_search
+        # 构建API调用参数 - 过滤掉自定义参数，但保留enable_search
         filtered_option = {
             k: v
             for k, v in default_option.items()
-            if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY, "enable_search"]
+            if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY, ENABLE_SEARCH_KEY]
         }
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
@@ -310,12 +311,11 @@ class Tongyi(ChatModel):
         if stream:
             api_params["stream_options"] = {"include_usage": True}
 
-        # 处理enable_search参数（仅通义千问支持）
-        # 注意：兼容模式API不支持enable_search参数，所以这里不传递
-        if "enable_search" in default_option:
-            logging.info(
-                f"Tongyi enable_search requested: {default_option['enable_search']}, but compatible mode API doesn't support it"
-            )
+        # 处理enable_search参数（通义千问支持）
+        if ENABLE_SEARCH_KEY in default_option:
+            logging.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
+            api_params["extra_body"] = {
+                "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options" : True}}
 
         try:
             completion = self.client.chat.completions.create(**api_params)
