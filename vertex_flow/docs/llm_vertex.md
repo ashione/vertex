@@ -1,5 +1,7 @@
 # LLMVertex 文档
 
+> **注意**: 关于变量传递和依赖管理的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
+
 ## 概述
 
 `LLMVertex` 是 VertexFlow 框架中专门用于大语言模型（LLM）交互的顶点类型。它继承自 `Vertex` 基类，提供了完整的聊天对话功能，支持消息管理、工具调用、预处理和后处理等高级特性。

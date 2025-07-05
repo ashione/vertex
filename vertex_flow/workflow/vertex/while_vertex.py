@@ -3,7 +3,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import SOURCE_VAR
+from vertex_flow.workflow.constants import ITERATION_INDEX_KEY, SOURCE_VAR
 
 from .function_vertex import FunctionVertex
 from .vertex import T, WorkflowContext
@@ -87,6 +87,12 @@ class WhileVertex(FunctionVertex):
         self.conditions = conditions or []
         self.logical_operator = logical_operator
         self.max_iterations = max_iterations
+
+        # 内部状态管理
+        self._iteration_index = 0
+        self._loop_data = {}
+        self._is_first_iteration = True
+
         self._validate_conditions()
 
     def _validate_conditions(self):
@@ -211,45 +217,68 @@ class WhileVertex(FunctionVertex):
         Returns:
             循环执行的结果
         """
-        iteration_count = 0
+        # 重置循环状态
+        self.reset_loop_state()
+
+        # 初始化循环数据
+        if inputs:
+            self.set_loop_data(inputs)
+
         results = []
         current_inputs = inputs.copy() if inputs else {}
 
-        logging.info(f"Starting while loop in vertex {self.id}")
+        logging.info(f"Starting while loop in vertex {self.id}, current_inputs: {current_inputs}")
 
         try:
             while True:
+                logging.info(f"Iteration {self._iteration_index} in vertex {self.id}")
                 # 检查最大迭代次数
-                if self.max_iterations is not None and iteration_count >= self.max_iterations:
+                if self.max_iterations is not None and self._iteration_index >= self.max_iterations:
                     logging.info(f"Reached max iterations ({self.max_iterations}) in vertex {self.id}")
                     break
 
-                # 检查循环条件
-                if not self.should_continue(current_inputs, context):
-                    logging.info(f"Loop condition failed in vertex {self.id} at iteration {iteration_count}")
-                    break
+                # 在第一次迭代之前检查循环条件
+                if self._iteration_index == 0:
+                    if not self.should_continue(current_inputs, context):
+                        logging.info(f"Loop condition failed in vertex {self.id} at iteration {self._iteration_index}")
+                        break
 
                 # 执行循环体
                 sig = inspect.signature(self.execute_task)
                 has_context = "context" in sig.parameters
 
+                # 自动注入循环索引到inputs中
+                enhanced_inputs = current_inputs.copy()
+                enhanced_inputs[ITERATION_INDEX_KEY] = self._iteration_index
+
                 try:
                     if has_context:
-                        result = self.execute_task(inputs=current_inputs, context=context)
+                        result = self.execute_task(inputs=enhanced_inputs, context=context)
                     else:
-                        result = self.execute_task(inputs=current_inputs)
+                        result = self.execute_task(inputs=enhanced_inputs)
 
                     results.append(result)
 
-                    # 更新输入数据（如果结果是字典，则合并到输入中）
+                    # 用新输出全量替换current_inputs，避免旧值残留
                     if isinstance(result, dict):
-                        current_inputs.update(result)
+                        current_inputs.update(result.copy())
+                        self._loop_data.update(result)
 
-                    iteration_count += 1
-                    logging.debug(f"Completed iteration {iteration_count} in vertex {self.id}")
+                    # 增加循环索引
+                    self.increment_iteration_index()
+                    self._is_first_iteration = False
+
+                    logging.debug(f"Completed iteration {self._iteration_index} in vertex {self.id}")
+
+                    # 在执行完循环体后检查循环条件（除了第一次迭代）
+                    if not self.should_continue(current_inputs, context):
+                        logging.info(
+                            f"Loop condition failed in vertex {self.id} after iteration {self._iteration_index}"
+                        )
+                        break
 
                 except Exception as e:
-                    logging.error(f"Error in execute_task at iteration {iteration_count}: {e}")
+                    logging.error(f"Error in execute_task at iteration {self._iteration_index}: {e}")
                     traceback.print_exc()
                     break
 
@@ -258,6 +287,45 @@ class WhileVertex(FunctionVertex):
             traceback.print_exc()
             raise e
 
-        logging.info(f"While loop completed in vertex {self.id} after {iteration_count} iterations")
+        logging.info(f"While loop completed in vertex {self.id} after {self._iteration_index} iterations")
 
-        return {"results": results, "iteration_count": iteration_count, "final_inputs": current_inputs}
+        return {
+            "results": results,
+            "iteration_count": self._iteration_index,
+            "final_inputs": current_inputs,
+            "loop_data": self.get_loop_data(),
+        }
+
+    def get_iteration_index(self) -> int:
+        """获取当前循环索引"""
+        return self._iteration_index
+
+    def set_iteration_index(self, index: int):
+        """设置循环索引"""
+        self._iteration_index = index
+
+    def increment_iteration_index(self):
+        """增加循环索引"""
+        self._iteration_index += 1
+
+    def get_loop_data(self) -> Dict[str, Any]:
+        """获取循环数据"""
+        return self._loop_data.copy()
+
+    def set_loop_data(self, data: Dict[str, Any]):
+        """设置循环数据"""
+        self._loop_data = data.copy()
+
+    def update_loop_data(self, key: str, value: Any):
+        """更新循环数据中的特定键值"""
+        self._loop_data[key] = value
+
+    def is_first_iteration(self) -> bool:
+        """检查是否为第一次迭代"""
+        return self._is_first_iteration
+
+    def reset_loop_state(self):
+        """重置循环状态"""
+        self._iteration_index = 0
+        self._loop_data = {}
+        self._is_first_iteration = True

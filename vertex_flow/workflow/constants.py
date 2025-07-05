@@ -35,6 +35,7 @@ ERROR_KEY = "error"
 VERTEX_ID_KEY = "vertex_id"
 TYPE_KEY = "type"
 ROLE_KEY = "role"
+CONVERSATION_HISTORY = "conversation_history"  # 对话历史常量
 
 # 消息类型常量
 MESSAGE_TYPE_REGULAR = "regular"
@@ -47,9 +48,11 @@ LOCAL_VAR = "local_var"
 SOURCE_VAR = "source_var"
 SOURCE_SCOPE = "source_scope"
 
+# VertexGroup 外部source常量 - 防止与其他vertex产生overlap
+SUBGRAPH_SOURCE = "__subgraph_source__"  # 标识vertex group中的外部source
+
 # 深度研究工作流阶段常量
 STAGE_TOPIC_ANALYSIS = "主题分析"
-STAGE_RESEARCH_PLANNING = "研究规划"
 STAGE_INFORMATION_COLLECTION = "信息收集"
 STAGE_DEEP_ANALYSIS = "深度分析"
 STAGE_CROSS_VALIDATION = "交叉验证"
@@ -71,3 +74,6 @@ ENABLE_TOKEN_USAGE_KEY = "enable_token_usage"  # Key name for enable_token_usage
 # Content attribute constants
 CONTENT_ATTR = "content"  # Attribute name for regular content
 REASONING_CONTENT_ATTR = "reasoning_content"  # Attribute name for reasoning content
+
+# Loop index constants for WhileVertex and WhileVertexGroup
+ITERATION_INDEX_KEY = "iteration_index"  # Iteration index key

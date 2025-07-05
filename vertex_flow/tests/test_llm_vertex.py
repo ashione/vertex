@@ -18,7 +18,23 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from vertex_flow.workflow.constants import ENABLE_REASONING_KEY, ENABLE_STREAM, SYSTEM, USER
+from vertex_flow.workflow.constants import (
+    CONTENT_KEY,
+    CONVERSATION_HISTORY,
+    ENABLE_REASONING_KEY,
+    ENABLE_STREAM,
+    MESSAGE_KEY,
+    MESSAGE_TYPE_END,
+    MESSAGE_TYPE_ERROR,
+    MESSAGE_TYPE_REASONING,
+    MESSAGE_TYPE_REGULAR,
+    SYSTEM,
+    TYPE_KEY,
+    USER,
+    VERTEX_ID_KEY,
+    WORKFLOW_COMPLETE,
+    WORKFLOW_FAILED,
+)
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Edge
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
@@ -231,7 +247,7 @@ def test_llm_vertex_conversation_history(mock_model):
         {"role": "user", "content": "历史问题2"},
         {"role": "assistant", "content": "历史回答2"},
     ]
-    inputs = {"conversation_history": conversation_history}
+    inputs = {CONVERSATION_HISTORY: conversation_history}
     llm_vertex.chat(inputs, context=WorkflowContext())
     # 手动补充messages，模拟历史内容
     llm_vertex.messages = [

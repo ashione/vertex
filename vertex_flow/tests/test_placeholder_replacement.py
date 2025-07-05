@@ -54,6 +54,7 @@ def test_two_llm_placeholder_replacement(workflow, context):
             SYSTEM: "你是一个数据分析师",
             USER: ["请分析以下内容：{{llm1}}, {{source}}"],
         },
+        variables=[{"source_scope": "source", "source_var": None, "local_var": "source"}],
     )
 
     # 4. 创建sink顶点
@@ -82,6 +83,7 @@ def test_two_llm_placeholder_replacement(workflow, context):
             # 6. 添加边连接
             workflow.add_edge(Edge(source_vertex, first_llm_vertex))
             workflow.add_edge(Edge(first_llm_vertex, second_llm_vertex))
+            workflow.add_edge(Edge(source_vertex, second_llm_vertex))  # 添加source到llm2的直接依赖
             workflow.add_edge(Edge(second_llm_vertex, sink_vertex))
 
             # 8. 执行workflow

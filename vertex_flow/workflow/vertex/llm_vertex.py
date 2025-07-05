@@ -8,8 +8,12 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    CONVERSATION_HISTORY,
     ENABLE_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
+    ITERATION_INDEX_KEY,
+    LOCAL_VAR,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
@@ -18,8 +22,11 @@ from vertex_flow.workflow.constants import (
     MODEL,
     POSTPROCESS,
     PREPROCESS,
+    REASONING_CONTENT_ATTR,
     SHOW_REASONING,
     SHOW_REASONING_KEY,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
     SYSTEM,
     TYPE_KEY,
     USER,
@@ -51,7 +58,7 @@ class LLMVertex(Vertex[T]):
         self,
         id: str,
         name: str = None,
-        task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
+        task: Optional[Callable[[Dict[str, Any], WorkflowContext[T]], T]] = None,
         params: Dict[str, Any] = None,
         tools: list = None,  # 新增参数
         variables: List[Dict[str, Any]] = None,
@@ -104,6 +111,10 @@ class LLMVertex(Vertex[T]):
             dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             all_inputs = {**dependencies_outputs, **(inputs or {})}
 
+            # 更精确的清空策略：只在没有conversation_history时清空，避免影响多轮对话
+            if not (inputs and CONVERSATION_HISTORY in inputs):
+                self.messages = []
+
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
             has_context = "context" in sig.parameters
@@ -126,7 +137,7 @@ class LLMVertex(Vertex[T]):
 
     def messages_redirect(self, inputs, context: WorkflowContext[T]):
 
-        logging.info(f"{self.id} chat context inputs {inputs}")
+        logging.debug(f"{self.id} chat context inputs {inputs}")
 
         # Add system message if provided
         if self.system_message:
@@ -138,8 +149,8 @@ class LLMVertex(Vertex[T]):
             self.user_messages = self.preprocess(self.user_messages, inputs, context)
 
         # Handle conversation history if provided in inputs
-        if inputs and "conversation_history" in inputs:
-            conversation_history = inputs["conversation_history"]
+        if inputs and CONVERSATION_HISTORY in inputs:
+            conversation_history = inputs[CONVERSATION_HISTORY]
             if isinstance(conversation_history, list):
                 # Add each message in the conversation history
                 for msg in conversation_history:
@@ -193,8 +204,14 @@ class LLMVertex(Vertex[T]):
                     # 纯文本消息
                     self.messages.append({"role": "user", "content": str(current_message)})
 
+        system_contains = False
         # replace by env parameters, user parameters and inputs.
         for message in self.messages:
+            if message["role"] == "system":
+                if system_contains:
+                    continue
+                system_contains = True
+
             if "content" not in message or message["content"] is None:
                 continue
 
@@ -218,8 +235,8 @@ class LLMVertex(Vertex[T]):
                         # 替换输入参数
                         if inputs:
                             for key, value in inputs.items():
-                                if key in ["conversation_history", "current_message", "image_url", "text"]:
-                                    continue  # Skip special keys
+                                if key in [CONVERSATION_HISTORY, "current_message", "image_url", "text"]:
+                                    continue  # Skip special keys that we've already handled
                                 value = value if isinstance(value, str) else str(value)
                                 input_placeholder = "{{" + key + "}}"
                                 text_content = text_content.replace(input_placeholder, value)
@@ -242,7 +259,7 @@ class LLMVertex(Vertex[T]):
                 # replace by inputs parameters
                 if inputs:
                     for key, value in inputs.items():
-                        if key in ["conversation_history", "current_message", "image_url", "text"]:
+                        if key in [CONVERSATION_HISTORY, "current_message", "image_url", "text"]:
                             continue  # Skip special keys that we've already handled
                         value = value if isinstance(value, str) else str(value)
                         # Support {{inputs.key}} format
@@ -252,7 +269,7 @@ class LLMVertex(Vertex[T]):
                 text_content = self._replace_placeholders(text_content)
                 message["content"] = text_content
 
-        logging.info(f"{self}, {self.id} chat context messages {self.messages}")
+        logging.debug(f"{self}, {self.id} chat context messages {self.messages}")
 
     def _handle_token_usage(self):
         """处理token使用统计的通用方法，供子类调用"""
@@ -533,6 +550,10 @@ class LLMVertex(Vertex[T]):
         # Add reasoning parameters (for display control)
         if SHOW_REASONING_KEY in self.params:
             option[SHOW_REASONING_KEY] = self.params[SHOW_REASONING_KEY]
+
+        # Add enable_search parameter for web search
+        if ENABLE_SEARCH_KEY in self.params:
+            option[ENABLE_SEARCH_KEY] = self.params[ENABLE_SEARCH_KEY]
 
         # Add tools if available
         if self.tools:

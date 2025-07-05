@@ -1,5 +1,7 @@
 # FunctionVertex 文档
 
+> **注意**: 关于变量依赖配置的详细说明，请参考 [Variables 变量透出机制和选择机制](VARIABLES_MECHANISM.md) 文档。
+
 ## 概述
 
 `FunctionVertex` 是 VertexFlow 框架中最基础和通用的顶点类型，它继承自 `Vertex` 基类，允许用户通过传入自定义函数来实现各种业务逻辑。`FunctionVertex` 是许多其他特殊顶点类型的基础，如 `WhileVertex`、`IfElseVertex` 和 `CodeVertex`。

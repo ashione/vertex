@@ -68,6 +68,7 @@ Thumbs.db
 test-docs/
 test_docs/
 .cursor/
+.trae/
 vector_db
 
 # config bakcup

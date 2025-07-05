@@ -5,7 +5,7 @@ from functools import partial
 from types import FunctionType
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import SOURCE_VAR
+from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_VAR
 
 from .vertex import (
     Any,
@@ -32,7 +32,7 @@ class FunctionVertex(Vertex[T]):
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
     ):
         subtype = None
         if params and FunctionVertex.SubTypeKey in params:
@@ -50,7 +50,7 @@ class FunctionVertex(Vertex[T]):
         if callable(self._task):
             dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
             local_inputs = {**dependencies_outputs, **(inputs or {})}
-            all_inputs = self.resolve_dependencies(inputs=local_inputs)
+            all_inputs = {**self.resolve_dependencies(inputs=local_inputs), **(inputs or {})}
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
             has_context = "context" in sig.parameters
@@ -60,12 +60,14 @@ class FunctionVertex(Vertex[T]):
                     # 如果 task 函数定义了 context 参数，则传递 context
                     self.output = self._task(inputs=all_inputs, context=context)
                 else:
+                    logging.info(f"no context, inputs: {all_inputs}")
                     # 否则，不传递 context 参数
                     self.output = self._task(inputs=all_inputs)
                 output_str = str(self.output)
                 if len(output_str) > 256:
                     output_str = output_str[:250] + "..."
                 logging.info(f"Function {self.id}, output {output_str} after executed.")
+                return self.output
             except BaseException as e:
                 logging.warning(f"Error executing vertex {self._id}: {e}")
                 traceback.print_exc()

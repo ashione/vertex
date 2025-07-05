@@ -6,8 +6,14 @@ import weakref
 from typing import Any, Callable, Dict, Generic, List, Set, Type, TypeVar, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import LOCAL_VAR, OUTPUT_KEY, SOURCE_SCOPE, SOURCE_VAR, VERTEX_ID_KEY
-from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.constants import (
+    LOCAL_VAR,
+    OUTPUT_KEY,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
+    VERTEX_ID_KEY,
+)
+from vertex_flow.workflow.context import SubgraphContext, WorkflowContext
 from vertex_flow.workflow.edge import (
     Condition,
     Edge,
@@ -167,12 +173,12 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             }
         )
 
-    def add_variables(self, variables: List[Dict[str, str]]):
+    def add_variables(self, variables: List[Dict[str, str | None]]):
         """
         Adds multiple variable definitions to the Vertex's variables list.
 
         Args:
-            variables (List[Dict[str, str]]): A list of dictionaries containing variable definitions.
+            variables (List[Dict[str, str | None]]): A list of dictionaries containing variable definitions.
 
         Raises:
             ValueError: If one of the dictionaries does not contain all required keys.
@@ -392,7 +398,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
 
         return other
 
-    def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
+    def execute(self, inputs: Dict[str, T] = None, context: Union[WorkflowContext[T], SubgraphContext[T]] = None):
         raise NotImplementedError("Subclasses should implement this method.")
 
     def _replace_placeholders(self, text):
@@ -429,9 +435,9 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                             # 这是一个本地变量，构造variable_selector来解析
                             try:
                                 variable_selector = {
-                                    SOURCE_SCOPE: var_def.get("source_scope"),
-                                    SOURCE_VAR: var_def.get("source_var"),
-                                    LOCAL_VAR: var_def.get("local_var"),
+                                    SOURCE_SCOPE: var_def.get(SOURCE_SCOPE),
+                                    SOURCE_VAR: var_def.get(SOURCE_VAR),
+                                    LOCAL_VAR: var_def.get(LOCAL_VAR),
                                 }
                                 resolved_values = self.resolve_dependencies(variable_selector=variable_selector)
                                 if vertex_id in resolved_values:
@@ -442,12 +448,8 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                             except Exception as e:
                                 logging.warning(f"Failed to resolve local variable {vertex_id}: {e}")
 
-                # 如果不是本地变量，尝试获取其他顶点的输出
-                replacement_value = self._get_replacement_value_via_dependencies(vertex_id, None)
-                if replacement_value is not None:
-                    text = text.replace(match.group(0), str(replacement_value))
-                    logging.debug(f"replaced vertex output {vertex_id}: {replacement_value}")
-                    continue
+                # 如果不是本地变量，跳过处理（避免错误调用_get_replacement_value_via_dependencies）
+                continue
 
             # 如果不是本地变量，按原来的逻辑处理
             replacement_value = self._get_replacement_value_via_dependencies(vertex_id, var_name)
@@ -556,7 +558,7 @@ class SourceVertex(Vertex[T]):
         self,
         id: str,
         name: str = None,
-        variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
     ):
@@ -601,7 +603,7 @@ class SinkVertex(Vertex[T]):
         id: str,
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], None] = None,
-        variables: List[Dict[str, str]] = None,
+        variables: List[Dict[str, str | None]] = None,
         params: Dict[str, Any] = None,
     ):
         super().__init__(

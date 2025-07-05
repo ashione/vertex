@@ -1,3 +1,4 @@
+from ..context import SubgraphContext
 from .embedding_providers import (
     BCEEmbedding,
     DashScopeEmbedding,
@@ -34,8 +35,11 @@ from .vertex import (
     SourceVertex,
     Vertex,
 )
-from .vertex_group import SubgraphContext, VertexGroup
+from .vertex_group import VertexGroup
 from .while_vertex import (
     WhileCondition,
     WhileVertex,
+)
+from .while_vertex_group import (
+    WhileVertexGroup,
 )

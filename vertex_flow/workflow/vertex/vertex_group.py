@@ -4,43 +4,13 @@ from collections import deque
 from typing import Any, Dict, List, Optional, Set
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR
+from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
+from vertex_flow.workflow.context import SubgraphContext, WorkflowContext
 from vertex_flow.workflow.edge import Edge, EdgeType
 
-from .vertex import T, Vertex, WorkflowContext
+from .vertex import T, Vertex
 
 logging = LoggerUtil.get_logger()
-
-
-class SubgraphContext:
-    """子图上下文，用于管理子图内部的变量和输出"""
-
-    def __init__(self, parent_context: WorkflowContext[T] = None):
-        self.parent_context = parent_context
-        self.internal_outputs = {}  # 子图内部顶点的输出
-        self.exposed_variables = {}  # 暴露给外部的变量
-
-    def store_internal_output(self, vertex_id: str, output_data: T):
-        """存储子图内部顶点的输出"""
-        self.internal_outputs[vertex_id] = output_data
-
-    def get_internal_output(self, vertex_id: str) -> T:
-        """获取子图内部顶点的输出"""
-        return self.internal_outputs.get(vertex_id, None)
-
-    def expose_variable(self, internal_vertex_id: str, variable_name: str, exposed_name: str = None):
-        """暴露子图内部变量给外部"""
-        exposed_name = exposed_name or variable_name
-        if internal_vertex_id in self.internal_outputs:
-            output = self.internal_outputs[internal_vertex_id]
-            if isinstance(output, dict) and variable_name in output:
-                self.exposed_variables[exposed_name] = output[variable_name]
-            elif variable_name is None:
-                self.exposed_variables[exposed_name] = output
-
-    def get_exposed_variables(self) -> Dict[str, Any]:
-        """获取所有暴露的变量"""
-        return self.exposed_variables.copy()
 
 
 class VertexGroup(Vertex[T]):
@@ -53,7 +23,8 @@ class VertexGroup(Vertex[T]):
         subgraph_vertices: List[Vertex[T]] = None,
         subgraph_edges: List[Edge[T]] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, Any]] = None,
+        variables: List[Dict[str, str | None]] = None,
+        exposed_variables: List[Dict[str, str | None]] = None,
     ):
         """
         初始化VertexGroup
@@ -64,7 +35,9 @@ class VertexGroup(Vertex[T]):
             subgraph_vertices: 子图中的顶点列表
             subgraph_edges: 子图中的边列表
             params: 参数字典
-            variables: 变量列表，用于定义暴露给外部的输出
+            variables: 变量筛选列表，用于从外部输入中筛选变量传递给子图
+                格式: [{"source_scope": "外部顶点ID", "source_var": "变量名", "local_var": "本地变量名"}]
+            exposed_variables: 变量暴露列表，用于将子图内部顶点的输出暴露给外部
                 格式: [{"source_scope": "内部顶点ID", "source_var": "变量名", "local_var": "暴露名称"}]
         """
         super().__init__(
@@ -82,6 +55,9 @@ class VertexGroup(Vertex[T]):
             self.add_subgraph_vertex(v)
         self.subgraph_edges = set(subgraph_edges or [])
         self.subgraph_context = SubgraphContext()
+
+        # 设置暴露变量列表
+        self.exposed_variables = exposed_variables or []
 
         # 为子图中的顶点设置引用（已在add_subgraph_vertex中处理，无需重复）
 
@@ -114,10 +90,15 @@ class VertexGroup(Vertex[T]):
                 )
 
         # 检查variables中引用的顶点是否都在子图中
+        # 注意：允许引用外部顶点（不在子图中的顶点），这些会在运行时通过workflow解析
         for var_def in self.variables:
             source_scope = var_def.get(SOURCE_SCOPE)
             if source_scope and source_scope not in self.subgraph_vertices:
-                raise ValueError(f"Variable source_scope '{source_scope}' not found in subgraph")
+                # 如果source_scope不在子图中，记录警告但不报错，因为可能是外部依赖
+                logging.info(
+                    f"Variable source_scope '{source_scope}' not found in subgraph {self.id}, "
+                    f"will be resolved from external workflow at runtime"
+                )
 
     def add_subgraph_vertex(self, vertex: Vertex[T]) -> Vertex[T]:
         """添加顶点到子图"""
@@ -127,11 +108,8 @@ class VertexGroup(Vertex[T]):
         if hasattr(self, "workflow") and self.workflow:
             vertex.workflow = self.workflow
 
-        # 重写子图vertex的resolve_dependencies方法，使其使用vertex_group的resolve_dependencies
-        original_resolve_dependencies = vertex.resolve_dependencies
-
-        def vertex_group_resolve_dependencies(inputs=None, variables=None):
-            return self.resolve_dependencies(vertex, inputs, getattr(self, "_current_context", None))
+        def vertex_group_resolve_dependencies(variable_selector=None, inputs={}):
+            return self.resolve_dependencies(vertex, inputs, self.subgraph_context)
 
         vertex.resolve_dependencies = vertex_group_resolve_dependencies
 
@@ -251,9 +229,11 @@ class VertexGroup(Vertex[T]):
             source_value = None
 
             # 首先检查是否是外部输入（通过VertexGroup传递）
-            if source_scope in ["source", None]:
+            if source_scope in [SUBGRAPH_SOURCE, None]:
                 if inputs and source_var in inputs:
                     source_value = inputs[source_var]
+                    resolved_values[local_var] = source_value
+                    continue
                 logging.info(f"Source value for {local_var} is {source_value}, {inputs}")
 
             # 如果外部输入中没有找到，尝试从子图内部获取
@@ -303,27 +283,39 @@ class VertexGroup(Vertex[T]):
         return final_inputs
 
     def execute_subgraph(self, inputs: Dict[str, Any] = None, context: WorkflowContext[T] = None):
+        """
+        执行子图，遇到异常立即抛出
+        """
+        try:
+            result = self._execute_subgraph_impl(inputs, context)
+            return result
+        except Exception as e:
+            # 记录日志并立刻抛出异常
+            logging.error(f"VertexGroup {self.id} 子图执行异常: {e}")
+            raise
+
+    def _execute_subgraph_impl(self, inputs: Dict[str, Any] = None, context: WorkflowContext[T] = None):
         """执行子图"""
         logging.info(f"Starting execution of VertexGroup {self.id}")
 
         try:
-            # 设置子图上下文
-            self.subgraph_context = SubgraphContext(context)
-            # 设置当前context供子图vertex使用
-            self._current_context = context
-
             # 处理外部输入，将VertexGroup的variables中定义的外部输入传递给子图
             external_inputs = {}
             for var_def in self.variables:
                 source_scope = var_def.get(SOURCE_SCOPE)
                 source_var = var_def.get(SOURCE_VAR)
                 local_var = var_def.get(LOCAL_VAR)
+
+                # 如果source_scope是SUBGRAPH_SOURCE，从inputs中获取变量
+                if source_scope == SUBGRAPH_SOURCE:
+                    if source_var in (inputs or {}):
+                        external_inputs[local_var] = inputs[source_var]
                 # 如果source_scope不在子图中，说明是外部输入
-                if source_scope not in self.subgraph_vertices:
+                elif source_scope not in self.subgraph_vertices:
                     value = None
-                    if context:
+                    if self.subgraph_context:
                         # 从context中获取外部顶点的输出
-                        external_output = context.get_output(source_scope)
+                        external_output = self.subgraph_context.get_output(source_scope)
                         if external_output and isinstance(external_output, dict) and source_var in external_output:
                             value = external_output[source_var]
                         elif external_output and source_var is None:
@@ -345,9 +337,9 @@ class VertexGroup(Vertex[T]):
 
                 try:
                     # 解析顶点的依赖关系
-                    vertex_inputs = self.resolve_dependencies(vertex, all_inputs, context)
+                    vertex_inputs = self.resolve_dependencies(vertex, all_inputs, context=context)
 
-                    # 执行顶点
+                    # 执行顶点，传递SubgraphContext而不是原始context
                     vertex.execute(inputs=vertex_inputs, context=context)
 
                     # 存储输出到子图上下文
@@ -364,24 +356,14 @@ class VertexGroup(Vertex[T]):
                     traceback.print_exc()
                     raise e
 
-            # 处理暴露的输出
-            self._process_exposed_outputs()
+            # 构建最终输出 - 直接返回子图执行的结果
+            # 注意：暴露输出的处理由调用方决定
+            result = {}
 
-            # 构建最终输出 - 直接返回暴露的变量
-            exposed_vars = self.subgraph_context.get_exposed_variables()
-
-            # 如果没有暴露的变量，返回执行摘要
-            if not exposed_vars:
-                result = {
-                    "execution_summary": {
-                        "executed_vertices": [v.id for v in execution_order],
-                        "total_vertices": len(self.subgraph_vertices),
-                        "success": True,
-                    }
-                }
-            else:
-                # 返回暴露的变量作为主要输出
-                result = exposed_vars.copy()
+            # 获取所有子图顶点的输出
+            for vertex in execution_order:
+                if hasattr(vertex, "output") and vertex.output:
+                    result[vertex.id] = vertex.output
 
             logging.info(f"VertexGroup {self.id} execution completed successfully")
             return result
@@ -394,11 +376,32 @@ class VertexGroup(Vertex[T]):
             raise e
 
     def _process_exposed_outputs(self):
-        """处理暴露给外部的输出"""
-        for var_def in self.variables:
+        """处理暴露给外部的输出，支持SUBGRAPH_SOURCE从group output暴露，支持别名映射"""
+        for var_def in self.exposed_variables:
             source_scope = var_def.get(SOURCE_SCOPE)
             source_var = var_def.get(SOURCE_VAR)
             local_var = var_def.get(LOCAL_VAR, source_var)
+
+            if source_scope == SUBGRAPH_SOURCE:
+                value = None
+                # 优先从group的output中获取source_var
+                if self.output and isinstance(self.output, dict):
+                    if source_var in self.output:
+                        value = self.output[source_var]
+                    # 支持别名暴露：如果source_var不在output，但output中有其他key，且source_var是别名
+                    elif local_var in self.output:
+                        value = self.output[local_var]
+                    # 进一步支持：如果source_var和local_var都不在output，尝试自动查找output中与配置相关的key
+                    else:
+                        for k in self.output:
+                            # 如果配置的source_var是accumulated_step_results，local_var是step_analysis_results，output里只有accumulated_step_results
+                            if k == source_var or k == local_var:
+                                value = self.output[k]
+                                break
+                if value is not None:
+                    self.subgraph_context.store_output(local_var, value)
+                    self.subgraph_context.expose_variable(source_scope, source_var, local_var)
+                continue
 
             if source_scope and source_scope in self.subgraph_vertices:
                 self.subgraph_context.expose_variable(source_scope, source_var, local_var)
@@ -416,6 +419,7 @@ class VertexGroup(Vertex[T]):
             try:
                 self.output = self._task(inputs=all_inputs, context=context)
                 logging.info(f"VertexGroup {self.id} executed with output: {self.output}")
+                return self.output
             except Exception as e:
                 logging.error(f"Error executing VertexGroup {self.id}: {e}")
                 traceback.print_exc()
@@ -423,26 +427,16 @@ class VertexGroup(Vertex[T]):
         else:
             # 执行子图
             try:
-                self.execute_subgraph(inputs, context)
+                result = self.execute_subgraph(inputs, context)
+                self.output = result
+                logging.info(f"VertexGroup {self.id} executed subgraph with output: {self.output}")
 
-                # 处理暴露输出
-                exposed_outputs = {}
-                for var_def in self.variables:
-                    source_vertex_id = var_def[SOURCE_SCOPE]
-                    source_var = var_def[SOURCE_VAR]
-                    local_var = var_def[LOCAL_VAR]
-
-                    source_vertex = self.get_subgraph_vertex(source_vertex_id)
-                    if source_vertex and hasattr(source_vertex, "output") and source_vertex.output:
-                        if source_var in source_vertex.output:
-                            exposed_outputs[local_var] = source_vertex.output[source_var]
-                        else:
-                            logging.warning(f"Variable '{source_var}' not found in vertex '{source_vertex_id}' output")
-                    else:
-                        logging.warning(f"Vertex '{source_vertex_id}' not found or has no output")
-
-                self.output = exposed_outputs
-                logging.info(f"VertexGroup {self.id} executed subgraph with exposed outputs: {self.output}")
+                # 处理暴露的输出，保持与WhileVertexGroup的一致性
+                self._process_exposed_outputs()
+                exposed_vars = self.subgraph_context.get_exposed_variables()
+                if exposed_vars:
+                    self.output = exposed_vars
+                return self.output
 
             except Exception as e:
                 logging.error(f"Error executing VertexGroup {self.id} subgraph: {e}")
@@ -464,10 +458,84 @@ class VertexGroup(Vertex[T]):
     def add_exposed_output(self, vertex_id: str, variable: str = None, exposed_as: str = None):
         """添加暴露输出配置"""
         var_def = {SOURCE_SCOPE: vertex_id, SOURCE_VAR: variable, LOCAL_VAR: exposed_as or variable}
-        self.variables.append(var_def)
+        self.exposed_variables.append(var_def)
 
     def __str__(self) -> str:
         return f"VertexGroup(id={self.id}, vertices={len(self.subgraph_vertices)}, edges={len(self.subgraph_edges)})"
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def _filter_inputs(self, inputs=None, context=None):
+        """
+        通用变量筛选逻辑，将variables配置的变量从inputs/context中筛选出来
+        """
+        filtered_inputs = {}
+        logging.info(f"_filter_inputs called with inputs: {inputs}, context: {context}")
+        logging.info(f"self.variables: {self.variables}")
+
+        if self.variables:
+            for var_def in self.variables:
+                source_scope = var_def.get(SOURCE_SCOPE)
+                source_var = var_def.get(SOURCE_VAR)
+                local_var = var_def.get(LOCAL_VAR, source_var)
+                logging.info(
+                    f"Processing variable: source_scope={source_scope}, source_var={source_var}, local_var={local_var}"
+                )
+
+                # 如果source_scope是SUBGRAPH_SOURCE，从inputs中获取变量
+                if source_scope == SUBGRAPH_SOURCE:
+                    if source_var in (inputs or {}):
+                        filtered_inputs[local_var] = inputs[source_var]
+                        logging.info(f"Found SUBGRAPH_SOURCE variable: {local_var} = {inputs[source_var]}")
+                        continue
+                # 如果source_scope不在子图中，说明是外部输入
+                value = None
+                # 首先尝试从inputs中获取外部顶点的输出, 兼容llm只有一个输出的情况
+                if inputs and source_scope in inputs:
+                    external_output = inputs[source_scope]
+                    if isinstance(external_output, dict) and source_var in external_output:
+                        value = external_output[source_var]
+                        logging.info(f"Found external variable from inputs: {local_var} = {value}")
+                    elif source_var is None:
+                        value = external_output
+                        logging.info(f"Found external variable from inputs (no source_var): {local_var} = {value}")
+
+                # 如果inputs中没有找到，再从context中获取
+                if value is None and context:
+                    external_output = context.get_output(source_scope)
+                    if external_output and isinstance(external_output, dict) and source_var in external_output:
+                        value = external_output[source_var]
+                        logging.info(f"Found external variable from context: {local_var} = {value}")
+                    elif external_output and source_var is None:
+                        value = external_output
+                        logging.info(f"Found external variable from context (no source_var): {local_var} = {value}")
+                # 最后尝试直接从inputs中获取（兼容旧逻辑）
+                if value is None and inputs and source_var in inputs:
+                    value = inputs[source_var]
+                    logging.info(f"Found direct variable from inputs: {local_var} = {value}")
+                if value is not None:
+                    filtered_inputs[local_var] = value
+                    logging.info(f"Final filtered variable: {local_var} = {value}")
+
+        logging.info(f"_filter_inputs result: {filtered_inputs}")
+        return filtered_inputs
+
+    def _expose_outputs(self, outputs):
+        """
+        通用变量暴露逻辑，将exposed_variables配置的变量从outputs中暴露出来
+        """
+        exposed = {}
+        if self.exposed_variables:
+            for var_def in self.exposed_variables:
+                source_scope = var_def.get(SOURCE_SCOPE)
+                source_var = var_def.get(SOURCE_VAR)
+                local_var = var_def.get(LOCAL_VAR, source_var)
+                if source_scope in self.subgraph_vertices:
+                    vertex = self.subgraph_vertices[source_scope]
+                    if hasattr(vertex, "output") and vertex.output:
+                        if isinstance(vertex.output, dict) and source_var in vertex.output:
+                            exposed[local_var] = vertex.output[source_var]
+                        elif source_var is None:
+                            exposed[local_var] = vertex.output
+        return exposed

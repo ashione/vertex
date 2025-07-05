@@ -10,6 +10,7 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import (
     CONTENT_ATTR,
     ENABLE_REASONING_KEY,
+    ENABLE_SEARCH_KEY,
     REASONING_CONTENT_ATTR,
     SHOW_REASONING_KEY,
 )
@@ -117,9 +118,6 @@ class ChatModel(abc.ABC):
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:
             api_params["tools"] = tools
-        # 支持enable_search参数
-        if "enable_search" in filtered_option:
-            api_params["enable_search"] = filtered_option["enable_search"]
         return api_params
 
     def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
@@ -282,11 +280,44 @@ class Tongyi(ChatModel):
         )
 
     def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
-        """Tongyi专属：流式时自动加stream_options.include_usage"""
-        api_params = self._build_api_params(messages, option, stream, tools)
+        """Tongyi专属：流式时自动加stream_options.include_usage，并处理enable_search参数"""
+        # 先构建基础API参数
+        default_option = {
+            "temperature": 1.0,
+            "max_tokens": 4096,
+            "top_p": 1.0,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "stream": stream,
+            "response_format": {"type": "text"},
+        }
+        if option:
+            default_option.update(option)
+
+        # 处理多模态消息
+        processed_messages = self._process_multimodal_messages(messages)
+
+        # 构建API调用参数 - 过滤掉自定义参数，但保留enable_search
+        filtered_option = {
+            k: v
+            for k, v in default_option.items()
+            if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY, ENABLE_SEARCH_KEY]
+        }
+        api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
+        if tools is not None and len(tools) > 0:
+            api_params["tools"] = tools
+
         # 仅Tongyi流式加usage
         if stream:
             api_params["stream_options"] = {"include_usage": True}
+
+        # 处理enable_search参数（通义千问支持）
+        if ENABLE_SEARCH_KEY in default_option:
+            logging.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
+            api_params["extra_body"] = {
+                "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options": True}
+            }
+
         try:
             completion = self.client.chat.completions.create(**api_params)
             return completion
