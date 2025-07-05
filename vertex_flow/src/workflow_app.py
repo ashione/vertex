@@ -239,7 +239,7 @@ class WorkflowChatApp:
                         ENABLE_STREAM: True,  # 启用流模式
                         ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                         SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                        # ENABLE_SEARCH_KEY: True,
+                        ENABLE_SEARCH_KEY: True,
                     },
                     tools=tools,  # 传递工具列表
                 )
@@ -259,7 +259,7 @@ class WorkflowChatApp:
                 ENABLE_STREAM: True,  # 启用流模式
                 ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                 SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
-                # ENABLE_SEARCH_KEY: True,
+                ENABLE_SEARCH_KEY: True,
             },
             tools=tools,  # 传递工具列表
         )

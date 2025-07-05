@@ -314,9 +314,7 @@ class Tongyi(ChatModel):
         # 处理enable_search参数（通义千问支持）
         if ENABLE_SEARCH_KEY in default_option:
             logging.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
-            api_params["extra_body"] = {
-                "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options": True}
-            }
+            api_params["extra_body"] = {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options": True}
 
         try:
             completion = self.client.chat.completions.create(**api_params)
