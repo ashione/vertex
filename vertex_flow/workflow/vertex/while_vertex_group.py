@@ -172,10 +172,9 @@ class WhileVertexGroup(VertexGroup[T]):
             logging.info(f"WhileVertexGroup {self.id} completed with {iteration_count} iterations")
 
             # 复用父类的变量暴露逻辑
-            self._process_exposed_outputs()
-            exposed_vars = self.subgraph_context.get_exposed_variables()
-            if exposed_vars:
-                self.output = exposed_vars
+            exposed_output = self._expose_outputs(self.output)
+            if exposed_output:
+                self.output = exposed_output
             return self.output
         except Exception as e:
             logging.error(f"Error executing WhileVertexGroup {self.id}: {e}")

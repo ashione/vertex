@@ -213,6 +213,8 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                     raise ValueError(
                         f"Vertex {self.id} has no workflow reference. Make sure the vertex is added to a workflow before resolving dependencies."
                     )
+                if not hasattr(self.workflow, "get_vertice_by_id"):
+                    raise ValueError(f"Workflow does not have get_vertice_by_id method.")
                 source_vertex = self.workflow.get_vertice_by_id(var_def[SOURCE_SCOPE])
                 if source_vertex is None:
                     raise ValueError(f"Source Vertex {var_def[SOURCE_SCOPE]} not found.")
