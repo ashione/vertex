@@ -1,7 +1,7 @@
 import logging
 import traceback
 from collections import deque
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
@@ -23,8 +23,8 @@ class VertexGroup(Vertex[T]):
         subgraph_vertices: List[Vertex[T]] = None,
         subgraph_edges: List[Edge[T]] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, str | None]] = None,
-        exposed_variables: List[Dict[str, str | None]] = None,
+        variables: List[Dict[str, Union[str, None]]] = None,
+        exposed_variables: List[Dict[str, Union[str, None]]] = None,
     ):
         """
         初始化VertexGroup
