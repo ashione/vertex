@@ -113,7 +113,9 @@ class ChatModel(abc.ABC):
 
         # 构建API调用参数 - 过滤掉自定义参数
         filtered_option = {
-            k: v for k, v in default_option.items() if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY]
+            k: v
+            for k, v in default_option.items()
+            if k not in [SHOW_REASONING_KEY, ENABLE_REASONING_KEY, ENABLE_SEARCH_KEY]
         }
         api_params = {"model": self.name, "messages": processed_messages, **filtered_option}
         if tools is not None and len(tools) > 0:

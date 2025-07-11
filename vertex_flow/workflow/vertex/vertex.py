@@ -173,7 +173,7 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
             }
         )
 
-    def add_variables(self, variables: List[Dict[str, str | None]]):
+    def add_variables(self, variables: List[Dict[str, Union[str, None]]]):
         """
         Adds multiple variable definitions to the Vertex's variables list.
 
@@ -213,6 +213,8 @@ class Vertex(Generic[T], metaclass=VertexAroundMeta):
                     raise ValueError(
                         f"Vertex {self.id} has no workflow reference. Make sure the vertex is added to a workflow before resolving dependencies."
                     )
+                if not hasattr(self.workflow, "get_vertice_by_id"):
+                    raise ValueError(f"Workflow does not have get_vertice_by_id method.")
                 source_vertex = self.workflow.get_vertice_by_id(var_def[SOURCE_SCOPE])
                 if source_vertex is None:
                     raise ValueError(f"Source Vertex {var_def[SOURCE_SCOPE]} not found.")
@@ -558,7 +560,7 @@ class SourceVertex(Vertex[T]):
         self,
         id: str,
         name: str = None,
-        variables: List[Dict[str, str | None]] = None,
+        variables: List[Dict[str, Union[str, None]]] = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], T] = None,
         params: Dict[str, Any] = None,
     ):
@@ -603,7 +605,7 @@ class SinkVertex(Vertex[T]):
         id: str,
         name: str = None,
         task: Callable[[Dict[str, Any], WorkflowContext[T]], None] = None,
-        variables: List[Dict[str, str | None]] = None,
+        variables: List[Dict[str, Union[str, None]]] = None,
         params: Dict[str, Any] = None,
     ):
         super().__init__(

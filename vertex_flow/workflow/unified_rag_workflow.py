@@ -1118,16 +1118,28 @@ class UnifiedRAGWorkflowBuilder:
                     "source_var": "query",
                     "local_var": "original_query",
                 },
+            ],
+            exposed_variables=[
                 {
                     "source_scope": "QUERY_PROCESSOR",
                     "source_var": "processed_queries",
                     "local_var": "processed_queries",
                 },
+                {
+                    "source_scope": "QUERY_PROCESSOR",
+                    "source_var": "original_query",
+                    "local_var": "original_query",
+                },
+                {
+                    "source_scope": "QUERY_PROCESSOR",
+                    "source_var": "extended_questions",
+                    "local_var": "extended_questions",
+                },
             ],
         )
 
         # 添加子图边：查询改写LLM -> 查询结果加工
-        from .edge import Edge, EdgeType
+        from .edge import Edge
 
         rewrite_to_processor_edge = Edge(
             source_vertex=query_rewrite_llm,
@@ -1254,7 +1266,7 @@ class UnifiedRAGWorkflowBuilder:
                 },
                 {
                     "source_scope": "QUERY_REWRITE_GROUP",
-                    "source_var": "processed_queries",
+                    "source_var": "extended_questions",
                     "local_var": "extended_questions",
                 },
             ],
@@ -1314,7 +1326,7 @@ class UnifiedRAGWorkflowBuilder:
                 "original_query": original_input_query or "未识别查询",
                 "intent_queries": [],
                 "search_queries": [],
-                "extended_questions": [],  # 添加空的扩展问题列表
+                "extended_questions": [],  # 修改键名为extended_questions
                 "processed_queries": [original_input_query] if original_input_query else ["未识别查询"],
             }
 
@@ -1350,7 +1362,7 @@ class UnifiedRAGWorkflowBuilder:
                 "original_query": original_query,
                 "intent_queries": intent_queries,
                 "search_queries": search_queries,
-                "extended_questions": extended_questions,  # 添加扩展问题到输出
+                "extended_questions": extended_questions,  # 修改键名为extended_questions以匹配暴露配置
                 "processed_queries": all_queries,
             }
 
@@ -1363,7 +1375,7 @@ class UnifiedRAGWorkflowBuilder:
                 "original_query": fallback_query,
                 "intent_queries": [],
                 "search_queries": [],
-                "extended_questions": [],  # 添加空的扩展问题列表
+                "extended_questions": [],  # 修改键名为extended_questions
                 "processed_queries": [fallback_query],
             }
 

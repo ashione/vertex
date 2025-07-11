@@ -59,6 +59,7 @@ class EmbeddingVertex(Vertex[T]):
         logging.info(f"使用嵌入提供者: {self.embedding_provider.__class__.__name__}")
         if hasattr(self.embedding_provider, "dimension"):
             logging.info(f"嵌入维度: {self.embedding_provider.dimension}")
+        logging.info(f"inputs: {inputs}")
 
         # 如果没有 workflow 引用，直接使用输入参数
         if not hasattr(self, "workflow") or self.workflow is None:

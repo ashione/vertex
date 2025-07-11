@@ -1,7 +1,7 @@
 import logging
 import traceback
 from collections import deque
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.constants import LOCAL_VAR, SOURCE_SCOPE, SOURCE_VAR, SUBGRAPH_SOURCE
@@ -23,8 +23,8 @@ class VertexGroup(Vertex[T]):
         subgraph_vertices: List[Vertex[T]] = None,
         subgraph_edges: List[Edge[T]] = None,
         params: Dict[str, Any] = None,
-        variables: List[Dict[str, str | None]] = None,
-        exposed_variables: List[Dict[str, str | None]] = None,
+        variables: List[Dict[str, Union[str, None]]] = None,
+        exposed_variables: List[Dict[str, Union[str, None]]] = None,
     ):
         """
         初始化VertexGroup
@@ -44,7 +44,7 @@ class VertexGroup(Vertex[T]):
             id=id,
             name=name,
             task_type="VERTEX_GROUP",
-            task=self.execute_subgraph,
+            task=None,  # VertexGroup不使用task，而是使用子图执行逻辑
             params=params,
             variables=variables,
         )
@@ -251,7 +251,12 @@ class VertexGroup(Vertex[T]):
                     )
 
                 # 如果子图中没有找到，再从全局workflow中获取
-                if source_value is None and hasattr(self, "workflow") and self.workflow:
+                if (
+                    source_value is None
+                    and hasattr(self, "workflow")
+                    and self.workflow
+                    and hasattr(self.workflow, "get_vertice_by_id")
+                ):
                     try:
                         global_vertex = self.workflow.get_vertice_by_id(source_scope)
                         if global_vertex and hasattr(global_vertex, "output") and global_vertex.output:
@@ -356,8 +361,7 @@ class VertexGroup(Vertex[T]):
                     traceback.print_exc()
                     raise e
 
-            # 构建最终输出 - 直接返回子图执行的结果
-            # 注意：暴露输出的处理由调用方决定
+            # 构建最终输出 - 返回所有子图顶点的输出
             result = {}
 
             # 获取所有子图顶点的输出
@@ -374,37 +378,6 @@ class VertexGroup(Vertex[T]):
 
             # 重新抛出异常，让上层处理
             raise e
-
-    def _process_exposed_outputs(self):
-        """处理暴露给外部的输出，支持SUBGRAPH_SOURCE从group output暴露，支持别名映射"""
-        for var_def in self.exposed_variables:
-            source_scope = var_def.get(SOURCE_SCOPE)
-            source_var = var_def.get(SOURCE_VAR)
-            local_var = var_def.get(LOCAL_VAR, source_var)
-
-            if source_scope == SUBGRAPH_SOURCE:
-                value = None
-                # 优先从group的output中获取source_var
-                if self.output and isinstance(self.output, dict):
-                    if source_var in self.output:
-                        value = self.output[source_var]
-                    # 支持别名暴露：如果source_var不在output，但output中有其他key，且source_var是别名
-                    elif local_var in self.output:
-                        value = self.output[local_var]
-                    # 进一步支持：如果source_var和local_var都不在output，尝试自动查找output中与配置相关的key
-                    else:
-                        for k in self.output:
-                            # 如果配置的source_var是accumulated_step_results，local_var是step_analysis_results，output里只有accumulated_step_results
-                            if k == source_var or k == local_var:
-                                value = self.output[k]
-                                break
-                if value is not None:
-                    self.subgraph_context.store_output(local_var, value)
-                    self.subgraph_context.expose_variable(source_scope, source_var, local_var)
-                continue
-
-            if source_scope and source_scope in self.subgraph_vertices:
-                self.subgraph_context.expose_variable(source_scope, source_var, local_var)
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         """执行VertexGroup"""
@@ -431,11 +404,13 @@ class VertexGroup(Vertex[T]):
                 self.output = result
                 logging.info(f"VertexGroup {self.id} executed subgraph with output: {self.output}")
 
-                # 处理暴露的输出，保持与WhileVertexGroup的一致性
-                self._process_exposed_outputs()
-                exposed_vars = self.subgraph_context.get_exposed_variables()
-                if exposed_vars:
-                    self.output = exposed_vars
+                # 处理暴露的输出
+                if self.exposed_variables:  # 只有配置了暴露变量时才处理
+                    exposed_output = self._expose_outputs(result)
+                    if exposed_output:  # 只有当有暴露的输出时才更新
+                        self.output = exposed_output
+                        logging.info(f"VertexGroup {self.id} exposed output: {self.output}")
+
                 return self.output
 
             except Exception as e:
@@ -523,7 +498,7 @@ class VertexGroup(Vertex[T]):
 
     def _expose_outputs(self, outputs):
         """
-        通用变量暴露逻辑，将exposed_variables配置的变量从outputs中暴露出来
+        统一的变量暴露逻辑，支持SUBGRAPH_SOURCE和子图顶点的输出暴露
         """
         exposed = {}
         if self.exposed_variables:
@@ -531,11 +506,44 @@ class VertexGroup(Vertex[T]):
                 source_scope = var_def.get(SOURCE_SCOPE)
                 source_var = var_def.get(SOURCE_VAR)
                 local_var = var_def.get(LOCAL_VAR, source_var)
-                if source_scope in self.subgraph_vertices:
-                    vertex = self.subgraph_vertices[source_scope]
-                    if hasattr(vertex, "output") and vertex.output:
-                        if isinstance(vertex.output, dict) and source_var in vertex.output:
-                            exposed[local_var] = vertex.output[source_var]
-                        elif source_var is None:
-                            exposed[local_var] = vertex.output
+
+                # 处理SUBGRAPH_SOURCE类型的暴露
+                if source_scope == SUBGRAPH_SOURCE:
+                    value = None
+                    # 优先从group的output中获取source_var
+                    if self.output and isinstance(self.output, dict):
+                        if source_var in self.output:
+                            value = self.output[source_var]
+                        # 支持别名暴露：如果source_var不在output，但output中有其他key，且source_var是别名
+                        elif local_var in self.output:
+                            value = self.output[local_var]
+                        # 进一步支持：如果source_var和local_var都不在output，尝试自动查找output中与配置相关的key
+                        else:
+                            for k in self.output:
+                                if k == source_var or k == local_var:
+                                    value = self.output[k]
+                                    break
+                    if value is not None:
+                        exposed[local_var] = value
+                        # 如果有subgraph_context，也存储到context中
+                        if hasattr(self, "subgraph_context") and self.subgraph_context:
+                            self.subgraph_context.store_output(local_var, value)
+                            self.subgraph_context.expose_variable(source_scope, source_var, local_var)
+                    continue
+
+                # 处理子图顶点的输出暴露 - 修复：从outputs参数中获取而不是从vertex.output
+                if source_scope in outputs:
+                    vertex_output = outputs[source_scope]
+                    value = None
+                    if isinstance(vertex_output, dict) and source_var in vertex_output:
+                        value = vertex_output[source_var]
+                    elif source_var is None:
+                        value = vertex_output
+
+                    if value is not None:
+                        exposed[local_var] = value
+                        # 如果有subgraph_context，也暴露到context中
+                        if hasattr(self, "subgraph_context") and self.subgraph_context:
+                            self.subgraph_context.expose_variable(source_scope, source_var, local_var)
+
         return exposed

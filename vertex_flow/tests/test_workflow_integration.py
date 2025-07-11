@@ -95,17 +95,10 @@ class TestWorkflowIntegration:
         result = workflow.result()
         assert "sink" in result
         assert "math_group" in result["sink"]
-        # 根据当前实现，VertexGroup可能返回子图顶点的输出而不是暴露的变量
+        # 修复后VertexGroup返回暴露的变量（扁平化结构）
         math_group_result = result["sink"]["math_group"]
-        if "final_result" in math_group_result:
-            # 如果暴露变量正常工作
-            assert math_group_result["final_result"] == 32
-        elif "multiply_vertex" in math_group_result:
-            # 如果返回子图顶点输出
-            assert math_group_result["multiply_vertex"]["product"] == 32
-        else:
-            # 其他情况，至少确保有结果
-            assert len(math_group_result) > 0, "VertexGroup应该有输出结果"
+        assert "final_result" in math_group_result, "应该包含暴露的变量final_result"
+        assert math_group_result["final_result"] == 32, f"期望结果为32，实际为{math_group_result['final_result']}"
 
     def test_vertex_group_with_function_vertices(self):
         """测试VertexGroup与FunctionVertex组成workflow"""
@@ -140,13 +133,9 @@ class TestWorkflowIntegration:
 
         # 创建后处理FunctionVertex
         def postprocess_task(inputs):
-            # 从multiply_vertex获取结果
-            multiply_result = inputs.get("multiply_vertex", {})
-            if isinstance(multiply_result, dict):
-                result = multiply_result.get("product", 0)
-            else:
-                result = 0
-            return {"formatted_result": f"Final answer: {result}"}
+            # 从VertexGroup的暴露变量获取结果
+            final_result = inputs.get("final_result", 0)
+            return {"formatted_result": f"Final answer: {final_result}"}
 
         postprocess_vertex = FunctionVertex(id="postprocess", name="Postprocess", task=postprocess_task)
 
@@ -156,8 +145,8 @@ class TestWorkflowIntegration:
 
         sink_vertex = SinkVertex(id="sink", name="Sink", task=sink_task)
 
-        # 设置变量依赖
-        postprocess_vertex.add_variable("math_group", "multiply_vertex", "multiply_vertex")
+        # 设置变量依赖 - 从VertexGroup的暴露变量获取
+        postprocess_vertex.add_variable("math_group", "final_result", "final_result")
 
         # 添加顶点到workflow
         workflow.add_vertex(source_vertex)
@@ -235,16 +224,13 @@ class TestWorkflowIntegration:
 
         # 创建连接两个VertexGroup的FunctionVertex
         def bridge_task(inputs):
-            multiply_result = inputs.get("multiply_vertex", {})
-            if isinstance(multiply_result, dict):
-                math_result = multiply_result.get("product", 0)
-            else:
-                math_result = 0
+            # 从math_group的暴露变量获取结果
+            math_result = inputs.get("final_result", 0)
             return {"prefix": "Result", "suffix": " calculated", "number": math_result}
 
         bridge_vertex = FunctionVertex(id="bridge", name="Bridge", task=bridge_task)
 
-        bridge_vertex.add_variable("math_group", "multiply_vertex", "multiply_vertex")
+        bridge_vertex.add_variable("math_group", "final_result", "final_result")
 
         # 创建SinkVertex
         def sink_task(inputs, context):
@@ -342,17 +328,14 @@ class TestWorkflowIntegration:
 
         # 创建依赖VertexGroup输出的FunctionVertex
         def dependent_task(inputs):
-            multiply_result = inputs.get("multiply_vertex", {})
-            if isinstance(multiply_result, dict):
-                group_result = multiply_result.get("product", 0)
-            else:
-                group_result = 0
+            # 从VertexGroup的暴露变量获取结果
+            group_result = inputs.get("final_result", 0)
             return {"doubled": group_result * 2}
 
         dependent_vertex = FunctionVertex(id="dependent", name="Dependent Vertex", task=dependent_task)
 
         # 设置依赖关系
-        dependent_vertex.add_variable("math_group", "multiply_vertex", "multiply_vertex")
+        dependent_vertex.add_variable("math_group", "final_result", "final_result")
 
         # 创建SinkVertex
         def sink_task(inputs, context):
@@ -382,8 +365,5 @@ class TestWorkflowIntegration:
         # math_group: (2+3) * 4 = 20
         # dependent: 20 * 2 = 40
         dependent_result = result["sink"]["dependent"]
-        if "result" in dependent_result:
-            assert dependent_result["result"] == 40
-        else:
-            # 如果结果格式不同，至少确保有结果
-            assert len(dependent_result) > 0, "Dependent vertex应该有输出结果"
+        assert "doubled" in dependent_result, "应该包含doubled变量"
+        assert dependent_result["doubled"] == 40, f"期望结果为40，实际为{dependent_result['doubled']}"
