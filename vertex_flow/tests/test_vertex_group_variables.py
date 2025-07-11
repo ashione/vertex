@@ -48,9 +48,10 @@ def test_vertex_group_basic():
     result = vertex_group.execute(inputs={"input_value": 5})
     print(f"VertexGroup执行结果: {result}")
 
-    # 验证结果 - 根据当前实现，VertexGroup返回子图顶点的输出
-    assert "test_vertex" in result, "应该包含子图顶点的输出"
-    assert result["test_vertex"]["result"] == 10, f"期望结果为10，实际为{result['test_vertex']['result']}"
+    # 验证结果 - 修复后VertexGroup在配置exposed_variables时返回扁平化结构
+    assert "exposed_result" in result, "应该包含暴露的变量exposed_result"
+    assert result["exposed_result"] == 10, f"期望结果为10，实际为{result['exposed_result']}"
+    assert "test_vertex" not in result, "配置exposed_variables时不应该返回子图顶点的嵌套输出"
     assert "status" not in result, "未暴露的变量status不应该出现在结果中"
 
     print("✓ VertexGroup基本功能测试通过")
