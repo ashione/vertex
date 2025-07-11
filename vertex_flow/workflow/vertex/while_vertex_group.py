@@ -172,7 +172,13 @@ class WhileVertexGroup(VertexGroup[T]):
             logging.info(f"WhileVertexGroup {self.id} completed with {iteration_count} iterations")
 
             # 复用父类的变量暴露逻辑
-            exposed_output = self._expose_outputs(self.output)
+            # 需要传递子图顶点的输出字典，而不是 WhileVertex 的整体输出
+            subgraph_outputs = {}
+            for vertex in self.subgraph_vertices.values():
+                if hasattr(vertex, "output") and vertex.output:
+                    subgraph_outputs[vertex.id] = vertex.output
+
+            exposed_output = self._expose_outputs(subgraph_outputs)
             if exposed_output:
                 self.output = exposed_output
             return self.output

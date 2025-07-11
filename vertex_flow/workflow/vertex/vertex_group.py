@@ -250,18 +250,34 @@ class VertexGroup(Vertex[T]):
                         f"Source vertex '{source_var}' in '{source_scope}' to {local_var} not found in subgraph {self.id}"
                     )
 
-                # 如果子图中没有找到，尝试从context中获取（移除workflow依赖）
-                # 注意：VertexGroup不应该直接访问workflow，而应该通过context获取数据
-                if source_value is None and context:
+                # 如果子图中没有找到，再从全局workflow中获取
+                if (
+                    source_value is None
+                    and hasattr(self, "workflow")
+                    and self.workflow
+                    and hasattr(self.workflow, "get_vertice_by_id")
+                ):
                     try:
-                        global_output = context.get_output(source_scope)
-                        if global_output:
-                            if isinstance(global_output, dict) and source_var in global_output:
-                                source_value = global_output[source_var]
+                        global_vertex = self.workflow.get_vertice_by_id(source_scope)
+                        if global_vertex and hasattr(global_vertex, "output") and global_vertex.output:
+                            if isinstance(global_vertex.output, dict) and source_var in global_vertex.output:
+                                source_value = global_vertex.output[source_var]
                             elif source_var is None:
-                                source_value = global_output
+                                source_value = global_vertex.output
                     except:
                         pass
+
+                    # 如果还是没有找到，尝试直接从context的输出中获取
+                    if source_value is None and context:
+                        try:
+                            global_output = context.get_output(source_scope)
+                            if global_output:
+                                if isinstance(global_output, dict) and source_var in global_output:
+                                    source_value = global_output[source_var]
+                                elif source_var is None:
+                                    source_value = global_output
+                        except:
+                            pass
 
             if source_value is not None:
                 resolved_values[local_var] = source_value
@@ -389,9 +405,11 @@ class VertexGroup(Vertex[T]):
                 logging.info(f"VertexGroup {self.id} executed subgraph with output: {self.output}")
 
                 # 处理暴露的输出
-                exposed_output = self._expose_outputs(result)
-                if self.exposed_variables:  # 如果配置了暴露变量，总是使用暴露的输出
-                    self.output = exposed_output
+                if self.exposed_variables:  # 只有配置了暴露变量时才处理
+                    exposed_output = self._expose_outputs(result)
+                    if exposed_output:  # 只有当有暴露的输出时才更新
+                        self.output = exposed_output
+                        logging.info(f"VertexGroup {self.id} exposed output: {self.output}")
 
                 return self.output
 
