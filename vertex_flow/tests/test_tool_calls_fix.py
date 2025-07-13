@@ -58,15 +58,15 @@ def test_tool_calls_in_streaming():
         def chat_stream(self, messages, option=None, tools=None):
             """模拟流式输出，包含工具调用"""
             self.call_count += 1
-            
+
             # 防止无限循环
             if self.call_count > self.max_calls:
                 logger.warning(f"MockChatModel达到最大调用次数限制: {self.max_calls}")
                 return
-            
+
             # 检查消息中是否已有工具调用结果
             has_tool_result = any(msg.get("role") == "tool" for msg in messages)
-            
+
             # 如果已有工具结果，返回最终响应
             if has_tool_result:
                 final_chunks = [
@@ -89,7 +89,9 @@ def test_tool_calls_in_streaming():
                         {
                             "choices": [
                                 type(
-                                    "MockChoice", (), {"delta": type("MockDelta", (), {"content": "2024-01-15T10:30:00"})()}
+                                    "MockChoice",
+                                    (),
+                                    {"delta": type("MockDelta", (), {"content": "2024-01-15T10:30:00"})()},
                                 )()
                             ]
                         },
@@ -98,7 +100,7 @@ def test_tool_calls_in_streaming():
                 for chunk in final_chunks:
                     yield chunk
                 return
-            
+
             # 第一次调用：返回工具调用
             tool_call_chunks = [
                 # 工具调用开始
@@ -243,7 +245,7 @@ def test_tool_calls_in_non_streaming():
         def chat(self, messages, option=None, tools=None):
             """模拟非流式输出，包含工具调用"""
             self.call_count += 1
-            
+
             # 防止无限循环
             if self.call_count > self.max_calls:
                 logger.warning(f"MockChatModel达到最大调用次数限制: {self.max_calls}")
@@ -262,10 +264,10 @@ def test_tool_calls_in_non_streaming():
                         )(),
                     },
                 )()
-            
+
             # 检查消息中是否已有工具调用结果
             has_tool_result = any(msg.get("role") == "tool" for msg in messages)
-            
+
             # 如果已有工具结果，返回最终响应
             if has_tool_result:
                 return type(
@@ -283,7 +285,7 @@ def test_tool_calls_in_non_streaming():
                         )(),
                     },
                 )()
-            
+
             # 第一次调用：返回工具调用
             mock_choice = type(
                 "MockChoice",
