@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Generator, List, Optional, Union
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.tools.functions import RuntimeToolCall
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
 from vertex_flow.workflow.vertex.vertex import WorkflowContext
 
@@ -55,6 +56,13 @@ class MCPLLMVertex(LLMVertex):
         self.mcp_tools_enabled = kwargs.pop("mcp_tools_enabled", True)
         self.mcp_prompts_enabled = kwargs.pop("mcp_prompts_enabled", True)
 
+        # Add new configuration for context update strategy
+        self.mcp_context_update_strategy = kwargs.pop("mcp_context_update_strategy", "smart")
+        # Options: "always", "smart", "never"
+        # - "always": Update MCP context in every message (original behavior)
+        # - "smart": Only update when context changes (current default)
+        # - "never": Never add MCP context to messages (tools only)
+
         # Initialize parent class
         super().__init__(id, **kwargs)
 
@@ -75,7 +83,12 @@ class MCPLLMVertex(LLMVertex):
 
         self._last_mcp_context = None
 
-        logger.info(f"MCPLLMVertex {id} initialized with MCP enabled: {self.mcp_enabled}")
+        # Add flag to prevent duplicate tool building during streaming
+        self._tools_built_for_streaming = False
+
+        logger.info(
+            f"MCPLLMVertex {id} initialized with MCP enabled: {self.mcp_enabled}, context strategy: {self.mcp_context_update_strategy}"
+        )
 
     def __del__(self):
         """Cleanup thread pool on deletion"""
@@ -89,12 +102,28 @@ class MCPLLMVertex(LLMVertex):
         This method extends the parent's message processing to include MCP context
         when available, while maintaining full compatibility with the parent implementation.
         """
+        # Reset streaming flags for new message processing
+        self.reset_streaming_flags()
+
         # Call parent implementation first
         super().messages_redirect(inputs, context)
 
-        # Add MCP context if enabled
+        # Add MCP context based on strategy
         if self.mcp_enabled and self.mcp_context_enabled:
-            self._update_mcp_context_in_system_message()
+            if self.mcp_context_update_strategy == "always":
+                # Always update MCP context (original behavior)
+                self._update_mcp_context_in_system_message()
+            elif self.mcp_context_update_strategy == "smart":
+                # Only update when context changes (current default)
+                self._update_mcp_context_in_system_message()
+            elif self.mcp_context_update_strategy == "never":
+                # Never add MCP context to messages (tools only)
+                logger.debug("MCP context update strategy is 'never', skipping context addition")
+            else:
+                logger.warning(
+                    f"Unknown MCP context update strategy: {self.mcp_context_update_strategy}, using 'smart'"
+                )
+                self._update_mcp_context_in_system_message()
 
     def _update_mcp_context_in_system_message(self):
         mcp_context = self._get_mcp_context_sync()
@@ -102,6 +131,11 @@ class MCPLLMVertex(LLMVertex):
             # 没有变化，不做任何修改
             return
         self._last_mcp_context = mcp_context
+
+        # 如果MCP context为空，不添加到system message
+        if not mcp_context or mcp_context.strip() == "":
+            logger.debug("MCP context is empty, not adding to system message")
+            return
 
         # 查找system message
         system_message_idx = None
@@ -169,36 +203,47 @@ class MCPLLMVertex(LLMVertex):
             if self._mcp_resources_cache is None:
                 self._mcp_resources_cache = mcp_manager.get_all_resources()
 
-            if self._mcp_resources_cache:
+            if self._mcp_resources_cache and len(self._mcp_resources_cache) > 0:
                 resources_info = []
                 for resource in self._mcp_resources_cache[:10]:  # Limit to first 10
                     resources_info.append(f"- {resource.name}: {resource.description}")
                 context_parts.append("Available Resources:\n" + "\n".join(resources_info))
+            else:
+                logger.debug("No MCP resources available, skipping resources from context")
 
             # Get available tools
             if self._mcp_tools_cache is None:
                 self._mcp_tools_cache = mcp_manager.get_all_tools()
 
-            if self._mcp_tools_cache:
+            if self._mcp_tools_cache and len(self._mcp_tools_cache) > 0:
                 tools_info = []
                 for tool in self._mcp_tools_cache[:10]:  # Limit to first 10
                     tools_info.append(f"- {tool.name}: {tool.description}")
                 context_parts.append("Available Tools:\n" + "\n".join(tools_info))
+            else:
+                logger.debug("No MCP tools available, skipping tools from context")
 
             # Get available prompts
             if self._mcp_prompts_cache is None:
                 self._mcp_prompts_cache = mcp_manager.get_all_prompts()
 
-            if self._mcp_prompts_cache:
+            if self._mcp_prompts_cache and len(self._mcp_prompts_cache) > 0:
                 prompts_info = []
                 for prompt in self._mcp_prompts_cache[:5]:  # Limit to first 5
                     prompts_info.append(f"- {prompt.name}: {prompt.description}")
                 context_parts.append("Available Prompts:\n" + "\n".join(prompts_info))
+            else:
+                logger.debug("No MCP prompts available, skipping prompts from context")
 
         except Exception as e:
             logger.error(f"Error fetching MCP context: {e}")
 
-        return "\n\n".join(context_parts)
+        # Only return context if there are actual parts to include
+        if context_parts:
+            return "\n\n".join(context_parts)
+        else:
+            logger.debug("No MCP context available (no resources, tools, or prompts)")
+            return ""
 
     def _build_llm_tools(self):
         """
@@ -255,21 +300,31 @@ class MCPLLMVertex(LLMVertex):
                             deduplicated_tools.append(mcp_tool)
                             mcp_added_count += 1
 
-                    logger.info(f"MCP tools processed: {mcp_added_count} added, {mcp_skipped_count} duplicates skipped")
+                    # Only log if this is the first time building tools for streaming
+                    if not self._tools_built_for_streaming:
+                        logger.info(
+                            f"MCP tools processed: {mcp_added_count} added, {mcp_skipped_count} duplicates skipped"
+                        )
+                        self._tools_built_for_streaming = True
                 else:
-                    logger.debug("No MCP tools available, continuing with base tools only")
+                    if not self._tools_built_for_streaming:
+                        logger.debug("No MCP tools available, continuing with base tools only")
+                        self._tools_built_for_streaming = True
 
             except Exception as e:
-                logger.debug(f"MCP tools not available, continuing with base tools only: {e}")
+                if not self._tools_built_for_streaming:
+                    logger.debug(f"MCP tools not available, continuing with base tools only: {e}")
+                    self._tools_built_for_streaming = True
 
-        # Log final tool summary
+        # Log final tool summary only once per streaming session
         total_tools = len(deduplicated_tools)
-        if total_tools > 0:
+        if total_tools > 0 and not self._tools_built_for_streaming:
             tool_names = []
             for tool in deduplicated_tools:
                 if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]:
                     tool_names.append(tool["function"]["name"])
             logger.info(f"Final tool list ({total_tools} tools): {', '.join(tool_names)}")
+            self._tools_built_for_streaming = True
 
         return deduplicated_tools if deduplicated_tools else None
 
@@ -297,6 +352,17 @@ class MCPLLMVertex(LLMVertex):
             # Update cache
             self._mcp_llm_tools_cache = fresh_tools
             self._mcp_llm_tools_cache_time = current_time
+
+            # Log the refresh result
+            if fresh_tools:
+                tool_names = [
+                    tool["function"]["name"]
+                    for tool in fresh_tools
+                    if isinstance(tool, dict) and "function" in tool and "name" in tool["function"]
+                ]
+                logger.info(f"Refreshed MCP tools cache: {len(fresh_tools)} tools - {', '.join(tool_names)}")
+            else:
+                logger.info("Refreshed MCP tools cache: no tools available")
 
             return fresh_tools
 
@@ -380,9 +446,12 @@ class MCPLLMVertex(LLMVertex):
         return llm_tools
 
     def _handle_tool_calls(self, choice, context: WorkflowContext):
-        """Handle tool calls including MCP tools"""
-        if not hasattr(choice, "message") or not hasattr(choice.message, "tool_calls"):
+        """Handle tool calls with MCP support"""
+        if not choice.message.tool_calls:
             return
+
+        # 统一转换tool_calls为对象格式
+        normalized_tool_calls = RuntimeToolCall.normalize_list(choice.message.tool_calls)
 
         # 首先添加assistant消息（包含tool_calls）
         tool_message = None
@@ -396,7 +465,7 @@ class MCPLLMVertex(LLMVertex):
                         "type": "function",
                         "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
                     }
-                    for tool_call in choice.message.tool_calls
+                    for tool_call in normalized_tool_calls
                 ],
             }
         else:
@@ -409,7 +478,7 @@ class MCPLLMVertex(LLMVertex):
                         "type": "function",
                         "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
                     }
-                    for tool_call in choice.message.tool_calls
+                    for tool_call in normalized_tool_calls
                 ],
             }
 
@@ -420,13 +489,12 @@ class MCPLLMVertex(LLMVertex):
         mcp_tool_calls = []
         regular_tool_calls = []
 
-        for tool_call in choice.message.tool_calls:
-            if hasattr(tool_call, "function") and tool_call.function:
-                function_name = tool_call.function.name
-                if function_name.startswith("mcp_"):  # 修复：使用mcp_前缀识别MCP工具
-                    mcp_tool_calls.append(tool_call)
-                else:
-                    regular_tool_calls.append(tool_call)
+        for tool_call in normalized_tool_calls:
+            function_name = tool_call.function.name
+            if function_name.startswith("mcp_"):  # 修复：使用mcp_前缀识别MCP工具
+                mcp_tool_calls.append(tool_call)
+            else:
+                regular_tool_calls.append(tool_call)
 
         # 处理MCP工具调用
         for tool_call in mcp_tool_calls:
@@ -437,7 +505,7 @@ class MCPLLMVertex(LLMVertex):
                 self.messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": getattr(tool_call, "id", "unknown"),
+                        "tool_call_id": tool_call.id,
                         "content": f"Error calling MCP tool: {str(e)}",
                     }
                 )
@@ -445,6 +513,9 @@ class MCPLLMVertex(LLMVertex):
         # 处理常规工具调用
         if regular_tool_calls:
             # 创建包含常规工具调用的choice对象，但不重复添加assistant消息
+            # 创建RuntimeToolCall对象列表
+            runtime_tool_calls = RuntimeToolCall.normalize_list(regular_tool_calls)
+
             class MockChoice:
                 def __init__(self, original_choice, filtered_tool_calls):
                     self.finish_reason = "tool_calls"
@@ -454,7 +525,7 @@ class MCPLLMVertex(LLMVertex):
                         {"tool_calls": filtered_tool_calls, "role": "assistant", "content": None},
                     )()
 
-            mock_choice = MockChoice(choice, regular_tool_calls)
+            mock_choice = MockChoice(choice, runtime_tool_calls)
 
             # 临时保存当前消息长度，避免重复添加assistant消息
             original_length = len(self.messages)
@@ -468,6 +539,10 @@ class MCPLLMVertex(LLMVertex):
                         # 移除重复的assistant消息
                         self.messages.pop(i)
                         break
+        else:
+            # 如果没有常规工具调用，只有MCP工具调用，不需要额外处理
+            # MCP工具调用的结果已经添加到messages中，让流式处理自然继续
+            logger.info(f"Only MCP tool calls processed, letting stream continue naturally")
 
     def _handle_mcp_tool_call(self, tool_call):
         """Handle a single MCP tool call"""
@@ -503,7 +578,7 @@ class MCPLLMVertex(LLMVertex):
     async def _execute_mcp_tool(self, tool_call) -> str:
         """Execute MCP tool call"""
         try:
-            # Parse the tool call
+            # Parse the tool call - 现在tool_call一定是对象格式
             tool_name = tool_call.function.name
             arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
 
@@ -543,10 +618,12 @@ class MCPLLMVertex(LLMVertex):
     # === Streaming Support ===
 
     def chat_stream_generator(
-        self, inputs: Dict[str, Any], context: WorkflowContext = None
+        self, inputs: Dict[str, Any], context: Optional[WorkflowContext] = None
     ) -> Generator[str, None, None]:
         """Generate streaming chat response with MCP support"""
         # 使用父类的流式生成器，MCP工具会在_build_llm_tools中自动添加
+        if context is None:
+            context = WorkflowContext()
         yield from super().chat_stream_generator(inputs, context)
 
     def _chat_stream_with_tools(
@@ -555,8 +632,13 @@ class MCPLLMVertex(LLMVertex):
         """Stream chat with tool calling support"""
         try:
             # Use the model's streaming with tools
-            for chunk in self.model.chat_stream(self.messages, tools=tools):
-                yield chunk
+            if hasattr(self.model, "chat_stream"):
+                for chunk in self.model.chat_stream(self.messages, tools=tools):
+                    yield chunk
+            else:
+                # Fallback for models without streaming support
+                response = self.model.chat(self.messages, tools=tools)
+                yield str(response)
 
         except Exception as e:
             logger.error(f"Error in streaming with tools: {e}")
@@ -598,11 +680,13 @@ class MCPLLMVertex(LLMVertex):
                 "context_enabled": self.mcp_context_enabled,
                 "tools_enabled": self.mcp_tools_enabled,
                 "prompts_enabled": self.mcp_prompts_enabled,
+                "context_update_strategy": self.mcp_context_update_strategy,
                 "cache_status": {
                     "resources_cached": self._mcp_resources_cache is not None,
                     "tools_cached": self._mcp_tools_cache is not None,
                     "prompts_cached": self._mcp_prompts_cache is not None,
                     "context_cached": self._mcp_context_cache is not None,
+                    "cache_ttl_seconds": self._mcp_cache_ttl,
                 },
             }
         except Exception as e:
@@ -625,6 +709,31 @@ class MCPLLMVertex(LLMVertex):
         self._mcp_cache_ttl = ttl_seconds
         logger.info(f"MCP cache TTL set to {ttl_seconds} seconds")
 
+    def set_mcp_context_update_strategy(self, strategy: str):
+        """Set MCP context update strategy
+
+        Args:
+            strategy: One of "always", "smart", "never"
+                - "always": Update MCP context in every message
+                - "smart": Only update when context changes (default)
+                - "never": Never add MCP context to messages (tools only)
+        """
+        if strategy in ["always", "smart", "never"]:
+            self.mcp_context_update_strategy = strategy
+            logger.info(f"MCP context update strategy set to: {strategy}")
+        else:
+            logger.warning(f"Invalid MCP context update strategy: {strategy}. Using 'smart'")
+            self.mcp_context_update_strategy = "smart"
+
+    def get_mcp_context_update_strategy(self) -> str:
+        """Get current MCP context update strategy"""
+        return self.mcp_context_update_strategy
+
+    def reset_streaming_flags(self):
+        """Reset streaming flags to allow fresh tool building for new conversations"""
+        self._tools_built_for_streaming = False
+        logger.debug("Reset streaming flags for new conversation")
+
 
 def create_mcp_llm_vertex(vertex_id: str, **kwargs) -> MCPLLMVertex:
     """
@@ -637,6 +746,10 @@ def create_mcp_llm_vertex(vertex_id: str, **kwargs) -> MCPLLMVertex:
             - mcp_context_enabled: Enable MCP context enhancement (default: True)
             - mcp_tools_enabled: Enable MCP tools (default: True)
             - mcp_prompts_enabled: Enable MCP prompts (default: True)
+            - mcp_context_update_strategy: MCP context update strategy (default: "smart")
+                - "smart": Only update when context changes (recommended)
+                - "never": Never add MCP context to messages (tools only)
+                - "always": Update MCP context in every message
             - All other LLMVertex parameters
 
     Returns:

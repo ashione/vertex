@@ -157,98 +157,80 @@ class ChatModel(abc.ABC):
     def get_usage(self) -> dict:
         return self._usage
 
+    def _merge_tool_call_fragments(self, fragments):
+        """
+        合并分片为一个标准的tool_call dict列表（只处理第一个tool_call）
+        """
+        tool_call = {"id": "", "function": {"name": "", "arguments": ""}, "type": "function"}
+        for frag in fragments:
+            # 支持对象或dict
+            frag_dict = frag if isinstance(frag, dict) else getattr(frag, "__dict__", frag)
+            if frag_dict.get("id"):
+                tool_call["id"] = frag_dict["id"]
+            if frag_dict.get("function"):
+                func = frag_dict["function"]
+                func_dict = func if isinstance(func, dict) else getattr(func, "__dict__", func)
+                if func_dict.get("name"):
+                    tool_call["function"]["name"] = func_dict["name"]
+                if func_dict.get("arguments"):
+                    tool_call["function"]["arguments"] += func_dict["arguments"]
+            if frag_dict.get("type"):
+                tool_call["type"] = frag_dict["type"]
+        return [tool_call]
+
     def chat_stream(self, messages, option: Optional[Dict[str, Any]] = None, tools=None):
+        """统一的流式输出接口，处理所有内容类型包括reasoning"""
         completion = self._create_completion(messages, option, stream=True, tools=tools)
+
+        # 收集工具调用分片
+        tool_call_fragments = []
+        tool_calls_detected = False
+        tool_calls_completed = False
+
         for chunk in completion:
-            # 确保 chunk 对象具有 choices 属性，并正确处理增量更新内容
-            if hasattr(chunk, "choices") and len(chunk.choices) > 0 and chunk.choices[0].delta:
-                content = getattr(chunk.choices[0].delta, CONTENT_ATTR, None)
-                if content is not None:  # 只yield非None的内容
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+
+                # 检查工具调用
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    tool_calls_detected = True
+                    tool_call_fragments.extend(delta.tool_calls)
+                    continue
+
+                # 如果已经检测到工具调用，且分片收集结束（即遇到下一个非tool_calls分片），则补全assistant消息
+                if tool_calls_detected and not tool_calls_completed:
+                    # 拼接完整的assistant消息（转为标准dict）
+                    tool_calls = self._merge_tool_call_fragments(tool_call_fragments)
+                    assistant_msg = {"role": "assistant", "content": "", "tool_calls": tool_calls}
+                    messages.append(assistant_msg)  # 关键：补全到messages
+                    logging.info(f"Tool calls detected in stream, assistant message appended: {assistant_msg}")
+                    tool_calls_completed = True
+                    # 不break，继续处理后续内容
+
+                # 处理reasoning内容（DeepSeek R1等模型）
+                if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
+                    reasoning_content = getattr(delta, REASONING_CONTENT_ATTR)
+                    yield reasoning_content
+                    continue
+
+                # 处理普通内容
+                if hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR):
+                    content = getattr(delta, CONTENT_ATTR)
+                    # 检查是否包含推理标记
+                    if any(
+                        marker in content for marker in ["<thinking>", "<think>", "<reasoning>", "思考：", "分析："]
+                    ):
+                        # 清理推理标记
+                        display_content = content
+                        for tag in ["<thinking>", "</thinking>", "<think>", "</think>", "<reasoning>", "</reasoning>"]:
+                            display_content = display_content.replace(tag, "")
+                        yield display_content
+                        continue
+                    # 普通内容
                     yield content
             else:
                 self._set_usage(chunk)
                 logging.debug("Chunk object does not have valid choices or delta content.")
-
-    def chat_stream_with_reasoning(self, messages, option: Optional[Dict[str, Any]] = None):
-        """
-        Enhanced chat stream method with reasoning support
-
-        For DeepSeek R1 models, reasoning content is automatically returned in the response
-        without needing special parameters in the request.
-        """
-        try:
-            # Create completion without reasoning parameter
-            tools = option.get("tools") if option else None
-            completion = self._create_completion(messages, option, stream=True, tools=tools)
-
-            reasoning_buffer = ""
-            content_buffer = ""
-            is_reasoning_phase = True
-            reasoning_started = False
-            total_chunks = 0
-
-            for chunk in completion:
-                total_chunks += 1
-                if chunk.choices and len(chunk.choices) > 0:
-                    delta = chunk.choices[0].delta
-
-                    # Check for reasoning content (DeepSeek R1 models)
-                    if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
-                        reasoning_content = getattr(delta, REASONING_CONTENT_ATTR)
-                        reasoning_buffer += reasoning_content
-                        reasoning_started = True
-                        yield reasoning_content
-                        continue
-
-                    # Regular content
-                    if hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR):
-                        content = getattr(delta, CONTENT_ATTR)
-
-                        # For DeepSeek R1, reasoning might be in regular content with special markers
-                        # Look for thinking tags or patterns
-                        if any(
-                            marker in content for marker in ["<thinking>", "<think>", "<reasoning>", "思考：", "分析："]
-                        ):
-                            # This is reasoning content
-                            reasoning_buffer += content
-                            reasoning_started = True
-                            # Clean up the content for display
-                            display_content = content
-                            for tag in [
-                                "<thinking>",
-                                "</thinking>",
-                                "<think>",
-                                "</think>",
-                                "<reasoning>",
-                                "</reasoning>",
-                            ]:
-                                display_content = display_content.replace(tag, "")
-                            yield display_content
-                            continue
-
-                        # Check if this is the start of the final answer
-                        if content.strip() and is_reasoning_phase and reasoning_started:
-                            # Transition to answer phase - just mark the phase change
-                            is_reasoning_phase = False
-
-                        content_buffer += content
-                        yield content
-
-            # Log the complete reasoning and content for debugging
-            logging.info(f"Total chunks processed: {total_chunks}")
-            if reasoning_buffer:
-                logging.info(f"Reasoning content detected: {len(reasoning_buffer)} chars")
-            else:
-                logging.info("No reasoning content detected - may be regular model or different format")
-            if content_buffer:
-                logging.info(f"Answer content: {len(content_buffer)} chars")
-
-        except Exception as e:
-            logging.error(f"Error in chat_stream_with_reasoning: {e}")
-            # Fallback to regular streaming
-            logging.info("Falling back to regular chat streaming")
-            for chunk in self.chat_stream(messages, option):
-                yield chunk
 
     def model_name(self) -> str:
         return self.name

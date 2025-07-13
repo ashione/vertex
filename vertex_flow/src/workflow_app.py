@@ -598,6 +598,134 @@ def create_gradio_interface(app: WorkflowChatApp):
         .auto-scroll {
             animation: scrollToBottom 0.3s ease-out;
         }
+        /* 多行输入框样式 */
+        .input-textbox {
+            resize: vertical !important;
+            min-height: 60px !important;
+            max-height: 200px !important;
+        }
+        .input-textbox textarea {
+            resize: vertical !important;
+            min-height: 60px !important;
+            max-height: 200px !important;
+            font-family: inherit !important;
+            line-height: 1.5 !important;
+        }
+        
+        /* 聊天消息多行文本样式 */
+        .chatbot .message {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            line-height: 1.6 !important;
+        }
+        
+        /* 引用块样式 */
+        .chatbot .message blockquote {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            line-height: 1.5 !important;
+            margin: 10px 0 !important;
+            padding: 10px 15px !important;
+            border-left: 4px solid #ddd !important;
+            background-color: #f9f9f9 !important;
+            border-radius: 4px !important;
+        }
+        
+        /* 代码块样式 */
+        .chatbot .message pre {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            line-height: 1.4 !important;
+            margin: 10px 0 !important;
+            padding: 15px !important;
+            background-color: #f5f5f5 !important;
+            border-radius: 6px !important;
+            border: 1px solid #e0e0e0 !important;
+            font-family: 'Courier New', monospace !important;
+            font-size: 14px !important;
+        }
+        
+        /* 内联代码样式 */
+        .chatbot .message code {
+            background-color: #f0f0f0 !important;
+            padding: 2px 4px !important;
+            border-radius: 3px !important;
+            font-family: 'Courier New', monospace !important;
+            font-size: 13px !important;
+        }
+        
+        /* 列表样式 */
+        .chatbot .message ul, .chatbot .message ol {
+            margin: 10px 0 !important;
+            padding-left: 20px !important;
+            line-height: 1.6 !important;
+        }
+        
+        .chatbot .message li {
+            margin: 5px 0 !important;
+            line-height: 1.6 !important;
+        }
+        
+        /* 段落样式 */
+        .chatbot .message p {
+            margin: 8px 0 !important;
+            line-height: 1.6 !important;
+        }
+        
+        /* 标题样式 */
+        .chatbot .message h1, .chatbot .message h2, .chatbot .message h3,
+        .chatbot .message h4, .chatbot .message h5, .chatbot .message h6 {
+            margin: 15px 0 10px 0 !important;
+            line-height: 1.4 !important;
+        }
+        
+        /* 表格样式 */
+        .chatbot .message table {
+            border-collapse: collapse !important;
+            margin: 10px 0 !important;
+            width: 100% !important;
+        }
+        
+        .chatbot .message th, .chatbot .message td {
+            border: 1px solid #ddd !important;
+            padding: 8px 12px !important;
+            text-align: left !important;
+            line-height: 1.4 !important;
+        }
+        
+        .chatbot .message th {
+            background-color: #f5f5f5 !important;
+            font-weight: bold !important;
+        }
+        
+        /* 分隔线样式 */
+        .chatbot .message hr {
+            margin: 15px 0 !important;
+            border: none !important;
+            border-top: 1px solid #ddd !important;
+        }
+        
+        /* 强调文本样式 */
+        .chatbot .message strong {
+            font-weight: bold !important;
+        }
+        
+        .chatbot .message em {
+            font-style: italic !important;
+        }
+        
+        /* 链接样式 */
+        .chatbot .message a {
+            color: #0066cc !important;
+            text-decoration: underline !important;
+        }
+        
+        .chatbot .message a:hover {
+            color: #004499 !important;
+        }
         """,
         js="""
         function() {
@@ -1042,6 +1170,29 @@ def create_gradio_interface(app: WorkflowChatApp):
             window.addEventListener('resize', () => {
                 setTimeout(forceScrollToBottom, 200);
             });
+            
+            // 多行输入框键盘事件处理
+            function setupInputKeyboardEvents() {
+                const inputElements = document.querySelectorAll('textarea[placeholder*="输入您的问题"]');
+                inputElements.forEach(textarea => {
+                    textarea.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            // Enter键发送消息
+                            e.preventDefault();
+                            const sendButton = document.querySelector('button[data-testid="Send"]') || 
+                                            document.querySelector('button:contains("发送")') ||
+                                            document.querySelector('button[aria-label*="发送"]');
+                            if (sendButton) {
+                                sendButton.click();
+                            }
+                        }
+                        // Shift+Enter 换行（默认行为）
+                    });
+                });
+            }
+            
+            // 初始化输入框键盘事件
+            setTimeout(setupInputKeyboardEvents, 1000);
         }
         """,
     ) as demo:
@@ -1068,7 +1219,14 @@ def create_gradio_interface(app: WorkflowChatApp):
                 )
 
                 with gr.Row():
-                    msg = gr.Textbox(placeholder="输入您的问题...", lines=1, scale=4, container=False)
+                    msg = gr.Textbox(
+                        placeholder="输入您的问题... (Enter发送，Shift+Enter换行)",
+                        lines=3,
+                        scale=4,
+                        container=False,
+                        max_lines=10,
+                        elem_classes=["input-textbox"],
+                    )
                     image_url_input = gr.Textbox(placeholder="粘贴图片URL（可选）", label="图片URL", lines=1, scale=3)
                     send_btn = gr.Button("发送", variant="primary", scale=1, size="sm")
 

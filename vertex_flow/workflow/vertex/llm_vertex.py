@@ -33,6 +33,7 @@ from vertex_flow.workflow.constants import (
     VERTEX_ID_KEY,
 )
 from vertex_flow.workflow.event_channel import EventType
+from vertex_flow.workflow.tools.functions import RuntimeToolCall
 from vertex_flow.workflow.utils import (
     compatiable_env_str,
     env_str,
@@ -371,139 +372,240 @@ class LLMVertex(Vertex[T]):
             finish_reason = None
             while finish_reason is None or finish_reason == "tool_calls":
 
-                # Check if reasoning is enabled
+                # 检查是否启用reasoning（用于消息类型判断）
                 enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
-                show_reasoning = self.params.get(SHOW_REASONING_KEY, True)
+                message_type = MESSAGE_TYPE_REASONING if enable_reasoning else MESSAGE_TYPE_REGULAR
 
-                if enable_reasoning:
-                    # Use reasoning-enabled streaming with tool support
-                    logging.info("Using reasoning-enabled streaming with tool support")
-
-                    # First check if tools are needed with non-streaming call
-                    choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                    finish_reason = choice.finish_reason
-
-                    if finish_reason == "tool_calls":
-                        # Handle tool calls first
-                        logging.info(f"LLM {self.id} wants to call tools in reasoning mode")
-                        self._handle_tool_calls(choice, context)
-                        # Reset finish_reason to continue the loop and get the final response after tool calls
-                        finish_reason = None
-                        continue
-                    else:
-                        # No tool calls, use reasoning streaming
-                        # Pass tools to reasoning stream in case model needs them
-                        reasoning_option = option.copy() if option else {}
-                        if llm_tools:  # Only set tools if not None/empty
-                            reasoning_option["tools"] = llm_tools
-
-                        for chunk in self.model.chat_stream_with_reasoning(self.messages, option=reasoning_option):
-                            # Emit event if requested
-                            if emit_events and self.workflow:
-                                self.workflow.emit_event(
-                                    EventType.MESSAGES,
-                                    {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REASONING},
-                                )
-                            logging.info(f"LLM {self.id} reasoning streaming chunk: {chunk}")
-                            yield chunk
-
-                else:
-                    # Use regular streaming with tool support
-                    logging.info("Using regular streaming with tool support")
-
-                    # Always try streaming first for better user experience
-                    logging.info("Using streaming with tool support")
+                # 优先使用流式模式
+                if hasattr(self.model, "chat_stream"):
                     try:
-                        # Try streaming first
+                        # 使用流式模式
                         stream_option = option.copy() if option else {}
                         if llm_tools:
                             stream_option["tools"] = llm_tools
 
-                        # Use streaming
-                        has_content = False
-                        for chunk in self.model.chat_stream(self.messages, option=stream_option):
-                            if chunk:
-                                has_content = True
-                                # Emit event if requested
-                                if emit_events and self.workflow:
-                                    self.workflow.emit_event(
-                                        EventType.MESSAGES,
-                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: MESSAGE_TYPE_REGULAR},
-                                    )
-                                yield chunk
+                        # 检查messages中是否已经有未处理的assistant/tool_calls消息
+                        pending_tool_calls = []
+                        for msg in self.messages:
+                            if (
+                                msg.get("role") == "assistant"
+                                and msg.get("tool_calls")
+                                and not any(
+                                    tool_msg.get("tool_call_id") == tc.get("id")
+                                    for tc in msg["tool_calls"]
+                                    for tool_msg in self.messages
+                                    if tool_msg.get("role") == "tool"
+                                )
+                            ):
+                                pending_tool_calls.extend(msg["tool_calls"])
 
-                        # If we got content via streaming, we're done with this iteration
-                        if has_content:
-                            finish_reason = "stop"  # Assume successful completion
+                        if pending_tool_calls:
+                            # 有未处理的工具调用，直接处理
+                            logging.info(f"Found {len(pending_tool_calls)} pending tool calls, processing directly")
+
+                            # 创建RuntimeToolCall对象列表
+                            runtime_tool_calls = RuntimeToolCall.normalize_list(pending_tool_calls)
+
+                            # 创建模拟的choice对象
+                            mock_choice = type(
+                                "MockChoice",
+                                (),
+                                {
+                                    "finish_reason": "tool_calls",
+                                    "message": type(
+                                        "MockMessage",
+                                        (),
+                                        {"role": "assistant", "content": "", "tool_calls": runtime_tool_calls},
+                                    )(),
+                                },
+                            )()
+
+                            # 处理工具调用
+                            self._handle_tool_calls(mock_choice, context)
+
+                            # 继续循环以获取最终响应
+                            finish_reason = None
+                            continue
                         else:
-                            # No content from streaming, check if tools are needed
-                            if llm_tools:
-                                choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                                finish_reason = choice.finish_reason
+                            # 使用流式处理
+                            has_content = False
+                            for chunk in self.model.chat_stream(self.messages, option=stream_option):
+                                if chunk:
+                                    has_content = True
+                                    # Emit event if requested
+                                    if emit_events and self.workflow:
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: chunk, TYPE_KEY: message_type},
+                                        )
+                                    yield chunk
 
-                                if finish_reason == "tool_calls":
-                                    # Handle tool calls
-                                    logging.info(f"LLM {self.id} wants to call tools")
-                                    self._handle_tool_calls(choice, context)
-                                    # Reset finish_reason to continue the loop and get the final response after tool calls
-                                    finish_reason = None
-                                    continue
-                                else:
-                                    # No tool calls and no streaming content, yield what we got
-                                    content = choice.message.content or ""
-                                    if content:
-                                        if emit_events and self.workflow:
-                                            self.workflow.emit_event(
-                                                EventType.MESSAGES,
-                                                {
-                                                    VERTEX_ID_KEY: self.id,
-                                                    CONTENT_KEY: content,
-                                                    TYPE_KEY: MESSAGE_TYPE_REGULAR,
-                                                },
-                                            )
-                                        yield content
+                            # 检查流式处理后是否有新的工具调用
+                            new_tool_calls = []
+                            for msg in self.messages:
+                                if (
+                                    msg.get("role") == "assistant"
+                                    and msg.get("tool_calls")
+                                    and not any(
+                                        tool_msg.get("tool_call_id") == tc.get("id")
+                                        for tc in msg["tool_calls"]
+                                        for tool_msg in self.messages
+                                        if tool_msg.get("role") == "tool"
+                                    )
+                                ):
+                                    new_tool_calls.extend(msg["tool_calls"])
+
+                            if new_tool_calls:
+                                # 有新的工具调用需要处理
+                                logging.info(f"LLM {self.id} wants to call {len(new_tool_calls)} tools")
+
+                                # 创建RuntimeToolCall对象列表
+                                runtime_tool_calls = RuntimeToolCall.normalize_list(new_tool_calls)
+
+                                # 创建模拟的choice对象
+                                mock_choice = type(
+                                    "MockChoice",
+                                    (),
+                                    {
+                                        "finish_reason": "tool_calls",
+                                        "message": type(
+                                            "MockMessage",
+                                            (),
+                                            {"role": "assistant", "content": "", "tool_calls": runtime_tool_calls},
+                                        )(),
+                                    },
+                                )()
+
+                                # 处理工具调用
+                                self._handle_tool_calls(mock_choice, context)
+
+                                # 继续循环以获取最终响应或处理更多工具调用
+                                finish_reason = None
+                                continue
+                            elif has_content:
+                                # 有内容且没有工具调用，结束
+                                finish_reason = "stop"
                             else:
-                                finish_reason = "stop"  # No tools, assume completion
+                                # 检查是否有未输出的最终assistant消息
+                                final_assistant_messages = [
+                                    msg
+                                    for msg in self.messages
+                                    if (
+                                        msg.get("role") == "assistant"
+                                        and msg.get("content")
+                                        and not msg.get("tool_calls")
+                                    )
+                                ]
+
+                                if final_assistant_messages:
+                                    # 有最终的assistant消息，输出内容
+                                    content = final_assistant_messages[-1]["content"]
+                                    logging.info(f"LLM {self.id} found final response: {content[:100]}...")
+                                    if emit_events and self.workflow:
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
+                                        )
+                                    yield content
+                                    finish_reason = "stop"
+                                else:
+                                    # 没有内容，可能需要获取最终响应
+                                    logging.info(f"LLM {self.id} no content found, getting final response")
+                                    final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
+
+                                    if final_choice.finish_reason == "tool_calls":
+                                        # 还有工具调用，继续循环
+                                        finish_reason = None
+                                        continue
+                                    else:
+                                        # 获取最终内容
+                                        content = final_choice.message.content or ""
+                                        if content:
+                                            if emit_events and self.workflow:
+                                                self.workflow.emit_event(
+                                                    EventType.MESSAGES,
+                                                    {
+                                                        VERTEX_ID_KEY: self.id,
+                                                        CONTENT_KEY: content,
+                                                        TYPE_KEY: message_type,
+                                                    },
+                                                )
+                                            yield content
+                                        finish_reason = "stop"
 
                     except Exception as stream_error:
-                        # Fallback to non-streaming if streaming fails
+                        # 流式处理失败，回退到非流式模式
                         logging.warning(f"Streaming failed, falling back to non-streaming: {stream_error}")
-                        if llm_tools:
-                            choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                            finish_reason = choice.finish_reason
+                        finish_reason = "tool_calls"  # 强制使用非流式模式
+
+                # 非流式模式处理（包括工具调用和回退）
+                if finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream"):
+                    if llm_tools:
+                        choice = self.model.chat(self.messages, option=option, tools=llm_tools)
+                        finish_reason = choice.finish_reason
+
+                        if finish_reason == "tool_calls":
+                            # Handle tool calls
+                            logging.info(f"LLM {self.id} wants to call tools")
+                            self._handle_tool_calls(choice, context)
+                            # Get the response after tool calls (may contain more tool calls)
+                            final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
+                            finish_reason = final_choice.finish_reason
 
                             if finish_reason == "tool_calls":
-                                # Handle tool calls
-                                logging.info(f"LLM {self.id} wants to call tools")
-                                self._handle_tool_calls(choice, context)
-                                # Reset finish_reason to continue the loop and get the final response after tool calls
+                                # More tool calls, continue the loop
+                                logging.info(f"LLM {self.id} has more tool calls after previous ones (non-streaming)")
                                 finish_reason = None
                                 continue
                             else:
-                                # No tool calls, yield the content
-                                content = choice.message.content or ""
+                                # No more tool calls, yield the final response
+                                content = final_choice.message.content or ""
+                                if not content and final_choice.finish_reason == "stop":
+                                    # LLM没有自动总结，补一条user消息重试
+                                    max_retry = 2
+                                    retry_count = 0
+                                    while retry_count < max_retry and not content:
+                                        self.messages.append({"role": "user", "content": "请根据工具结果继续总结"})
+                                        retry_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
+                                        content = retry_choice.message.content or ""
+                                        retry_count += 1
+                                        if content:
+                                            break
+                                    if not content:
+                                        content = "工具调用已完成，但LLM未返回总结内容。"
                                 if content:
                                     if emit_events and self.workflow:
                                         self.workflow.emit_event(
                                             EventType.MESSAGES,
-                                            {
-                                                VERTEX_ID_KEY: self.id,
-                                                CONTENT_KEY: content,
-                                                TYPE_KEY: MESSAGE_TYPE_REGULAR,
-                                            },
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
                                         )
                                     yield content
+                                    logging.info(
+                                        f"LLM {self.id} yielded final response after tool calls (non-streaming): {content[:100]}..."
+                                    )
+                                finish_reason = "stop"
                         else:
-                            choice = self.model.chat(self.messages, option=option)
+                            # No tool calls, yield the content
                             content = choice.message.content or ""
                             if content:
                                 if emit_events and self.workflow:
                                     self.workflow.emit_event(
                                         EventType.MESSAGES,
-                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: MESSAGE_TYPE_REGULAR},
+                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
                                     )
                                 yield content
                             finish_reason = "stop"
+                    else:
+                        choice = self.model.chat(self.messages, option=option)
+                        content = choice.message.content or ""
+                        if content:
+                            if emit_events and self.workflow:
+                                self.workflow.emit_event(
+                                    EventType.MESSAGES,
+                                    {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
+                                )
+                            yield content
+                        finish_reason = "stop"
 
         except Exception as e:
             error_msg = f"LLM streaming error: {str(e)}"
@@ -514,6 +616,9 @@ class LLMVertex(Vertex[T]):
                 )
             yield error_msg
         finally:
+            # Handle token usage after streaming is complete
+            self._handle_token_usage()
+
             # Send end event when streaming is complete (only for event-based streaming)
             if emit_events and self.workflow:
                 self.workflow.emit_event(
@@ -573,15 +678,21 @@ class LLMVertex(Vertex[T]):
 
         self.messages.append(message_dict)
 
+        # 统一转换tool_calls为对象格式
+        normalized_tool_calls = RuntimeToolCall.normalize_list(choice.message.tool_calls)
+
         async def call_tool(tool, tool_call, context):
+            # 现在tool_call一定是对象格式
             tool_call_name = tool_call.function.name
             tool_call_arguments = json.loads(tool_call.function.arguments)
+            tool_call_id = tool_call.id
             return tool_call, await asyncio.to_thread(tool.execute, tool_call_arguments, context)
 
         tasks = []
-        for tool_call in choice.message.tool_calls:
+        for tool_call in normalized_tool_calls:
+            tool_call_name = tool_call.function.name
             for tool in self.tools:
-                if tool.name == tool_call.function.name:
+                if tool.name == tool_call_name:
                     tasks.append(call_tool(tool, tool_call, context))
                     break
             else:
@@ -615,9 +726,7 @@ class LLMVertex(Vertex[T]):
                 import nest_asyncio
 
                 nest_asyncio.apply()
-                loop.run_until_complete(coro)
-            else:
-                loop.run_until_complete(coro)
+            loop.run_until_complete(coro)
         except RuntimeError:
             # 不在事件循环中
             asyncio.run(self._handle_tool_calls_async(choice, context))
