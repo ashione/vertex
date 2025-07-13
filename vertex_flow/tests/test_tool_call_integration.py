@@ -30,7 +30,10 @@ def make_test_tool():
 
 
 def make_tongyi_model():
-    return Tongyi(name="qwen-turbo-latest", sk="sk-c300f36a6a224f6086552118ccfe57ce")
+    import os
+    # 使用环境变量或测试用的模拟密钥
+    api_key = os.getenv("TONGYI_API_KEY", "sk-test-mock-key-for-testing-only")
+    return Tongyi(name="qwen-turbo-latest", sk=api_key)
 
 
 @pytest.mark.integration
