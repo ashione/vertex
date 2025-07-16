@@ -621,6 +621,9 @@ class MCPLLMVertex(LLMVertex):
         self, inputs: Dict[str, Any], context: Optional[WorkflowContext] = None
     ) -> Generator[str, None, None]:
         """Generate streaming chat response with MCP support"""
+        # 重置流式标志，确保每次新的对话都能正确处理工具
+        self.reset_streaming_flags()
+        
         # 使用父类的流式生成器，MCP工具会在_build_llm_tools中自动添加
         if context is None:
             context = WorkflowContext()

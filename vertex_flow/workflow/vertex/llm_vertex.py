@@ -370,7 +370,14 @@ class LLMVertex(Vertex[T]):
 
             # Handle tool calls in a loop
             finish_reason = None
+            max_iterations = 10  # 防止无限循环
+            iteration_count = 0
+            
             while finish_reason is None or finish_reason == "tool_calls":
+                iteration_count += 1
+                if iteration_count > max_iterations:
+                    logging.warning(f"LLM {self.id} 达到最大迭代次数限制: {max_iterations}")
+                    break
 
                 # 检查是否启用reasoning（用于消息类型判断）
                 enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
@@ -429,9 +436,21 @@ class LLMVertex(Vertex[T]):
                         else:
                             # 使用流式处理
                             has_content = False
+                            has_tool_calls = False
+                            current_tool_calls = []
+                            
                             for chunk in self.model.chat_stream(self.messages, option=stream_option):
                                 if chunk:
                                     has_content = True
+                                    
+                                    # 检查chunk中是否包含工具调用
+                                    if hasattr(chunk, 'choices') and chunk.choices:
+                                        for choice in chunk.choices:
+                                            if hasattr(choice, 'delta') and choice.delta:
+                                                if hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
+                                                    has_tool_calls = True
+                                                    current_tool_calls.extend(choice.delta.tool_calls)
+                                    
                                     # Emit event if requested
                                     if emit_events and self.workflow:
                                         self.workflow.emit_event(
@@ -455,7 +474,7 @@ class LLMVertex(Vertex[T]):
                                 ):
                                     new_tool_calls.extend(msg["tool_calls"])
 
-                            if new_tool_calls:
+                            if new_tool_calls or has_tool_calls:
                                 # 有新的工具调用需要处理
                                 logging.info(f"LLM {self.id} wants to call {len(new_tool_calls)} tools")
 
