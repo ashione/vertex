@@ -7,6 +7,7 @@ Manages MCP client connections and provides unified access to MCP resources, too
 
 import asyncio
 import atexit
+import json
 import signal
 import sys
 import threading
@@ -181,7 +182,26 @@ class MCPManager:
 
     def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
         """Call a tool from appropriate MCP client - thread safe"""
-        return self._submit_request("call_tool", tool_name=tool_name, arguments=arguments)
+        import json
+
+        logger.info(f"Calling MCP tool: {tool_name} with arguments: {arguments}")
+        logger.info(f"MCP Manager Call - Tool Name: {tool_name}")
+        logger.info(f"MCP Manager Call - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
+
+        result = self._submit_request("call_tool", tool_name=tool_name, arguments=arguments)
+
+        logger.info(f"MCP Manager Result - Tool Name: {tool_name}")
+        logger.info(f"MCP Manager Result - Result Type: {type(result)}")
+        if result:
+            logger.info(f"MCP Manager Result - Content Type: {type(result.content)}")
+            logger.info(f"MCP Manager Result - Content: {result.content}")
+            if hasattr(result, "__dict__"):
+                logger.info(f"MCP Manager Result - Attributes: {result.__dict__}")
+        else:
+            logger.info(f"MCP Manager Result - Result: None")
+
+        logger.info(f"MCP tool {tool_name} completed with result type: {type(result)}")
+        return result
 
     def read_resource(self, resource_uri: str) -> Optional[str]:
         """Read a resource by URI - thread safe"""
@@ -344,74 +364,162 @@ class MCPManager:
         return all_prompts
 
     async def _async_call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
-        """Call a tool from appropriate MCP client with retry mechanism"""
+        """Call a tool from appropriate MCP client with enhanced error handling"""
         if not MCP_AVAILABLE:
-            return None
+            # 返回错误结果而不是None，确保错误信息能传递给LLM
+            from vertex_flow.mcp.types import MCPToolResult
+
+            return MCPToolResult(content=[{"type": "text", "text": "MCP functionality not available"}], isError=True)
 
         if not self._initialized:
-            return None
+            from vertex_flow.mcp.types import MCPToolResult
+
+            return MCPToolResult(content=[{"type": "text", "text": "MCP manager not initialized"}], isError=True)
 
         # Parse tool name to get client and original tool name
         if "_" not in tool_name:
             logger.error(f"Invalid tool name format: {tool_name}")
-            return None
+            from vertex_flow.mcp.types import MCPToolResult
+
+            return MCPToolResult(
+                content=[{"type": "text", "text": f"Invalid tool name format: {tool_name}"}], isError=True
+            )
 
         client_name, original_tool_name = tool_name.split("_", 1)
 
         logger.debug(f"Calling tool {original_tool_name} from client {client_name}")
+        logger.info(f"MCP Async Call - Tool Name: {tool_name}")
+        logger.info(f"MCP Async Call - Client Name: {client_name}")
+        logger.info(f"MCP Async Call - Original Tool Name: {original_tool_name}")
+        logger.info(f"MCP Async Call - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
 
         max_retries = 2
+        last_error = None
+
         for attempt in range(max_retries + 1):
             try:
                 client = self.clients.get(client_name)
                 if not client:
-                    logger.error(f"Client {client_name} not found")
-                    return None
+                    error_msg = f"Client {client_name} not found"
+                    logger.error(error_msg)
+                    from vertex_flow.mcp.types import MCPToolResult
 
+                    return MCPToolResult(content=[{"type": "text", "text": error_msg}], isError=True)
+
+                # 检查客户端连接状态，但不强制重连以避免进程终止
                 if not client.is_connected:
-                    logger.warning(f"Client {client_name} not connected, attempting to refresh")
-                    await self._async_refresh_client(client_name)
-                    client = self.clients.get(client_name)
-                    if not client or not client.is_connected:
-                        logger.error(f"Failed to refresh client {client_name}")
-                        return None
+                    logger.warning(f"Client {client_name} not connected")
+                    # 尝试重连，但如果失败不要终止整个流程
+                    try:
+                        await self._async_refresh_client(client_name)
+                        client = self.clients.get(client_name)
+                        if not client or not client.is_connected:
+                            error_msg = f"Client {client_name} connection failed"
+                            logger.error(error_msg)
+                            if attempt == max_retries:  # 最后一次尝试失败
+                                from vertex_flow.mcp.types import MCPToolResult
+
+                                return MCPToolResult(content=[{"type": "text", "text": error_msg}], isError=True)
+                            continue
+                    except Exception as refresh_error:
+                        logger.error(f"Failed to refresh client {client_name}: {refresh_error}")
+                        if attempt == max_retries:  # 最后一次尝试失败
+                            from vertex_flow.mcp.types import MCPToolResult
+
+                            return MCPToolResult(
+                                content=[{"type": "text", "text": f"Client refresh failed: {refresh_error}"}],
+                                isError=True,
+                            )
+                        continue
 
                 logger.info(f"Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
+                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Client: {client_name}")
+                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Tool: {original_tool_name}")
+                logger.info(
+                    f"MCP Client Call Debug (Attempt {attempt + 1}) - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
+                )
+                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Client Connected: {client.is_connected}")
 
                 try:
-                    result = await asyncio.wait_for(client.call_tool(original_tool_name, arguments), timeout=30.0)
+                    # 使用更短的超时时间，避免长时间阻塞
+                    result = await asyncio.wait_for(client.call_tool(original_tool_name, arguments), timeout=20.0)
 
                     if result:
+                        logger.info(f"MCP Client Result Debug - Tool: {original_tool_name}")
+                        logger.info(f"MCP Client Result Debug - Result Type: {type(result)}")
+                        logger.info(f"MCP Client Result Debug - Content Type: {type(result.content)}")
+                        logger.info(f"MCP Client Result Debug - Content: {result.content}")
+                        if hasattr(result, "__dict__"):
+                            logger.info(f"MCP Client Result Debug - Attributes: {result.__dict__}")
                         logger.info(f"Tool {original_tool_name} executed successfully")
                         return result
                     else:
                         logger.warning(f"Tool {original_tool_name} returned empty result")
-                        return None
+                        from vertex_flow.mcp.types import MCPToolResult
 
-                except asyncio.TimeoutError:
-                    logger.warning(f"Tool {original_tool_name} timed out (attempt {attempt + 1})")
+                        return MCPToolResult(
+                            content=[{"type": "text", "text": f"Tool {original_tool_name} returned no content"}],
+                            isError=False,
+                        )
+
+                except asyncio.TimeoutError as e:
+                    last_error = f"Tool {original_tool_name} timed out after 20 seconds"
+                    logger.warning(f"{last_error} (attempt {attempt + 1})")
                     if attempt < max_retries:
-                        await self._async_refresh_client(client_name)
+                        # 不要强制重连，只是等待后重试
+                        await asyncio.sleep(1.0)
+                        continue
+                    else:
+                        logger.error(
+                            f"Tool {original_tool_name} failed after {max_retries + 1} attempts due to timeout"
+                        )
+                        from vertex_flow.mcp.types import MCPToolResult
+
+                        return MCPToolResult(content=[{"type": "text", "text": last_error}], isError=True)
+
+                except Exception as tool_error:
+                    last_error = f"Tool execution error: {str(tool_error)}"
+                    logger.error(f"Error calling tool {original_tool_name} (attempt {attempt + 1}): {tool_error}")
+                    if attempt < max_retries:
                         await asyncio.sleep(1.0)
                         continue
                     else:
                         logger.error(f"Tool {original_tool_name} failed after {max_retries + 1} attempts")
-                        return None
+                        from vertex_flow.mcp.types import MCPToolResult
+
+                        return MCPToolResult(content=[{"type": "text", "text": last_error}], isError=True)
 
             except Exception as e:
+                last_error = f"Client error: {str(e)}"
                 logger.error(f"Error calling tool {original_tool_name} (attempt {attempt + 1}): {e}")
                 if attempt < max_retries:
-                    try:
-                        await self._async_refresh_client(client_name)
-                    except Exception as refresh_error:
-                        logger.error(f"Failed to refresh client {client_name}: {refresh_error}")
+                    # 不要强制重连客户端，避免进程终止
                     await asyncio.sleep(1.0)
                     continue
                 else:
                     logger.error(f"Tool {original_tool_name} failed after {max_retries + 1} attempts")
-                    return None
+                    from vertex_flow.mcp.types import MCPToolResult
 
-        return None
+                    return MCPToolResult(
+                        content=[
+                            {"type": "text", "text": last_error or f"Unknown error calling tool {original_tool_name}"}
+                        ],
+                        isError=True,
+                    )
+
+        # 如果所有重试都失败，返回错误结果
+        from vertex_flow.mcp.types import MCPToolResult
+
+        return MCPToolResult(
+            content=[
+                {
+                    "type": "text",
+                    "text": last_error
+                    or f"Failed to execute tool {original_tool_name} after {max_retries + 1} attempts",
+                }
+            ],
+            isError=True,
+        )
 
     async def _async_read_resource(self, resource_uri: str) -> Optional[str]:
         """Read a resource by URI from appropriate MCP client"""

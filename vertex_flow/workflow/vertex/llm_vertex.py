@@ -33,7 +33,8 @@ from vertex_flow.workflow.constants import (
     VERTEX_ID_KEY,
 )
 from vertex_flow.workflow.event_channel import EventType
-from vertex_flow.workflow.tools.functions import RuntimeToolCall
+from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall
+from vertex_flow.workflow.tools.tool_manager import ToolManager
 from vertex_flow.workflow.utils import (
     compatiable_env_str,
     env_str,
@@ -64,6 +65,7 @@ class LLMVertex(Vertex[T]):
         tools: list = None,  # 新增参数
         variables: List[Dict[str, Any]] = None,
         model: ChatModel = None,  # 添加model参数
+        tool_caller=None,  # 新增tool_caller参数
     ):
         # """如果传入task则以task为执行单元，否则执行当前llm的chat方法."""
         self.model: ChatModel = model  # 优先使用传入的model
@@ -73,6 +75,7 @@ class LLMVertex(Vertex[T]):
         self.preprocess = None
         self.postprocess = None
         self.tools = tools or []  # 保存可用的function tools
+        self.tool_caller = tool_caller  # 保存工具调用器
         self.enable_stream = params.get(ENABLE_STREAM, False) if params else False  # 使用常量 ENABLE_STREAM
         self.enable_reasoning = params.get(ENABLE_REASONING_KEY, False) if params else False  # 支持思考过程
         self.show_reasoning = (
@@ -80,6 +83,9 @@ class LLMVertex(Vertex[T]):
         )  # 是否显示思考过程
         self.token_usage = {}  # 添加token统计属性
         self.usage_history = []  # 添加usage历史记录，用于多轮对话统计
+
+        # 初始化统一工具管理器
+        self.unified_tool_manager = ToolManager(tool_caller, tools or [])
 
         if task is None:
             logging.info("Use llm chat in task executing.")
@@ -299,7 +305,7 @@ class LLMVertex(Vertex[T]):
             if finish_reason == "tool_calls":
                 # Handle tool calls
                 logging.info(f"LLM {self.id} wants to call tools")
-                self._handle_tool_calls(choice, context)
+                self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
                 # Reset finish_reason to continue the loop and get the final response after tool calls
                 finish_reason = None
                 continue
@@ -403,25 +409,9 @@ class LLMVertex(Vertex[T]):
                             # 有未处理的工具调用，直接处理
                             logging.info(f"Found {len(pending_tool_calls)} pending tool calls, processing directly")
 
-                            # 创建RuntimeToolCall对象列表
-                            runtime_tool_calls = RuntimeToolCall.normalize_list(pending_tool_calls)
-
-                            # 创建模拟的choice对象
-                            mock_choice = type(
-                                "MockChoice",
-                                (),
-                                {
-                                    "finish_reason": "tool_calls",
-                                    "message": type(
-                                        "MockMessage",
-                                        (),
-                                        {"role": "assistant", "content": "", "tool_calls": runtime_tool_calls},
-                                    )(),
-                                },
-                            )()
-
-                            # 处理工具调用
-                            self._handle_tool_calls(mock_choice, context)
+                            # 使用统一工具管理器执行工具调用
+                            tool_messages = self.unified_tool_manager.execute_tool_calls(pending_tool_calls, context)
+                            self.messages.extend(tool_messages)
 
                             # 继续循环以获取最终响应
                             finish_reason = None
@@ -429,6 +419,8 @@ class LLMVertex(Vertex[T]):
                         else:
                             # 使用流式处理
                             has_content = False
+
+                            # 使用统一的流式处理，ChatModel会自动处理工具调用
                             for chunk in self.model.chat_stream(self.messages, option=stream_option):
                                 if chunk:
                                     has_content = True
@@ -440,7 +432,7 @@ class LLMVertex(Vertex[T]):
                                         )
                                     yield chunk
 
-                            # 检查流式处理后是否有新的工具调用
+                            # 检查流式处理后是否有新的工具调用需要执行
                             new_tool_calls = []
                             for msg in self.messages:
                                 if (
@@ -456,28 +448,12 @@ class LLMVertex(Vertex[T]):
                                     new_tool_calls.extend(msg["tool_calls"])
 
                             if new_tool_calls:
-                                # 有新的工具调用需要处理
-                                logging.info(f"LLM {self.id} wants to call {len(new_tool_calls)} tools")
+                                # 有新的工具调用需要执行
+                                logging.info(f"LLM {self.id} executing {len(new_tool_calls)} tools after streaming")
 
-                                # 创建RuntimeToolCall对象列表
-                                runtime_tool_calls = RuntimeToolCall.normalize_list(new_tool_calls)
-
-                                # 创建模拟的choice对象
-                                mock_choice = type(
-                                    "MockChoice",
-                                    (),
-                                    {
-                                        "finish_reason": "tool_calls",
-                                        "message": type(
-                                            "MockMessage",
-                                            (),
-                                            {"role": "assistant", "content": "", "tool_calls": runtime_tool_calls},
-                                        )(),
-                                    },
-                                )()
-
-                                # 处理工具调用
-                                self._handle_tool_calls(mock_choice, context)
+                                # 使用统一工具管理器执行工具调用
+                                tool_messages = self.unified_tool_manager.execute_tool_calls(new_tool_calls, context)
+                                self.messages.extend(tool_messages)
 
                                 # 继续循环以获取最终响应或处理更多工具调用
                                 finish_reason = None
@@ -547,7 +523,7 @@ class LLMVertex(Vertex[T]):
                         if finish_reason == "tool_calls":
                             # Handle tool calls
                             logging.info(f"LLM {self.id} wants to call tools")
-                            self._handle_tool_calls(choice, context)
+                            self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
                             # Get the response after tool calls (may contain more tool calls)
                             final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                             finish_reason = final_choice.finish_reason
@@ -628,6 +604,17 @@ class LLMVertex(Vertex[T]):
     def _build_llm_tools(self):
         if not self.tools:
             return None  # Return None instead of empty list to avoid API error
+
+        # 如果有tool_caller，确保其工具列表是最新的
+        if self.tool_caller:
+            self.tool_caller.tools = self.tools
+
+        # 初始化或更新统一工具管理器
+        if not hasattr(self, "unified_tool_manager"):
+            self.unified_tool_manager = ToolManager(self.tool_caller, self.tools)
+        else:
+            self.unified_tool_manager.update_tools(self.tools)
+
         return [
             {
                 "type": "function",
@@ -717,6 +704,23 @@ class LLMVertex(Vertex[T]):
             )
 
     def _handle_tool_calls(self, choice, context):
+        # 优先使用tool_caller处理工具调用
+        if self.tool_caller:
+            # 使用tool_caller处理
+            tool_calls = self.tool_caller.extract_tool_calls_from_choice(choice)
+            if tool_calls:
+                # 添加assistant消息
+                assistant_message = self.tool_caller.create_assistant_message(tool_calls)
+                self.messages.append(assistant_message)
+
+                # 执行工具调用
+                tool_messages = self.tool_caller.execute_tool_calls_sync(tool_calls, context)
+
+                # 添加工具响应消息
+                self.messages.extend(tool_messages)
+            return
+
+        # 回退到原有逻辑
         # 兼容同步/异步环境
         try:
             loop = asyncio.get_running_loop()

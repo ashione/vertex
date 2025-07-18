@@ -202,8 +202,17 @@ class ChatModel(abc.ABC):
                     # 拼接完整的assistant消息（转为标准dict）
                     tool_calls = self._merge_tool_call_fragments(tool_call_fragments)
                     assistant_msg = {"role": "assistant", "content": "", "tool_calls": tool_calls}
-                    messages.append(assistant_msg)  # 关键：补全到messages
-                    logging.info(f"Tool calls detected in stream, assistant message appended: {assistant_msg}")
+
+                    # 检查是否已经存在相同的assistant消息，避免重复添加
+                    last_msg = messages[-1] if messages else None
+                    if not (last_msg and last_msg.get("role") == "assistant" and last_msg.get("tool_calls")):
+                        messages.append(assistant_msg)  # 关键：补全到messages
+                        logging.info(f"Tool calls detected in stream, assistant message appended: {assistant_msg}")
+                    else:
+                        logging.info(
+                            f"Tool calls detected in stream, but assistant message already exists, skipping duplicate"
+                        )
+
                     tool_calls_completed = True
                     # 不break，继续处理后续内容
 
@@ -231,6 +240,23 @@ class ChatModel(abc.ABC):
             else:
                 self._set_usage(chunk)
                 logging.debug("Chunk object does not have valid choices or delta content.")
+
+        # 流式处理结束后，检查是否有未处理的工具调用
+        if tool_calls_detected and tool_call_fragments:
+            # 确保工具调用已经被处理
+            if not tool_calls_completed:
+                tool_calls = self._merge_tool_call_fragments(tool_call_fragments)
+                assistant_msg = {"role": "assistant", "content": "", "tool_calls": tool_calls}
+
+                # 检查是否已经存在相同的assistant消息，避免重复添加
+                last_msg = messages[-1] if messages else None
+                if not (last_msg and last_msg.get("role") == "assistant" and last_msg.get("tool_calls")):
+                    messages.append(assistant_msg)
+                    logging.info(f"Tool calls completed after stream, assistant message appended: {assistant_msg}")
+                else:
+                    logging.info(
+                        f"Tool calls completed after stream, but assistant message already exists, skipping duplicate"
+                    )
 
     def model_name(self) -> str:
         return self.name

@@ -1047,7 +1047,8 @@ class VertexFlowService:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(mcp_manager.initialize(mcp_config))
+                        # mcp_manager.initialize 是同步方法，直接调用
+                        mcp_manager.initialize(mcp_config)
                         logging.info("MCP Manager initialized successfully in sync mode")
                         return True
                     except Exception as e:

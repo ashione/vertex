@@ -16,7 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Generator, List, Optional, Union
 
 from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.tools.functions import RuntimeToolCall
+from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall
+from vertex_flow.workflow.tools.tool_manager import ToolManager
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
 from vertex_flow.workflow.vertex.vertex import WorkflowContext
 
@@ -326,6 +327,16 @@ class MCPLLMVertex(LLMVertex):
             logger.info(f"Final tool list ({total_tools} tools): {', '.join(tool_names)}")
             self._tools_built_for_streaming = True
 
+        # 如果存在 tool_caller，更新其工具列表
+        if self.tool_caller and deduplicated_tools:
+            self.tool_caller.tools = self.tools
+
+        # 初始化或更新统一工具管理器
+        if not hasattr(self, "unified_tool_manager"):
+            self.unified_tool_manager = ToolManager(self.tool_caller, deduplicated_tools)
+        else:
+            self.unified_tool_manager.update_tools(deduplicated_tools)
+
         return deduplicated_tools if deduplicated_tools else None
 
     def _get_cached_mcp_llm_tools(self) -> List[Dict[str, Any]]:
@@ -446,41 +457,36 @@ class MCPLLMVertex(LLMVertex):
         return llm_tools
 
     def _handle_tool_calls(self, choice, context: WorkflowContext):
-        """Handle tool calls with MCP support"""
+        """Handle tool calls with MCP support using unified tool manager"""
         if not choice.message.tool_calls:
             return
 
+        # 使用统一工具管理器处理所有工具调用
+        success = self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+
+        if not success:
+            logger.warning("Unified tool manager failed, falling back to original logic")
+            # 如果统一管理器失败，回退到原有逻辑
+            self._handle_tool_calls_fallback(choice, context)
+
+    def _handle_tool_calls_fallback(self, choice, context: WorkflowContext):
+        """原有的工具调用处理逻辑（作为回退）"""
         # 统一转换tool_calls为对象格式
         normalized_tool_calls = RuntimeToolCall.normalize_list(choice.message.tool_calls)
 
         # 首先添加assistant消息（包含tool_calls）
-        tool_message = None
-        if hasattr(choice.message, "content") and choice.message.content:
-            tool_message = {
-                "role": "assistant",
-                "content": choice.message.content,
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "type": "function",
-                        "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
-                    }
-                    for tool_call in normalized_tool_calls
-                ],
-            }
-        else:
-            tool_message = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": tool_call.id,
-                        "type": "function",
-                        "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
-                    }
-                    for tool_call in normalized_tool_calls
-                ],
-            }
+        tool_message = {
+            "role": "assistant",
+            "content": getattr(choice.message, "content", None),
+            "tool_calls": [
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
+                }
+                for tool_call in normalized_tool_calls
+            ],
+        }
 
         logger.info(f"tool_message: {tool_message}")
         self.messages.append(tool_message)
@@ -491,7 +497,7 @@ class MCPLLMVertex(LLMVertex):
 
         for tool_call in normalized_tool_calls:
             function_name = tool_call.function.name
-            if function_name.startswith("mcp_"):  # 修复：使用mcp_前缀识别MCP工具
+            if function_name.startswith("mcp_"):
                 mcp_tool_calls.append(tool_call)
             else:
                 regular_tool_calls.append(tool_call)
@@ -513,7 +519,6 @@ class MCPLLMVertex(LLMVertex):
         # 处理常规工具调用
         if regular_tool_calls:
             # 创建包含常规工具调用的choice对象，但不重复添加assistant消息
-            # 创建RuntimeToolCall对象列表
             runtime_tool_calls = RuntimeToolCall.normalize_list(regular_tool_calls)
 
             class MockChoice:
@@ -533,15 +538,11 @@ class MCPLLMVertex(LLMVertex):
 
             # 如果父类添加了重复的assistant消息，移除它
             if len(self.messages) > original_length:
-                # 检查是否有重复的assistant消息
                 for i in range(original_length, len(self.messages)):
                     if self.messages[i].get("role") == "assistant" and "tool_calls" in self.messages[i]:
-                        # 移除重复的assistant消息
                         self.messages.pop(i)
                         break
         else:
-            # 如果没有常规工具调用，只有MCP工具调用，不需要额外处理
-            # MCP工具调用的结果已经添加到messages中，让流式处理自然继续
             logger.info(f"Only MCP tool calls processed, letting stream continue naturally")
 
     def _handle_mcp_tool_call(self, tool_call):
@@ -589,10 +590,23 @@ class MCPLLMVertex(LLMVertex):
                 original_tool_name = tool_name
 
             logger.info(f"Executing MCP tool: {original_tool_name} with arguments: {arguments}")
+            logger.info(f"MCP Tool Call Debug - Tool Name: {original_tool_name}")
+            logger.info(f"MCP Tool Call Debug - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
+            logger.info(f"MCP Tool Call Debug - Tool Call ID: {tool_call.id}")
 
             # Call the MCP tool
             mcp_manager = get_mcp_manager()
             result = mcp_manager.call_tool(original_tool_name, arguments)
+
+            logger.info(f"MCP Tool Result Debug - Tool Name: {original_tool_name}")
+            logger.info(f"MCP Tool Result Debug - Result Type: {type(result)}")
+            if result:
+                logger.info(f"MCP Tool Result Debug - Content Type: {type(result.content)}")
+                logger.info(f"MCP Tool Result Debug - Content: {result.content}")
+                if hasattr(result, "__dict__"):
+                    logger.info(f"MCP Tool Result Debug - Attributes: {result.__dict__}")
+            else:
+                logger.info("MCP Tool Result Debug - Result: None")
 
             if result and result.content:
                 if isinstance(result.content, list):

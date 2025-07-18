@@ -1,491 +1,618 @@
-#!/usr/bin/env python3
-"""
-Function Tool Manager for Vertex Flow
+"""统一工具管理器
 
-Manages all available function tools and provides unified access.
+这个模块提供了一个统一的工具管理和调用接口，包含：
+1. FunctionTool的注册和管理
+2. 统一的工具调用执行
+3. 不同类型工具的协调处理
 """
 
 import datetime
-from typing import Any, Dict, List, Optional
+import json
+import logging
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import pytz
 
-from vertex_flow.utils.logger import LoggerUtil
-from vertex_flow.workflow.tools.functions import FunctionTool
+from vertex_flow.workflow.context import WorkflowContext
+from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall, ToolCaller
 
-logger = LoggerUtil.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
-class FunctionToolManager:
-    """Manager for all function tools in Vertex Flow"""
+class FunctionTool:
+    """函数工具类"""
+
+    def __init__(self, name: str, description: str, func: Callable, schema: Dict[str, Any]):
+        self.name = name
+        self.description = description
+        self.func = func
+        self.schema = schema
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "type": "function",
+            "function": {"name": self.name, "description": self.description, "parameters": self.schema},
+        }
+
+    def execute(self, inputs: Dict[str, Any], context=None) -> Any:
+        """执行函数"""
+        return self.func(inputs, context)
+
+
+class ToolCallResult:
+    """工具调用结果封装"""
+
+    def __init__(self, tool_call_id: str, content: str, success: bool = True, error: Optional[str] = None):
+        self.tool_call_id = tool_call_id
+        self.content = content
+        self.success = success
+        self.error = error
+
+    def to_message(self) -> Dict[str, Any]:
+        """转换为消息格式"""
+        return {
+            "role": "tool",
+            "tool_call_id": self.tool_call_id,
+            "content": self.content if self.success else f"Error: {self.error or self.content}",
+        }
+
+
+class ToolExecutor(ABC):
+    """工具执行器抽象基类"""
+
+    @abstractmethod
+    def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
+        """执行单个工具调用"""
+        pass
+
+    @abstractmethod
+    def can_handle(self, tool_name: str) -> bool:
+        """判断是否能处理指定的工具"""
+        pass
+
+
+class MCPToolExecutor(ToolExecutor):
+    """MCP工具执行器"""
 
     def __init__(self):
-        self._tools: Dict[str, FunctionTool] = {}
-        self._service = None
+        self._executor = None
+        try:
+            from concurrent.futures import ThreadPoolExecutor
 
-    def set_service(self, service):
-        """Set the VertexFlowService instance for tool creation"""
-        self._service = service
+            self._executor = ThreadPoolExecutor(max_workers=4)
+        except ImportError:
+            logger.warning("ThreadPoolExecutor not available")
 
+    def can_handle(self, tool_name: str) -> bool:
+        """判断是否为MCP工具"""
+        return tool_name.startswith("mcp_")
+
+    def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
+        """执行MCP工具调用"""
+        try:
+            if self._executor:
+                future = self._executor.submit(self._call_mcp_tool_async, tool_call)
+                result = future.result(timeout=30.0)
+            else:
+                result = self._call_mcp_tool_sync(tool_call)
+
+            return ToolCallResult(tool_call.id, result, success=True)
+        except Exception as e:
+            logger.error(f"Error executing MCP tool {tool_call.function.name}: {e}")
+            return ToolCallResult(tool_call.id, str(e), success=False, error=str(e))
+
+    def _call_mcp_tool_sync(self, tool_call: RuntimeToolCall) -> str:
+        """同步调用MCP工具"""
+        try:
+            from vertex_flow.workflow.mcp_manager import get_mcp_manager
+
+            # 解析工具调用
+            tool_name = tool_call.function.name
+            arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+
+            # 移除mcp_前缀获取原始工具名
+            if tool_name.startswith("mcp_"):
+                original_tool_name = tool_name[4:]
+            else:
+                original_tool_name = tool_name
+
+            logger.info(f"Executing MCP tool: {original_tool_name} with arguments: {arguments}")
+            logger.info(f"MCP Tool Manager Call Debug - Tool Name: {original_tool_name}")
+            logger.info(
+                f"MCP Tool Manager Call Debug - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
+            )
+            logger.info(f"MCP Tool Manager Call Debug - Tool Call ID: {tool_call.id}")
+
+            # 调用MCP工具
+            mcp_manager = get_mcp_manager()
+            result = mcp_manager.call_tool(original_tool_name, arguments)
+
+            logger.info(f"MCP Tool Manager Result Debug - Tool Name: {original_tool_name}")
+            logger.info(f"MCP Tool Manager Result Debug - Result Type: {type(result)}")
+            if result:
+                logger.info(f"MCP Tool Manager Result Debug - Content Type: {type(result.content)}")
+                logger.info(f"MCP Tool Manager Result Debug - Content: {result.content}")
+                if hasattr(result, "__dict__"):
+                    logger.info(f"MCP Tool Manager Result Debug - Attributes: {result.__dict__}")
+            else:
+                logger.info(f"MCP Tool Manager Result Debug - Result: None")
+
+            if result and result.content:
+                if isinstance(result.content, list):
+                    content_parts = []
+                    for item in result.content:
+                        if hasattr(item, "text"):
+                            content_parts.append(item.text)
+                        elif isinstance(item, dict) and "text" in item:
+                            content_parts.append(item["text"])
+                        else:
+                            content_parts.append(str(item))
+                    return "\n".join(content_parts)
+                else:
+                    return str(result.content)
+            else:
+                return "Tool executed successfully but returned no content"
+
+        except Exception as e:
+            logger.error(f"Error in MCP tool execution: {e}")
+            raise
+
+    def _call_mcp_tool_async(self, tool_call: RuntimeToolCall) -> str:
+        """异步调用MCP工具"""
+        import asyncio
+
+        # 创建新的事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            return loop.run_until_complete(self._execute_mcp_tool_async(tool_call))
+        finally:
+            loop.close()
+
+    async def _execute_mcp_tool_async(self, tool_call: RuntimeToolCall) -> str:
+        """异步执行MCP工具"""
+        # 这里可以实现真正的异步MCP调用
+        # 目前先使用同步版本
+        return self._call_mcp_tool_sync(tool_call)
+
+
+class FunctionToolExecutor(ToolExecutor):
+    """函数工具执行器"""
+
+    def __init__(self, function_tools: Dict[str, FunctionTool]):
+        self.function_tools = function_tools
+
+    def can_handle(self, tool_name: str) -> bool:
+        """判断是否为函数工具"""
+        return tool_name in self.function_tools
+
+    def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
+        """执行函数工具调用"""
+        try:
+            tool_name = tool_call.function.name
+            function_tool = self.function_tools.get(tool_name)
+
+            if not function_tool:
+                return ToolCallResult(
+                    tool_call.id, f"Function tool {tool_name} not found", success=False, error="Tool not found"
+                )
+
+            # 解析参数
+            arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+
+            # 执行函数
+            result = function_tool.execute(arguments, context)
+
+            # 格式化结果
+            if isinstance(result, dict):
+                content = json.dumps(result, ensure_ascii=False, indent=2)
+            else:
+                content = str(result)
+
+            return ToolCallResult(tool_call.id, content, success=True)
+
+        except Exception as e:
+            logger.error(f"Error executing function tool {tool_call.function.name}: {e}")
+            return ToolCallResult(tool_call.id, str(e), success=False, error=str(e))
+
+
+class RegularToolExecutor(ToolExecutor):
+    """常规工具执行器"""
+
+    def __init__(self, tool_caller: Optional[ToolCaller] = None, tools: Optional[List[Dict[str, Any]]] = None):
+        self.tool_caller = tool_caller
+        self.tools = tools or []
+
+    def can_handle(self, tool_name: str) -> bool:
+        """判断是否为常规工具"""
+        return not tool_name.startswith("mcp_")
+
+    def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
+        """执行常规工具调用"""
+        try:
+            if self.tool_caller:
+                # 使用tool_caller执行
+                tool_results = self.tool_caller.execute_tool_calls_sync([tool_call], self.tools)
+                if tool_results:
+                    # 假设返回的是消息格式
+                    result_message = tool_results[0]
+                    return ToolCallResult(tool_call.id, result_message.get("content", ""), success=True)
+                else:
+                    return ToolCallResult(tool_call.id, "No result returned", success=False)
+            else:
+                # 回退到基础实现
+                return ToolCallResult(tool_call.id, f"Tool {tool_call.function.name} executed (fallback)", success=True)
+        except Exception as e:
+            logger.error(f"Error executing regular tool {tool_call.function.name}: {e}")
+            return ToolCallResult(tool_call.id, str(e), success=False, error=str(e))
+
+
+class ToolManager:
+    """统一工具管理器
+
+    这个类统一管理所有类型的工具，包括：
+    1. FunctionTool的注册和管理
+    2. 统一的工具调用执行
+    3. 不同类型工具的协调处理
+    """
+
+    def __init__(self, tool_caller: Optional[ToolCaller] = None, tools: Optional[List[Dict[str, Any]]] = None):
+        self.tool_caller = tool_caller
+        self.tools = tools or []
+        self.function_tools: Dict[str, FunctionTool] = {}
+
+        # 初始化工具执行器
+        self.function_tool_executor = FunctionToolExecutor(self.function_tools)
+        self.executors: List[ToolExecutor] = [
+            MCPToolExecutor(),
+            self.function_tool_executor,
+            RegularToolExecutor(tool_caller, tools),
+        ]
+
+        # 注册默认工具
+        self._register_default_tools()
+
+    def create_assistant_message(self, choice_or_tool_calls: Union[Any, List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """创建assistant消息
+
+        Args:
+            choice_or_tool_calls: choice对象或工具调用列表
+
+        Returns:
+            assistant消息字典
+        """
+        if self.tool_caller and hasattr(choice_or_tool_calls, "message"):
+            # 使用tool_caller创建消息
+            return self.tool_caller.create_assistant_message(choice_or_tool_calls)
+        else:
+            # 手动创建消息
+            if isinstance(choice_or_tool_calls, list):
+                # 直接传入的工具调用列表
+                tool_calls = choice_or_tool_calls
+                content = None
+            else:
+                # choice对象
+                choice = choice_or_tool_calls
+                content = getattr(choice.message, "content", None) if hasattr(choice, "message") else None
+                tool_calls = getattr(choice.message, "tool_calls", []) if hasattr(choice, "message") else []
+
+            # 标准化工具调用格式
+            normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
+
+            return {
+                "role": "assistant",
+                "content": content,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
+                    }
+                    for tool_call in normalized_tool_calls
+                ],
+            }
+
+    def execute_tool_calls(
+        self, tool_calls: List[Union[Dict[str, Any], RuntimeToolCall]], context: WorkflowContext
+    ) -> List[Dict[str, Any]]:
+        """执行工具调用并返回工具消息列表
+
+        Args:
+            tool_calls: 工具调用列表
+            context: 工作流上下文
+
+        Returns:
+            工具消息列表
+        """
+        # 标准化工具调用
+        normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
+
+        tool_messages = []
+
+        for tool_call in normalized_tool_calls:
+            # 确保有tool_call_id
+            if not tool_call.id:
+                import uuid
+
+                tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
+
+            # 找到合适的执行器
+            executor = self._find_executor(tool_call.function.name)
+
+            if executor:
+                # 执行工具调用
+                result = executor.execute_tool_call(tool_call, context)
+                tool_messages.append(result.to_message())
+            else:
+                # 没有找到合适的执行器
+                logger.warning(f"No executor found for tool: {tool_call.function.name}")
+                error_result = ToolCallResult(
+                    tool_call.id,
+                    f"No executor available for tool: {tool_call.function.name}",
+                    success=False,
+                    error="No executor found",
+                )
+                tool_messages.append(error_result.to_message())
+
+        return tool_messages
+
+    def handle_tool_calls_complete(
+        self,
+        choice_or_tool_calls: Union[Any, List[Dict[str, Any]]],
+        context: WorkflowContext,
+        messages: List[Dict[str, Any]],
+    ) -> bool:
+        """完整处理工具调用（创建assistant消息 + 执行工具调用）
+
+        Args:
+            choice_or_tool_calls: choice对象或工具调用列表
+            context: 工作流上下文
+            messages: 消息列表（会被修改）
+
+        Returns:
+            是否成功处理了工具调用
+        """
+        try:
+            # 提取工具调用
+            if hasattr(choice_or_tool_calls, "message") and hasattr(choice_or_tool_calls.message, "tool_calls"):
+                tool_calls = choice_or_tool_calls.message.tool_calls
+            elif isinstance(choice_or_tool_calls, list):
+                tool_calls = choice_or_tool_calls
+            else:
+                return False
+
+            if not tool_calls:
+                return False
+
+            # 检查是否已经存在相同的assistant消息（避免重复）
+            normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
+            existing_assistant_msg = None
+
+            # 查找最后一个assistant消息
+            for msg in reversed(messages):
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    existing_assistant_msg = msg
+                    break
+
+            # 检查是否是相同的工具调用
+            should_add_assistant = True
+            if existing_assistant_msg:
+                existing_tool_calls = existing_assistant_msg.get("tool_calls", [])
+                if len(existing_tool_calls) == len(normalized_tool_calls):
+                    # 比较工具调用是否相同
+                    same_calls = True
+                    for i, (existing, new) in enumerate(zip(existing_tool_calls, normalized_tool_calls)):
+                        if (
+                            existing.get("function", {}).get("name") != new.function.name
+                            or existing.get("function", {}).get("arguments") != new.function.arguments
+                        ):
+                            same_calls = False
+                            break
+
+                    if same_calls:
+                        should_add_assistant = False
+                        logger.debug("Skipping duplicate assistant message with same tool calls")
+
+            # 添加assistant消息（如果需要）
+            if should_add_assistant:
+                assistant_message = self.create_assistant_message(choice_or_tool_calls)
+                messages.append(assistant_message)
+
+            # 执行工具调用
+            tool_messages = self.execute_tool_calls(tool_calls, context)
+            messages.extend(tool_messages)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error in handle_tool_calls_complete: {e}")
+            return False
+
+    def _find_executor(self, tool_name: str) -> Optional[ToolExecutor]:
+        """找到合适的工具执行器"""
+        for executor in self.executors:
+            if executor.can_handle(tool_name):
+                return executor
+        return None
+
+    def add_executor(self, executor: ToolExecutor):
+        """添加自定义工具执行器"""
+        self.executors.insert(0, executor)  # 插入到前面，优先级更高
+
+    def update_tools(self, tools: List[Dict[str, Any]]):
+        """更新工具列表"""
+        self.tools = tools
+        # 更新常规工具执行器的工具列表
+        for executor in self.executors:
+            if isinstance(executor, RegularToolExecutor):
+                executor.tools = tools
+
+    # FunctionTool管理方法
     def register_tool(self, tool: FunctionTool):
-        """Register a function tool"""
-        self._tools[tool.name] = tool
-        logger.debug(f"Registered function tool: {tool.name}")
+        """注册函数工具"""
+        self.function_tools[tool.name] = tool
+        logger.info(f"Registered function tool: {tool.name}")
 
     def unregister_tool(self, tool_name: str):
-        """Unregister a function tool"""
-        if tool_name in self._tools:
-            del self._tools[tool_name]
-            logger.debug(f"Unregistered function tool: {tool_name}")
+        """注销函数工具"""
+        if tool_name in self.function_tools:
+            del self.function_tools[tool_name]
+            logger.info(f"Unregistered function tool: {tool_name}")
 
     def get_tool(self, tool_name: str) -> Optional[FunctionTool]:
-        """Get a specific function tool"""
-        return self._tools.get(tool_name)
+        """获取函数工具"""
+        return self.function_tools.get(tool_name)
 
-    def list_tools(self) -> List[FunctionTool]:
-        """List all registered function tools"""
-        return list(self._tools.values())
+    def list_function_tools(self) -> List[FunctionTool]:
+        """列出所有函数工具"""
+        return list(self.function_tools.values())
 
-    def get_tool_names(self) -> List[str]:
-        """Get names of all registered tools"""
-        return list(self._tools.keys())
+    def get_function_tools_as_dict(self) -> List[Dict[str, Any]]:
+        """获取函数工具的字典格式列表"""
+        return [tool.to_dict() for tool in self.function_tools.values()]
 
-    def execute_tool(self, tool_name: str, inputs: dict, context: Optional[dict] = None) -> Any:
-        """Execute a function tool"""
-        tool = self.get_tool(tool_name)
-        if not tool:
-            raise ValueError(f"Tool not found: {tool_name}")
-
-        return tool.execute(inputs, context)
-
-    def get_tools_as_openai_format(self) -> List[Dict[str, Any]]:
-        """Get all tools in OpenAI function calling format"""
-        return [tool.to_dict() for tool in self._tools.values()]
-
-    def auto_register_builtin_tools(self):
-        """Auto-register all built-in tools from service"""
-        if not self._service:
-            logger.warning("Service not set, cannot auto-register tools")
-            return
-
-        registered_count = 0
-
-        # Register command line tool
-        try:
-            cmd_tool = self._service.get_command_line_tool()
-            self.register_tool(cmd_tool)
-            registered_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to register command line tool: {e}")
-
-        # Register web search tools
-        web_search_providers = ["bocha", "duckduckgo", "serpapi", "searchapi", "bing"]
-        for provider in web_search_providers:
-            try:
-                web_tool = self._service.get_web_search_tool(provider)
-                # Create unique name for each provider
-                web_tool.name = f"web_search_{provider}"
-                web_tool.description = f"Web search using {provider} - {
-                    web_tool.description}"
-                self.register_tool(web_tool)
-                registered_count += 1
-                break  # Only register the first working provider
-            except Exception as e:
-                logger.debug(f"Failed to register {provider} web search tool: {e}")
-                continue
-
-        # Register finance tool
-        try:
-            finance_tool = self._service.get_finance_tool()
-            self.register_tool(finance_tool)
-            registered_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to register finance tool: {e}")
-
-        # Register time tools
-        try:
-            self.register_time_tools()
-            registered_count += 3  # today, time_convert, time_diff
-        except Exception as e:
-            logger.warning(f"Failed to register time tools: {e}")
-
-        logger.info(f"Auto-registered {registered_count} built-in function tools")
+    def _register_default_tools(self):
+        """注册默认工具"""
+        # 注册时间工具
+        self.register_time_tools()
+        # 注册自定义示例工具
+        self.register_custom_tools()
 
     def create_custom_tools(self) -> List[FunctionTool]:
-        """Create some custom example tools"""
+        """创建自定义示例工具"""
         tools = []
 
-        # Math calculator tool
-        def calculate(inputs: dict, context=None):
-            """Simple calculator"""
+        # 计算器工具
+        def calculator(inputs: dict, context=None):
+            """简单计算器"""
             expression = inputs.get("expression", "")
             try:
-                # Safe evaluation - only allow basic math operations
-                allowed_chars = set("0123456789+-*/.() ")
-                if not all(c in allowed_chars for c in expression):
-                    return {"error": "Invalid characters in expression"}
+                # 安全的数学表达式计算
+                import ast
+                import operator
 
-                result = eval(expression)
+                # 支持的操作
+                ops = {
+                    ast.Add: operator.add,
+                    ast.Sub: operator.sub,
+                    ast.Mult: operator.mul,
+                    ast.Div: operator.truediv,
+                    ast.Pow: operator.pow,
+                    ast.USub: operator.neg,
+                }
+
+                def eval_expr(node):
+                    if isinstance(node, ast.Constant):
+                        return node.value
+                    elif isinstance(node, ast.BinOp):
+                        return ops[type(node.op)](eval_expr(node.left), eval_expr(node.right))
+                    elif isinstance(node, ast.UnaryOp):
+                        return ops[type(node.op)](eval_expr(node.operand))
+                    else:
+                        raise TypeError(node)
+
+                result = eval_expr(ast.parse(expression, mode="eval").body)
                 return {"result": result, "expression": expression}
             except Exception as e:
-                return {"error": str(e)}
+                return {"error": f"计算错误: {str(e)}"}
 
         calc_tool = FunctionTool(
-            name="calculate",
-            description="Perform basic mathematical calculations",
-            func=calculate,
+            name="calculator",
+            description="执行基本数学计算",
+            func=calculator,
             schema={
                 "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "Mathematical expression to evaluate (e.g., '2+2', '10*5/2')",
-                    }
-                },
+                "properties": {"expression": {"type": "string", "description": "要计算的数学表达式"}},
                 "required": ["expression"],
             },
         )
         tools.append(calc_tool)
 
-        # Text processing tool
-        def process_text(inputs: dict, context=None):
-            """Process text with various operations"""
-            text = inputs.get("text", "")
-            operation = inputs.get("operation", "count_words")
-
-            if operation == "count_words":
-                return {"result": len(text.split()), "operation": operation}
-            elif operation == "count_chars":
-                return {"result": len(text), "operation": operation}
-            elif operation == "uppercase":
-                return {"result": text.upper(), "operation": operation}
-            elif operation == "lowercase":
-                return {"result": text.lower(), "operation": operation}
-            elif operation == "reverse":
-                return {"result": text[::-1], "operation": operation}
-            else:
-                return {"error": f"Unknown operation: {operation}"}
-
-        text_tool = FunctionTool(
-            name="process_text",
-            description="Process text with various operations",
-            func=process_text,
-            schema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "Text to process"},
-                    "operation": {
-                        "type": "string",
-                        "enum": ["count_words", "count_chars", "uppercase", "lowercase", "reverse"],
-                        "description": "Operation to perform on the text",
-                    },
-                },
-                "required": ["text", "operation"],
-            },
-        )
-        tools.append(text_tool)
-
         return tools
 
     def create_time_tools(self) -> List[FunctionTool]:
-        """Create time-related tools"""
+        """创建时间相关工具"""
         tools = []
 
-        # Today tool - get current time in various formats
-        def get_today(inputs: dict, context=None):
-            """Get current date and time in various formats"""
+        # 获取当前时间工具
+        def get_current_time(inputs: dict, context=None):
+            """获取当前时间"""
+            timezone = inputs.get("timezone", "UTC")
             format_type = inputs.get("format", "iso")
-            timezone_str = inputs.get("timezone", "UTC")
-            custom_format = inputs.get("custom_format", "%Y-%m-%d %H:%M:%S")
-            include_tz_info = inputs.get("include_timezone_info", True)
 
             try:
-                # Get timezone
-                if timezone_str.upper() == "UTC":
+                if timezone == "UTC":
                     tz = pytz.UTC
                 else:
-                    tz = pytz.timezone(timezone_str)
+                    tz = pytz.timezone(timezone)
 
-                # Get current time in specified timezone
                 now = datetime.datetime.now(tz)
 
-                # Format the time based on requested format
-                if format_type == "timestamp":
-                    result = str(int(now.timestamp()))
-                elif format_type == "timestamp_ms":
-                    result = str(int(now.timestamp() * 1000))
-                elif format_type == "iso":
+                if format_type == "iso":
                     result = now.isoformat()
-                elif format_type == "iso_utc":
-                    result = now.astimezone(pytz.UTC).isoformat()
-                elif format_type == "date":
-                    result = now.strftime("%Y-%m-%d")
-                elif format_type == "time":
-                    result = now.strftime("%H:%M:%S")
-                elif format_type == "datetime":
-                    result = now.strftime("%Y-%m-%d %H:%M:%S")
-                elif format_type == "rfc2822":
-                    result = now.strftime("%a, %d %b %Y %H:%M:%S %z")
-                elif format_type == "custom":
-                    result = now.strftime(custom_format)
+                elif format_type == "timestamp":
+                    result = str(int(now.timestamp()))
+                elif format_type == "readable":
+                    result = now.strftime("%Y-%m-%d %H:%M:%S %Z")
                 else:
-                    return {"error": f"Unknown format: {format_type}"}
+                    result = now.strftime(format_type)
 
-                # Add timezone information if requested
-                if include_tz_info:
-                    tz_info = f" (Timezone: {timezone_str})"
-                    result += tz_info
-
-                return {"result": result, "format": format_type, "timezone": timezone_str}
-
+                return {"current_time": result, "timezone": timezone, "format": format_type}
             except Exception as e:
-                return {"error": f"Error getting today's time: {str(e)}"}
+                return {"error": f"获取时间错误: {str(e)}"}
 
-        today_tool = FunctionTool(
-            name="today",
-            description="Get current date and time information in various formats and timezones",
-            func=get_today,
+        time_tool = FunctionTool(
+            name="get_current_time",
+            description="获取当前时间",
+            func=get_current_time,
             schema={
                 "type": "object",
                 "properties": {
-                    "format": {
-                        "type": "string",
-                        "enum": [
-                            "timestamp",
-                            "timestamp_ms",
-                            "iso",
-                            "iso_utc",
-                            "date",
-                            "time",
-                            "datetime",
-                            "rfc2822",
-                            "custom",
-                        ],
-                        "description": "Output format for the time information",
-                        "default": "iso",
-                    },
-                    "timezone": {
-                        "type": "string",
-                        "description": "Timezone for the output (e.g., 'UTC', 'Asia/Shanghai', 'America/New_York')",
-                        "default": "UTC",
-                    },
-                    "custom_format": {
-                        "type": "string",
-                        "description": "Custom format string (used when format is 'custom')",
-                        "default": "%Y-%m-%d %H:%M:%S",
-                    },
-                    "include_timezone_info": {
-                        "type": "boolean",
-                        "description": "Whether to include timezone information in the output",
-                        "default": True,
-                    },
+                    "timezone": {"type": "string", "description": "时区", "default": "UTC"},
+                    "format": {"type": "string", "description": "时间格式", "default": "iso"},
                 },
                 "required": [],
             },
         )
-        tools.append(today_tool)
-
-        # Time convert tool
-        def convert_time(inputs: dict, context=None):
-            """Convert time between different formats and timezones"""
-            input_time = inputs.get("input_time")
-            input_format = inputs.get("input_format", "iso")
-            input_timezone = inputs.get("input_timezone", "UTC")
-            output_format = inputs.get("output_format", "iso")
-            output_timezone = inputs.get("output_timezone", "UTC")
-            custom_format = inputs.get("custom_format", "%Y-%m-%d %H:%M:%S")
-
-            try:
-                # Parse input time
-                if input_format == "timestamp":
-                    dt = datetime.datetime.fromtimestamp(float(input_time), pytz.UTC)
-                elif input_format == "timestamp_ms":
-                    dt = datetime.datetime.fromtimestamp(float(input_time) / 1000, pytz.UTC)
-                elif input_format == "iso":
-                    dt = datetime.datetime.fromisoformat(input_time.replace("Z", "+00:00"))
-                else:
-                    # Try to parse with custom format
-                    input_tz = pytz.timezone(input_timezone) if input_timezone != "UTC" else pytz.UTC
-                    dt = datetime.datetime.strptime(input_time, custom_format)
-                    dt = input_tz.localize(dt)
-
-                # Convert to output timezone
-                output_tz = pytz.timezone(output_timezone) if output_timezone != "UTC" else pytz.UTC
-                dt = dt.astimezone(output_tz)
-
-                # Format output
-                if output_format == "timestamp":
-                    result = str(int(dt.timestamp()))
-                elif output_format == "timestamp_ms":
-                    result = str(int(dt.timestamp() * 1000))
-                elif output_format == "iso":
-                    result = dt.isoformat()
-                elif output_format == "iso_utc":
-                    result = dt.astimezone(pytz.UTC).isoformat()
-                elif output_format == "date":
-                    result = dt.strftime("%Y-%m-%d")
-                elif output_format == "time":
-                    result = dt.strftime("%H:%M:%S")
-                elif output_format == "datetime":
-                    result = dt.strftime("%Y-%m-%d %H:%M:%S")
-                elif output_format == "rfc2822":
-                    result = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
-                elif output_format == "custom":
-                    result = dt.strftime(custom_format)
-                else:
-                    return {"error": f"Unknown output format: {output_format}"}
-
-                return {
-                    "result": result,
-                    "input_time": input_time,
-                    "output_format": output_format,
-                    "output_timezone": output_timezone,
-                }
-
-            except Exception as e:
-                return {"error": f"Error converting time: {str(e)}"}
-
-        convert_tool = FunctionTool(
-            name="time_convert",
-            description="Convert time between different formats and timezones",
-            func=convert_time,
-            schema={
-                "type": "object",
-                "properties": {
-                    "input_time": {"type": "string", "description": "Input time string or timestamp"},
-                    "input_format": {
-                        "type": "string",
-                        "description": "Format of input time (timestamp, iso, custom)",
-                        "default": "iso",
-                    },
-                    "input_timezone": {"type": "string", "description": "Timezone of input time", "default": "UTC"},
-                    "output_format": {
-                        "type": "string",
-                        "enum": [
-                            "timestamp",
-                            "timestamp_ms",
-                            "iso",
-                            "iso_utc",
-                            "date",
-                            "time",
-                            "datetime",
-                            "rfc2822",
-                            "custom",
-                        ],
-                        "description": "Desired output format",
-                        "default": "iso",
-                    },
-                    "output_timezone": {"type": "string", "description": "Desired output timezone", "default": "UTC"},
-                    "custom_format": {
-                        "type": "string",
-                        "description": "Custom format string for output",
-                        "default": "%Y-%m-%d %H:%M:%S",
-                    },
-                },
-                "required": ["input_time"],
-            },
-        )
-        tools.append(convert_tool)
-
-        # Time difference tool
-        def time_difference(inputs: dict, context=None):
-            """Calculate time difference between two times"""
-            time1 = inputs.get("time1")
-            time2 = inputs.get("time2")
-            time1_format = inputs.get("time1_format", "iso")
-            time2_format = inputs.get("time2_format", "iso")
-            time1_timezone = inputs.get("time1_timezone", "UTC")
-            time2_timezone = inputs.get("time2_timezone", "UTC")
-            output_unit = inputs.get("output_unit", "seconds")
-
-            try:
-                # Parse first time
-                def parse_time(time_str: str, format_type: str, timezone_str: str) -> datetime.datetime:
-                    if format_type == "timestamp":
-                        dt = datetime.datetime.fromtimestamp(float(time_str), pytz.UTC)
-                    elif format_type == "timestamp_ms":
-                        dt = datetime.datetime.fromtimestamp(float(time_str) / 1000, pytz.UTC)
-                    elif format_type == "iso":
-                        dt = datetime.datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-                    else:
-                        # Try to parse with custom format
-                        tz = pytz.timezone(timezone_str) if timezone_str != "UTC" else pytz.UTC
-                        dt = datetime.datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-                        dt = tz.localize(dt)
-                    return dt
-
-                dt1 = parse_time(time1, time1_format, time1_timezone)
-                dt2 = parse_time(time2, time2_format, time2_timezone)
-
-                # Calculate difference
-                diff = abs((dt2 - dt1).total_seconds())
-
-                # Convert to requested unit
-                if output_unit == "seconds":
-                    result = str(int(diff))
-                elif output_unit == "minutes":
-                    result = str(round(diff / 60, 2))
-                elif output_unit == "hours":
-                    result = str(round(diff / 3600, 2))
-                elif output_unit == "days":
-                    result = str(round(diff / 86400, 2))
-                else:
-                    return {"error": f"Unknown output unit: {output_unit}"}
-
-                return {"result": f"{result} {output_unit}", "time1": time1, "time2": time2, "difference_seconds": diff}
-
-            except Exception as e:
-                return {"error": f"Error calculating time difference: {str(e)}"}
-
-        diff_tool = FunctionTool(
-            name="time_diff",
-            description="Calculate time difference between two times",
-            func=time_difference,
-            schema={
-                "type": "object",
-                "properties": {
-                    "time1": {"type": "string", "description": "First time string or timestamp"},
-                    "time2": {"type": "string", "description": "Second time string or timestamp"},
-                    "time1_format": {"type": "string", "description": "Format of first time", "default": "iso"},
-                    "time2_format": {"type": "string", "description": "Format of second time", "default": "iso"},
-                    "time1_timezone": {"type": "string", "description": "Timezone of first time", "default": "UTC"},
-                    "time2_timezone": {"type": "string", "description": "Timezone of second time", "default": "UTC"},
-                    "output_unit": {
-                        "type": "string",
-                        "enum": ["seconds", "minutes", "hours", "days"],
-                        "description": "Unit for the difference output",
-                        "default": "seconds",
-                    },
-                },
-                "required": ["time1", "time2"],
-            },
-        )
-        tools.append(diff_tool)
+        tools.append(time_tool)
 
         return tools
 
     def register_custom_tools(self):
-        """Register custom example tools"""
+        """注册自定义示例工具"""
         custom_tools = self.create_custom_tools()
         for tool in custom_tools:
             self.register_tool(tool)
         logger.info(f"Registered {len(custom_tools)} custom tools")
 
     def register_time_tools(self):
-        """Register time-related tools"""
+        """注册时间相关工具"""
         time_tools = self.create_time_tools()
         for tool in time_tools:
             self.register_tool(tool)
         logger.info(f"Registered {len(time_tools)} time tools")
 
 
-# Global function tool manager instance
-_function_tool_manager: Optional[FunctionToolManager] = None
+# 保持向后兼容性
+UnifiedToolManager = ToolManager
 
 
-def get_function_tool_manager() -> FunctionToolManager:
-    """Get the global function tool manager instance"""
-    global _function_tool_manager
-    if _function_tool_manager is None:
-        _function_tool_manager = FunctionToolManager()
-    return _function_tool_manager
+# 全局工具管理器实例
+_tool_manager: Optional[ToolManager] = None
+
+
+def get_tool_manager() -> ToolManager:
+    """获取全局工具管理器实例"""
+    global _tool_manager
+    if _tool_manager is None:
+        _tool_manager = ToolManager()
+    return _tool_manager
+
+
+# 保持向后兼容性
+def get_function_tool_manager() -> ToolManager:
+    """获取全局函数工具管理器实例（向后兼容）"""
+    return get_tool_manager()
