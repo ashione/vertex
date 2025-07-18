@@ -624,13 +624,15 @@ def _cleanup_mcp_processes():
             subprocess.run(["pkill", "-f", "server-filesystem"], check=False)
             subprocess.run(["pkill", "-f", "server-everything"], check=False)
             try:
-                logger.info("Cleaned up MCP server processes")
+                # avoid logger crash
+                print("Cleaned up MCP server processes")
             except (ValueError, OSError):
                 # 忽略日志文件已关闭的错误
                 pass
         except Exception as e:
             try:
-                logger.warning(f"Error during MCP cleanup: {e}")
+                # avoid logger crash
+                print(f"Error during MCP cleanup: {e}")
             except (ValueError, OSError):
                 # 忽略日志文件已关闭的错误
                 pass
