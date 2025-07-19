@@ -52,10 +52,17 @@ class ToolCallResult:
 
     def to_message(self) -> Dict[str, Any]:
         """转换为消息格式"""
+        # 确保content永远不为None
+        if self.success:
+            content = self.content if self.content is not None else ""
+        else:
+            error_content = self.error or self.content or "Unknown error"
+            content = f"Error: {error_content}"
+
         return {
             "role": "tool",
             "tool_call_id": self.tool_call_id,
-            "content": self.content if self.success else f"Error: {self.error or self.content}",
+            "content": content,
         }
 
 
@@ -87,18 +94,24 @@ class MCPToolExecutor(ToolExecutor):
 
     def can_handle(self, tool_name: str) -> bool:
         """判断是否为MCP工具"""
-        return tool_name.startswith("mcp_")
+        return tool_name is not None and tool_name.startswith("mcp_")
 
     def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
         """执行MCP工具调用"""
         try:
             if self._executor:
                 future = self._executor.submit(self._call_mcp_tool_async, tool_call)
-                result = future.result(timeout=30.0)
+                result_info = future.result(timeout=30.0)
             else:
-                result = self._call_mcp_tool_sync(tool_call)
+                result_info = self._call_mcp_tool_sync(tool_call)
 
-            return ToolCallResult(tool_call.id, result, success=True)
+            # result_info 现在是一个 (content, is_success) 元组
+            if isinstance(result_info, tuple):
+                content, is_success = result_info
+                return ToolCallResult(tool_call.id, content, success=is_success, error=None if is_success else content)
+            else:
+                # 向后兼容，如果返回的是字符串
+                return ToolCallResult(tool_call.id, result_info, success=True)
         except Exception as e:
             logger.error(f"Error executing MCP tool {tool_call.function.name}: {e}")
             return ToolCallResult(tool_call.id, str(e), success=False, error=str(e))
@@ -139,27 +152,51 @@ class MCPToolExecutor(ToolExecutor):
             else:
                 logger.info(f"MCP Tool Manager Result Debug - Result: None")
 
-            if result and result.content:
-                if isinstance(result.content, list):
-                    content_parts = []
-                    for item in result.content:
-                        if hasattr(item, "text"):
-                            content_parts.append(item.text)
-                        elif isinstance(item, dict) and "text" in item:
-                            content_parts.append(item["text"])
+            if result:
+                # 检查是否是错误结果
+                if hasattr(result, "isError") and result.isError:
+                    # 错误结果，提取错误信息
+                    error_msg = "MCP tool execution failed"
+                    if result.content:
+                        if isinstance(result.content, list):
+                            error_parts = []
+                            for item in result.content:
+                                if hasattr(item, "text"):
+                                    error_parts.append(item.text)
+                                elif isinstance(item, dict) and "text" in item:
+                                    error_parts.append(item["text"])
+                                else:
+                                    error_parts.append(str(item))
+                            error_msg = "\n".join(error_parts)
                         else:
-                            content_parts.append(str(item))
-                    return "\n".join(content_parts)
+                            error_msg = str(result.content)
+                    logger.warning(f"MCP tool {original_tool_name} failed: {error_msg}")
+                    return error_msg, False  # 返回 (content, is_success) 元组
+
+                # 成功结果，提取内容
+                if result.content:
+                    if isinstance(result.content, list):
+                        content_parts = []
+                        for item in result.content:
+                            if hasattr(item, "text"):
+                                content_parts.append(item.text)
+                            elif isinstance(item, dict) and "text" in item:
+                                content_parts.append(item["text"])
+                            else:
+                                content_parts.append(str(item))
+                        return "\n".join(content_parts), True  # 返回 (content, is_success) 元组
+                    else:
+                        return str(result.content), True  # 返回 (content, is_success) 元组
                 else:
-                    return str(result.content)
+                    return "Tool executed successfully but returned no content", True  # 返回 (content, is_success) 元组
             else:
-                return "Tool executed successfully but returned no content"
+                return "MCP tool execution returned no result", False  # 返回 (content, is_success) 元组
 
         except Exception as e:
             logger.error(f"Error in MCP tool execution: {e}")
             raise
 
-    def _call_mcp_tool_async(self, tool_call: RuntimeToolCall) -> str:
+    def _call_mcp_tool_async(self, tool_call: RuntimeToolCall) -> tuple:
         """异步调用MCP工具"""
         import asyncio
 
@@ -172,7 +209,7 @@ class MCPToolExecutor(ToolExecutor):
         finally:
             loop.close()
 
-    async def _execute_mcp_tool_async(self, tool_call: RuntimeToolCall) -> str:
+    async def _execute_mcp_tool_async(self, tool_call: RuntimeToolCall) -> tuple:
         """异步执行MCP工具"""
         # 这里可以实现真正的异步MCP调用
         # 目前先使用同步版本
@@ -187,7 +224,7 @@ class FunctionToolExecutor(ToolExecutor):
 
     def can_handle(self, tool_name: str) -> bool:
         """判断是否为函数工具"""
-        return tool_name in self.function_tools
+        return tool_name is not None and tool_name in self.function_tools
 
     def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
         """执行函数工具调用"""
@@ -196,19 +233,24 @@ class FunctionToolExecutor(ToolExecutor):
             function_tool = self.function_tools.get(tool_name)
 
             if not function_tool:
-                return ToolCallResult(
-                    tool_call.id, f"Function tool {tool_name} not found", success=False, error="Tool not found"
-                )
+                return ToolCallResult(tool_call.id, f"Function tool '{tool_name}' not found", success=False)
 
             # 解析参数
-            arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+            if isinstance(tool_call.function.arguments, str):
+                import json
+
+                arguments = json.loads(tool_call.function.arguments)
+            else:
+                arguments = tool_call.function.arguments
 
             # 执行函数
             result = function_tool.execute(arguments, context)
 
-            # 格式化结果
-            if isinstance(result, dict):
-                content = json.dumps(result, ensure_ascii=False, indent=2)
+            # 处理结果
+            if isinstance(result, dict) or isinstance(result, list):
+                import json
+
+                content = json.dumps(result, ensure_ascii=False)
             else:
                 content = str(result)
 
@@ -228,7 +270,7 @@ class RegularToolExecutor(ToolExecutor):
 
     def can_handle(self, tool_name: str) -> bool:
         """判断是否为常规工具"""
-        return not tool_name.startswith("mcp_")
+        return tool_name is not None and not tool_name.startswith("mcp_")
 
     def execute_tool_call(self, tool_call: RuntimeToolCall, context: WorkflowContext) -> ToolCallResult:
         """执行常规工具调用"""
@@ -304,7 +346,7 @@ class ToolManager:
 
             return {
                 "role": "assistant",
-                "content": content,
+                "content": content if content is not None else "",  # 确保content不为null
                 "tool_calls": [
                     {
                         "id": tool_call.id,
@@ -333,14 +375,54 @@ class ToolManager:
         tool_messages = []
 
         for tool_call in normalized_tool_calls:
-            # 确保有tool_call_id
-            if not tool_call.id:
+            # 确保有tool_call_id，处理None和空字符串
+            if not tool_call.id or tool_call.id is None:
                 import uuid
 
                 tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
 
+            # 检查工具名称是否有效
+            tool_name = tool_call.function.name if tool_call.function else None
+            if not tool_name:
+                # 尝试从arguments中恢复工具名称
+                arguments_str = tool_call.function.arguments if tool_call.function else ""
+                if arguments_str:
+                    import re
+
+                    # 尝试匹配常见的工具名称模式
+                    patterns = [
+                        r'"name":\s*"([^"]+)"',  # JSON中的name字段
+                        r"(mcp_[a-zA-Z_]+)",  # mcp_开头的工具名
+                        r"([a-zA-Z_]+_v\d+)",  # 版本化的工具名
+                        r"([a-zA-Z_]+_[a-zA-Z_]+)",  # 下划线分隔的工具名
+                    ]
+
+                    for pattern in patterns:
+                        match = re.search(pattern, arguments_str)
+                        if match:
+                            recovered_name = match.group(1)
+                            # 更新工具调用的名称
+                            if tool_call.function:
+                                tool_call.function.name = recovered_name
+                            tool_name = recovered_name
+                            logger.info(
+                                f"Recovered tool name '{recovered_name}' from arguments for tool call {tool_call.id}"
+                            )
+                            break
+
+                # 如果仍然没有工具名称，才跳过
+                if not tool_name:
+                    logger.warning(f"Tool call {tool_call.id} has no function name, skipping {tool_call.function}")
+                    error_msg = {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": "Error: Tool call has no function name",
+                    }
+                    tool_messages.append(error_msg)
+                    continue
+
             # 找到合适的执行器
-            executor = self._find_executor(tool_call.function.name)
+            executor = self._find_executor(tool_name)
 
             if executor:
                 # 执行工具调用
@@ -473,6 +555,55 @@ class ToolManager:
     def get_function_tools_as_dict(self) -> List[Dict[str, Any]]:
         """获取函数工具的字典格式列表"""
         return [tool.to_dict() for tool in self.function_tools.values()]
+
+    def get_tool_names(self) -> List[str]:
+        """获取所有工具名称列表"""
+        names = []
+        # 添加函数工具名称
+        names.extend(self.function_tools.keys())
+        # 添加MCP工具名称（如果有的话）
+        for executor in self.executors:
+            if hasattr(executor, "get_tool_names"):
+                names.extend(executor.get_tool_names())
+        return names
+
+    def execute_tool(self, tool_name: str, arguments: Dict[str, Any], context=None) -> Any:
+        """执行单个工具"""
+        # 查找函数工具
+        if tool_name in self.function_tools:
+            tool = self.function_tools[tool_name]
+            return tool.execute(arguments, context)
+
+        # 查找其他类型的工具
+        for executor in self.executors:
+            if executor.can_handle(tool_name):
+                # 创建模拟的RuntimeToolCall对象
+                mock_tool_call = type(
+                    "MockRuntimeToolCall",
+                    (),
+                    {
+                        "id": "mock_call_id",
+                        "function": type(
+                            "MockFunction",
+                            (),
+                            {
+                                "name": tool_name,
+                                "arguments": json.dumps(arguments) if isinstance(arguments, dict) else str(arguments),
+                            },
+                        )(),
+                    },
+                )()
+
+                # 创建WorkflowContext
+                from vertex_flow.workflow.context import WorkflowContext
+
+                if context is None:
+                    context = WorkflowContext()
+
+                result = executor.execute_tool_call(mock_tool_call, context)
+                return result.content
+
+        raise ValueError(f"Tool '{tool_name}' not found")
 
     def _register_default_tools(self):
         """注册默认工具"""

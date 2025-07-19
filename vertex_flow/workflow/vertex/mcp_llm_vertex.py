@@ -461,173 +461,10 @@ class MCPLLMVertex(LLMVertex):
         if not choice.message.tool_calls:
             return
 
-        # 使用统一工具管理器处理所有工具调用
-        success = self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
-
-        if not success:
-            logger.warning("Unified tool manager failed, falling back to original logic")
-            # 如果统一管理器失败，回退到原有逻辑
-            self._handle_tool_calls_fallback(choice, context)
-
-    def _handle_tool_calls_fallback(self, choice, context: WorkflowContext):
-        """原有的工具调用处理逻辑（作为回退）"""
-        # 统一转换tool_calls为对象格式
-        normalized_tool_calls = RuntimeToolCall.normalize_list(choice.message.tool_calls)
-
-        # 首先添加assistant消息（包含tool_calls）
-        tool_message = {
-            "role": "assistant",
-            "content": getattr(choice.message, "content", None),
-            "tool_calls": [
-                {
-                    "id": tool_call.id,
-                    "type": "function",
-                    "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
-                }
-                for tool_call in normalized_tool_calls
-            ],
-        }
-
-        logger.info(f"tool_message: {tool_message}")
-        self.messages.append(tool_message)
-
-        # 分离MCP工具和常规工具
-        mcp_tool_calls = []
-        regular_tool_calls = []
-
-        for tool_call in normalized_tool_calls:
-            function_name = tool_call.function.name
-            if function_name.startswith("mcp_"):
-                mcp_tool_calls.append(tool_call)
-            else:
-                regular_tool_calls.append(tool_call)
-
-        # 处理MCP工具调用
-        for tool_call in mcp_tool_calls:
-            try:
-                self._handle_mcp_tool_call(tool_call)
-            except Exception as e:
-                logger.error(f"Error handling MCP tool call: {e}")
-                self.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": f"Error calling MCP tool: {str(e)}",
-                    }
-                )
-
-        # 处理常规工具调用
-        if regular_tool_calls:
-            # 创建包含常规工具调用的choice对象，但不重复添加assistant消息
-            runtime_tool_calls = RuntimeToolCall.normalize_list(regular_tool_calls)
-
-            class MockChoice:
-                def __init__(self, original_choice, filtered_tool_calls):
-                    self.finish_reason = "tool_calls"
-                    self.message = type(
-                        "MockMessage",
-                        (),
-                        {"tool_calls": filtered_tool_calls, "role": "assistant", "content": None},
-                    )()
-
-            mock_choice = MockChoice(choice, runtime_tool_calls)
-
-            # 临时保存当前消息长度，避免重复添加assistant消息
-            original_length = len(self.messages)
-            super()._handle_tool_calls(mock_choice, context)
-
-            # 如果父类添加了重复的assistant消息，移除它
-            if len(self.messages) > original_length:
-                for i in range(original_length, len(self.messages)):
-                    if self.messages[i].get("role") == "assistant" and "tool_calls" in self.messages[i]:
-                        self.messages.pop(i)
-                        break
-        else:
-            logger.info(f"Only MCP tool calls processed, letting stream continue naturally")
-
-    def _handle_mcp_tool_call(self, tool_call):
-        """Handle a single MCP tool call"""
-        try:
-            # Use thread pool to run async operation
-            future = self._executor.submit(self._call_mcp_tool_async, tool_call)
-            result = future.result(timeout=30.0)  # 30 second timeout for tool calls
-
-            # Add tool result to messages
-            self.messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
-
-        except Exception as e:
-            logger.error(f"Error calling MCP tool {tool_call.function.name}: {e}")
-            # Add error message
-            self.messages.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": f"Error calling tool: {str(e)}"}
-            )
-
-    def _call_mcp_tool_async(self, tool_call) -> str:
-        """Call MCP tool asynchronously"""
-        if not MCP_AVAILABLE:
-            return "MCP functionality not available"
-
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            return loop.run_until_complete(self._execute_mcp_tool(tool_call))
-        finally:
-            loop.close()
-
-    async def _execute_mcp_tool(self, tool_call) -> str:
-        """Execute MCP tool call"""
-        try:
-            # Parse the tool call - 现在tool_call一定是对象格式
-            tool_name = tool_call.function.name
-            arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-
-            # Remove the mcp_ prefix to get the original tool name
-            if tool_name.startswith("mcp_"):
-                original_tool_name = tool_name[4:]  # Remove "mcp_" prefix
-            else:
-                original_tool_name = tool_name
-
-            logger.info(f"Executing MCP tool: {original_tool_name} with arguments: {arguments}")
-            logger.info(f"MCP Tool Call Debug - Tool Name: {original_tool_name}")
-            logger.info(f"MCP Tool Call Debug - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
-            logger.info(f"MCP Tool Call Debug - Tool Call ID: {tool_call.id}")
-
-            # Call the MCP tool
-            mcp_manager = get_mcp_manager()
-            result = mcp_manager.call_tool(original_tool_name, arguments)
-
-            logger.info(f"MCP Tool Result Debug - Tool Name: {original_tool_name}")
-            logger.info(f"MCP Tool Result Debug - Result Type: {type(result)}")
-            if result:
-                logger.info(f"MCP Tool Result Debug - Content Type: {type(result.content)}")
-                logger.info(f"MCP Tool Result Debug - Content: {result.content}")
-                if hasattr(result, "__dict__"):
-                    logger.info(f"MCP Tool Result Debug - Attributes: {result.__dict__}")
-            else:
-                logger.info("MCP Tool Result Debug - Result: None")
-
-            if result and result.content:
-                if isinstance(result.content, list):
-                    # Handle list of content items
-                    content_parts = []
-                    for item in result.content:
-                        if hasattr(item, "text"):
-                            content_parts.append(item.text)
-                        elif isinstance(item, dict) and "text" in item:
-                            content_parts.append(item["text"])
-                        else:
-                            content_parts.append(str(item))
-                    return "\n".join(content_parts)
-                else:
-                    return str(result.content)
-            else:
-                return f"MCP tool {original_tool_name} executed successfully but returned no content"
-
-        except Exception as e:
-            logger.error(f"Error executing MCP tool {tool_name}: {e}")
-            return f"Error executing MCP tool {tool_name}: {str(e)}"
+        # 直接使用父类的工具调用处理机制
+        # 父类已经使用统一工具管理器，而统一工具管理器支持MCP工具
+        # 这样MCP工具调用也能获得完整的事件发送和格式化功能
+        super()._handle_tool_calls(choice, context)
 
     # === Streaming Support ===
 
@@ -645,18 +482,22 @@ class MCPLLMVertex(LLMVertex):
     ) -> Generator[str, None, None]:
         """Stream chat with tool calling support"""
         try:
-            # Use the model's streaming with tools
+            # 确保在流式模式下运行
             if hasattr(self.model, "chat_stream"):
                 for chunk in self.model.chat_stream(self.messages, tools=tools):
                     yield chunk
             else:
-                # Fallback for models without streaming support
-                response = self.model.chat(self.messages, tools=tools)
-                yield str(response)
+                # 如果模型不支持流式，说明调用方有问题，应该报错而不是回退
+                error_msg = (
+                    f"Model {self.model.__class__.__name__} does not support streaming, but streaming was requested"
+                )
+                logger.error(error_msg)
+                yield error_msg
 
         except Exception as e:
             logger.error(f"Error in streaming with tools: {e}")
-            yield f"Error: {str(e)}"
+            # 在流式模式下优雅处理错误，不回退到非流式
+            yield f"流式处理遇到错误: {str(e)}"
 
     # === MCP Utility Methods ===
 

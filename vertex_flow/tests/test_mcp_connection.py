@@ -22,9 +22,9 @@ class TestMCPConnection:
     """MCP连接测试类"""
 
     @pytest.fixture(autouse=True)
-    def setup_method(self):
+    def setup_method(self, test_config):
         """测试方法设置"""
-        self.config_path = default_config_path("llm.yml")
+        self.config_path = test_config
         self.vertex_service = VertexFlowService(self.config_path)
 
     @pytest.mark.asyncio
@@ -35,7 +35,10 @@ class TestMCPConnection:
         # 获取MCP客户端
         mcp_clients = self.vertex_service.mcp_clients
         assert mcp_clients is not None, "MCP客户端未初始化"
-        assert len(mcp_clients) > 0, "没有可用的MCP客户端"
+
+        # 如果没有配置MCP客户端，跳过测试
+        if len(mcp_clients) == 0:
+            pytest.skip("没有配置MCP客户端，跳过连接测试")
 
         # 测试每个客户端的连接状态
         for client_name, client in mcp_clients.items():
@@ -65,6 +68,10 @@ class TestMCPConnection:
         # 获取MCP客户端
         mcp_clients = self.vertex_service.mcp_clients
         assert mcp_clients is not None, "MCP客户端未初始化"
+
+        # 如果没有配置MCP客户端，跳过测试
+        if len(mcp_clients) == 0:
+            pytest.skip("没有配置MCP客户端，跳过工具测试")
 
         total_tools = 0
 
@@ -103,6 +110,10 @@ class TestMCPConnection:
         # 获取MCP客户端
         mcp_clients = self.vertex_service.mcp_clients
         assert mcp_clients is not None, "MCP客户端未初始化"
+
+        # 如果没有配置MCP客户端，跳过测试
+        if len(mcp_clients) == 0:
+            pytest.skip("没有配置MCP客户端，跳过资源测试")
 
         total_resources = 0
 
@@ -145,6 +156,10 @@ class TestMCPConnection:
         # 检查MCP客户端是否存在
         mcp_clients = self.vertex_service.mcp_clients
         assert mcp_clients is not None, "MCP客户端字典为空"
+
+        # 如果没有配置MCP客户端，跳过测试
+        if len(mcp_clients) == 0:
+            pytest.skip("没有配置MCP客户端，跳过初始化测试")
 
         # 记录客户端信息
         logger.info(f"发现 {len(mcp_clients)} 个MCP客户端:")

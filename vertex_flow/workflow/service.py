@@ -1022,6 +1022,16 @@ class VertexFlowService:
         )
 
     # MCP related methods
+    @property
+    def mcp_clients(self):
+        """Get MCP clients dictionary"""
+        try:
+            mcp_manager = self.get_mcp_manager()
+            return mcp_manager.clients if mcp_manager else {}
+        except Exception as e:
+            logging.error(f"Error getting MCP clients: {e}")
+            return {}
+
     def get_mcp_manager(self):
         """Get MCP manager instance"""
         if not MCP_AVAILABLE:

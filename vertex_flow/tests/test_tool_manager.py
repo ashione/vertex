@@ -58,6 +58,60 @@ class TestUnifiedToolManager(unittest.TestCase):
         self.assertTrue(executor.can_handle("mcp_test_tool"))
         self.assertFalse(executor.can_handle("regular_tool"))
 
+    @patch("vertex_flow.workflow.mcp_manager.get_mcp_manager")
+    def test_mcp_tool_executor_error_handling(self, mock_get_mcp_manager):
+        """测试MCPToolExecutor的错误处理机制"""
+
+        # 创建执行器
+        executor = MCPToolExecutor()
+
+        # 创建工具调用对象
+        tool_call_dict = {
+            "id": "call_test_error",
+            "type": "function",
+            "function": {"name": "mcp_error_tool", "arguments": '{"test": "value"}'},
+        }
+        tool_call = RuntimeToolCall(tool_call_dict)
+
+        # 场景1：测试MCP工具返回错误结果
+        mock_manager = Mock()
+        mock_error_result = Mock()
+        mock_error_result.content = [{"type": "text", "text": "Tool execution failed: Invalid arguments"}]
+        mock_error_result.isError = True
+        mock_manager.call_tool.return_value = mock_error_result
+        mock_get_mcp_manager.return_value = mock_manager
+
+        result = executor.execute_tool_call(tool_call, self.context)
+
+        # 验证错误结果的正确处理
+        self.assertFalse(result.success)  # 应该标记为失败
+        self.assertEqual(result.tool_call_id, "call_test_error")
+        self.assertIn("Tool execution failed: Invalid arguments", result.content)
+
+        # 验证错误消息格式
+        message = result.to_message()
+        self.assertEqual(message["role"], "tool")
+        self.assertEqual(message["tool_call_id"], "call_test_error")
+        self.assertIn("Error:", message["content"])  # 应该有Error前缀
+
+        # 场景2：测试MCP工具返回成功结果
+        mock_success_result = Mock()
+        mock_success_result.content = [{"type": "text", "text": "Operation completed successfully"}]
+        mock_success_result.isError = False
+        mock_manager.call_tool.return_value = mock_success_result
+
+        result = executor.execute_tool_call(tool_call, self.context)
+
+        # 验证成功结果的正确处理
+        self.assertTrue(result.success)  # 应该标记为成功
+        self.assertEqual(result.tool_call_id, "call_test_error")
+        self.assertEqual(result.content, "Operation completed successfully")
+
+        # 验证成功消息格式
+        message = result.to_message()
+        self.assertEqual(message["role"], "tool")
+        self.assertEqual(message["content"], "Operation completed successfully")  # 没有Error前缀
+
     def test_regular_tool_executor_can_handle(self):
         """测试常规工具执行器的工具识别"""
         executor = RegularToolExecutor()
@@ -94,7 +148,7 @@ class TestUnifiedToolManager(unittest.TestCase):
         result = manager_no_caller.create_assistant_message(tool_calls)
 
         self.assertEqual(result["role"], "assistant")
-        self.assertIsNone(result["content"])
+        self.assertEqual(result["content"], "")  # 现在应该是空字符串而不是None
         self.assertEqual(len(result["tool_calls"]), 1)
         self.assertEqual(result["tool_calls"][0]["id"], "call_123")
         self.assertEqual(result["tool_calls"][0]["function"]["name"], "test_tool")
@@ -131,6 +185,7 @@ class TestUnifiedToolManager(unittest.TestCase):
         mock_manager = Mock()
         mock_result = Mock()
         mock_result.content = "MCP tool result"
+        mock_result.isError = False  # 标记为成功结果
         mock_manager.call_tool.return_value = mock_result
         mock_get_mcp_manager.return_value = mock_manager
 
@@ -143,6 +198,102 @@ class TestUnifiedToolManager(unittest.TestCase):
 
         # 验证MCP工具被正确调用（移除mcp_前缀）
         mock_manager.call_tool.assert_called_once_with("test_tool", {"param": "value"})
+
+    @patch("vertex_flow.workflow.mcp_manager.get_mcp_manager")
+    def test_execute_tool_calls_with_mcp_tool_error(self, mock_get_mcp_manager):
+        """测试执行MCP工具调用失败的情况"""
+        tool_calls = [
+            {
+                "id": "call_error",
+                "type": "function",
+                "function": {"name": "mcp_failing_tool", "arguments": '{"param": "value"}'},
+            }
+        ]
+
+        # 模拟MCP管理器返回错误结果
+        mock_manager = Mock()
+        mock_error_result = Mock()
+        mock_error_result.content = [{"type": "text", "text": "MCP Error: Required parameter missing"}]
+        mock_error_result.isError = True  # 标记为错误结果
+        mock_manager.call_tool.return_value = mock_error_result
+        mock_get_mcp_manager.return_value = mock_manager
+
+        results = self.manager.execute_tool_calls(tool_calls, self.context)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["role"], "tool")
+        self.assertEqual(results[0]["tool_call_id"], "call_error")
+        # 验证错误消息格式：应该包含 "Error:" 前缀
+        self.assertIn("Error:", results[0]["content"])
+        self.assertIn("MCP Error: Required parameter missing", results[0]["content"])
+
+        # 验证MCP工具被正确调用
+        mock_manager.call_tool.assert_called_once_with("failing_tool", {"param": "value"})
+
+    @patch("vertex_flow.workflow.mcp_manager.get_mcp_manager")
+    def test_execute_tool_calls_with_mcp_tool_complex_error(self, mock_get_mcp_manager):
+        """测试执行MCP工具调用复杂错误情况"""
+        tool_calls = [
+            {
+                "id": "call_complex_error",
+                "type": "function",
+                "function": {"name": "mcp_complex_tool", "arguments": "{}"},
+            }
+        ]
+
+        # 模拟MCP管理器返回复杂错误结果
+        mock_manager = Mock()
+        mock_error_result = Mock()
+        mock_error_result.content = [
+            {"type": "text", "text": "Validation failed"},
+            {"type": "text", "text": "Parameter 'required_field' is missing"},
+        ]
+        mock_error_result.isError = True
+        mock_manager.call_tool.return_value = mock_error_result
+        mock_get_mcp_manager.return_value = mock_manager  # 这里应该返回mock_manager而不是mock_error_result
+
+        results = self.manager.execute_tool_calls(tool_calls, self.context)
+
+        self.assertEqual(len(results), 1)
+        result_message = results[0]
+
+        self.assertEqual(result_message["role"], "tool")
+        self.assertEqual(result_message["tool_call_id"], "call_complex_error")
+
+        # 验证复杂错误消息被正确合并和格式化
+        content = result_message["content"]
+        self.assertIn("Error:", content)
+        self.assertIn("Validation failed", content)
+        self.assertIn("Parameter 'required_field' is missing", content)
+
+    @patch("vertex_flow.workflow.mcp_manager.get_mcp_manager")
+    def test_execute_tool_calls_with_mcp_tool_no_content(self, mock_get_mcp_manager):
+        """测试MCP工具返回空内容的情况"""
+        tool_calls = [
+            {
+                "id": "call_empty",
+                "type": "function",
+                "function": {"name": "mcp_empty_tool", "arguments": "{}"},
+            }
+        ]
+
+        # 模拟MCP管理器返回空内容的成功结果
+        mock_manager = Mock()
+        mock_empty_result = Mock()
+        mock_empty_result.content = []  # 空内容
+        mock_empty_result.isError = False
+        mock_manager.call_tool.return_value = mock_empty_result
+        mock_get_mcp_manager.return_value = mock_manager
+
+        results = self.manager.execute_tool_calls(tool_calls, self.context)
+
+        self.assertEqual(len(results), 1)
+        result_message = results[0]
+
+        self.assertEqual(result_message["role"], "tool")
+        self.assertEqual(result_message["tool_call_id"], "call_empty")
+        # 应该返回默认的成功消息
+        self.assertEqual(result_message["content"], "Tool executed successfully but returned no content")
 
     def test_handle_tool_calls_complete(self):
         """测试完整的工具调用处理"""

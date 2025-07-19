@@ -33,7 +33,7 @@ from vertex_flow.workflow.constants import (
     VERTEX_ID_KEY,
 )
 from vertex_flow.workflow.event_channel import EventType
-from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall
+from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall, create_tool_caller
 from vertex_flow.workflow.tools.tool_manager import ToolManager
 from vertex_flow.workflow.utils import (
     compatiable_env_str,
@@ -85,7 +85,17 @@ class LLMVertex(Vertex[T]):
         self.usage_history = []  # 添加usage历史记录，用于多轮对话统计
 
         # 初始化统一工具管理器
-        self.unified_tool_manager = ToolManager(tool_caller, tools or [])
+        self.tool_manager = ToolManager(tool_caller, tools or [])
+
+        # 如果没有传入tool_caller，则根据模型提供商创建默认的tool_caller
+        if self.tool_caller is None and self.model:
+            provider = getattr(self.model, "provider", "openai")
+            self.tool_caller = create_tool_caller(provider, self.tools)
+
+        # 为模型设置统一工具管理器
+        if self.model:
+            if not self.model.tool_manager:
+                self.model.tool_manager = self.tool_manager
 
         if task is None:
             logging.info("Use llm chat in task executing.")
@@ -298,14 +308,29 @@ class LLMVertex(Vertex[T]):
         llm_tools = self._build_llm_tools()
 
         # Handle tool calls in a loop
-        while finish_reason is None or finish_reason == "tool_calls":
+        max_iterations = 10  # 防止无限循环
+        iteration_count = 0
+
+        while (finish_reason is None or finish_reason == "tool_calls") and iteration_count < max_iterations:
+            iteration_count += 1
             choice = self.model.chat(self.messages, option=option, tools=llm_tools)
             finish_reason = choice.finish_reason
 
             if finish_reason == "tool_calls":
                 # Handle tool calls
-                logging.info(f"LLM {self.id} wants to call tools")
-                self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+                logging.info(f"LLM {self.id} wants to call tools (iteration {iteration_count})")
+
+                # 检查是否有工具调用
+                if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
+                    # 使用统一工具管理器处理工具调用
+                    success = self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+                    if not success:
+                        logging.warning(f"Tool call handling failed for LLM {self.id}")
+                        break
+                else:
+                    logging.warning(f"No tool calls found in choice for LLM {self.id}")
+                    break
+
                 # Reset finish_reason to continue the loop and get the final response after tool calls
                 finish_reason = None
                 continue
@@ -320,6 +345,12 @@ class LLMVertex(Vertex[T]):
 
                 logging.debug(f"chat bot response : {result}")
                 return result
+
+        if iteration_count >= max_iterations:
+            logging.error(f"LLM {self.id} exceeded maximum iterations ({max_iterations}), stopping")
+            return "Error: Maximum tool call iterations exceeded"
+
+        return "Error: Unexpected end of chat loop"
 
     def chat_stream_generator(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         """返回流式输出的生成器，支持reasoning和工具调用"""
@@ -369,6 +400,9 @@ class LLMVertex(Vertex[T]):
         统一的流式核心逻辑，支持reasoning和工具调用
         根据emit_events参数决定是否发送事件
         """
+        # 标记我们正在流式模式下运行
+        is_streaming_mode = True
+
         try:
             # Build LLM options
             option = self._build_llm_option(inputs, context)
@@ -382,8 +416,8 @@ class LLMVertex(Vertex[T]):
                 enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
                 message_type = MESSAGE_TYPE_REASONING if enable_reasoning else MESSAGE_TYPE_REGULAR
 
-                # 优先使用流式模式
-                if hasattr(self.model, "chat_stream"):
+                # 在流式模式下，坚持使用流式处理
+                if is_streaming_mode and hasattr(self.model, "chat_stream"):
                     try:
                         # 使用流式模式
                         stream_option = option.copy() if option else {}
@@ -410,7 +444,11 @@ class LLMVertex(Vertex[T]):
                             logging.info(f"Found {len(pending_tool_calls)} pending tool calls, processing directly")
 
                             # 使用统一工具管理器执行工具调用
-                            tool_messages = self.unified_tool_manager.execute_tool_calls(pending_tool_calls, context)
+                            tool_messages = self.tool_manager.execute_tool_calls(pending_tool_calls, context)
+                            # 确保所有工具消息的content不为null
+                            for tool_msg in tool_messages:
+                                if tool_msg.get("content") is None:
+                                    tool_msg["content"] = ""
                             self.messages.extend(tool_messages)
 
                             # 继续循环以获取最终响应
@@ -452,7 +490,11 @@ class LLMVertex(Vertex[T]):
                                 logging.info(f"LLM {self.id} executing {len(new_tool_calls)} tools after streaming")
 
                                 # 使用统一工具管理器执行工具调用
-                                tool_messages = self.unified_tool_manager.execute_tool_calls(new_tool_calls, context)
+                                tool_messages = self.tool_manager.execute_tool_calls(new_tool_calls, context)
+                                # 确保所有工具消息的content不为null
+                                for tool_msg in tool_messages:
+                                    if tool_msg.get("content") is None:
+                                        tool_msg["content"] = ""
                                 self.messages.extend(tool_messages)
 
                                 # 继续循环以获取最终响应或处理更多工具调用
@@ -510,12 +552,24 @@ class LLMVertex(Vertex[T]):
                                         finish_reason = "stop"
 
                     except Exception as stream_error:
-                        # 流式处理失败，回退到非流式模式
-                        logging.warning(f"Streaming failed, falling back to non-streaming: {stream_error}")
-                        finish_reason = "tool_calls"  # 强制使用非流式模式
+                        # 流式处理失败，记录错误但继续流式模式
+                        logging.error(f"Streaming error occurred: {stream_error}")
+                        import traceback
 
-                # 非流式模式处理（包括工具调用和回退）
-                if finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream"):
+                        logging.error(f"Streaming error details: {traceback.format_exc()}")
+
+                        # 在流式模式下优雅地处理错误
+                        error_message = f"流式处理遇到错误: {str(stream_error)}"
+                        if emit_events and self.workflow:
+                            self.workflow.emit_event(
+                                EventType.MESSAGES,
+                                {VERTEX_ID_KEY: self.id, CONTENT_KEY: error_message, TYPE_KEY: message_type},
+                            )
+                        yield error_message
+                        finish_reason = "stop"  # 结束当前循环，不回退到非流式
+
+                # 非流式模式处理（仅在明确非流式模式下使用）
+                if not is_streaming_mode and (finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream")):
                     if llm_tools:
                         choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                         finish_reason = choice.finish_reason
@@ -523,7 +577,7 @@ class LLMVertex(Vertex[T]):
                         if finish_reason == "tool_calls":
                             # Handle tool calls
                             logging.info(f"LLM {self.id} wants to call tools")
-                            self.unified_tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+                            self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
                             # Get the response after tool calls (may contain more tool calls)
                             final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                             finish_reason = final_choice.finish_reason
@@ -610,10 +664,10 @@ class LLMVertex(Vertex[T]):
             self.tool_caller.tools = self.tools
 
         # 初始化或更新统一工具管理器
-        if not hasattr(self, "unified_tool_manager"):
-            self.unified_tool_manager = ToolManager(self.tool_caller, self.tools)
+        if not hasattr(self, "tool_manager"):
+            self.tool_manager = ToolManager(self.tool_caller, self.tools)
         else:
-            self.unified_tool_manager.update_tools(self.tools)
+            self.tool_manager.update_tools(self.tools)
 
         return [
             {
@@ -655,9 +709,10 @@ class LLMVertex(Vertex[T]):
 
     async def _handle_tool_calls_async(self, choice, context):
         # Convert ChatCompletionMessage to dict format
+        content = choice.message.content
         message_dict = {
             "role": choice.message.role,
-            "content": choice.message.content,
+            "content": content if content is not None else "",  # 确保content不为null
         }
         # Add tool_calls if present
         if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
@@ -684,22 +739,25 @@ class LLMVertex(Vertex[T]):
                     break
             else:
                 # 未找到tool
+                error_content = json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'")
                 self.messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": tool_call.function.name,
-                        "content": json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'"),
+                        "content": error_content if error_content is not None else "",
                     }
                 )
         results = await asyncio.gather(*tasks) if tasks else []
         for tool_call, tool_result in results:
+            # 确保content不为null
+            content = json.dumps(tool_result)
             self.messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
                     "name": tool_call.function.name,
-                    "content": json.dumps(tool_result),
+                    "content": content if content is not None else "",
                 }
             )
 
@@ -711,12 +769,18 @@ class LLMVertex(Vertex[T]):
             if tool_calls:
                 # 添加assistant消息
                 assistant_message = self.tool_caller.create_assistant_message(tool_calls)
+                # 确保assistant消息的content不为null
+                if assistant_message.get("content") is None:
+                    assistant_message["content"] = ""
                 self.messages.append(assistant_message)
 
                 # 执行工具调用
                 tool_messages = self.tool_caller.execute_tool_calls_sync(tool_calls, context)
 
-                # 添加工具响应消息
+                # 添加工具响应消息 - 确保所有工具消息的content不为null
+                for tool_msg in tool_messages:
+                    if tool_msg.get("content") is None:
+                        tool_msg["content"] = ""
                 self.messages.extend(tool_messages)
             return
 
