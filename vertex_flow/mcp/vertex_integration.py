@@ -63,9 +63,9 @@ class VertexFlowMCPToolProvider(MCPToolProvider):
         # Initialize tool manager if requested
         if self.use_tool_manager:
             try:
-                from vertex_flow.workflow.tools.tool_manager import get_function_tool_manager
+                from vertex_flow.workflow.tools.tool_manager import get_tool_manager
 
-                self._tool_manager = get_function_tool_manager()
+                self._tool_manager = get_tool_manager()
                 logger.info("VertexFlowMCPToolProvider initialized with tool manager")
             except ImportError:
                 logger.warning("Tool manager not available, using local tool storage")
