@@ -671,10 +671,7 @@ class LLMVertex(Vertex[T]):
                                     max_retry = 2
                                     retry_count = 0
                                     while retry_count < max_retry and not content:
-                                        self.messages.append({
-                                            "role": "user",
-                                            "content": "请根据工具结果继续总结"
-                                        })
+                                        self.messages.append({"role": "user", "content": "请根据工具结果继续总结"})
                                         retry_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                                         content = retry_choice.message.content or ""
                                         retry_count += 1

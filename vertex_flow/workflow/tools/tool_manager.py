@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 try:
     import pytz
+
     HAS_PYTZ = True
 except ImportError:
     HAS_PYTZ = False

@@ -67,7 +67,7 @@ def test_runtime_tool_call_edge_cases():
         empty_id_tool_call = {
             "id": "",
             "type": "function",
-            "function": {"name": "test_tool", "arguments": '{}'},
+            "function": {"name": "test_tool", "arguments": "{}"},
         }
         runtime_call = RuntimeToolCall(empty_id_tool_call)
         print(f"✓ 空ID自动生成: {runtime_call.id}")
@@ -77,7 +77,7 @@ def test_runtime_tool_call_edge_cases():
         none_id_tool_call = {
             "id": None,
             "type": "function",
-            "function": {"name": "test_tool", "arguments": '{}'},
+            "function": {"name": "test_tool", "arguments": "{}"},
         }
         runtime_call = RuntimeToolCall(none_id_tool_call)
         print(f"✓ None ID自动生成: {runtime_call.id}")
@@ -105,7 +105,9 @@ def test_runtime_tool_call_edge_cases():
         assert runtime_call.function.arguments == "{}"
 
         # 测试normalize处理已存在的对象
-        existing_runtime_call = RuntimeToolCall({"id": "call_existing", "type": "function", "function": {"name": "existing", "arguments": "{}"}})
+        existing_runtime_call = RuntimeToolCall(
+            {"id": "call_existing", "type": "function", "function": {"name": "existing", "arguments": "{}"}}
+        )
         normalized = RuntimeToolCall.normalize(existing_runtime_call)
         print("✓ normalize处理已存在的对象正常")
         assert normalized is existing_runtime_call
@@ -160,24 +162,24 @@ def test_tool_caller_providers():
 
     try:
         providers = ["openai", "tongyi", "deepseek", "ollama", "openrouter", "doubao", "other", "unknown"]
-        
+
         for provider in providers:
             tool_caller = create_tool_caller(provider)
             print(f"✓ {provider} 工具调用器创建: {type(tool_caller).__name__}")
-            
+
             # 测试基本功能
             streaming_support = tool_caller.can_handle_streaming()
             print(f"  - 流式支持: {streaming_support}")
-            
+
             # 测试工具调用提取
             mock_chunk = Mock()
             mock_chunk.choices = [Mock()]
             mock_chunk.choices[0].delta = Mock()
             mock_chunk.choices[0].delta.tool_calls = None
-            
+
             tool_calls = tool_caller.extract_tool_calls_from_stream(mock_chunk)
             print(f"  - 流式提取测试: {len(tool_calls)} calls")
-            
+
             # 特殊检查Ollama的流式支持
             if provider == "ollama":
                 assert not streaming_support, "Ollama不应该支持流式工具调用"
@@ -217,7 +219,7 @@ def test_streaming_tool_call_fragments():
             print(f"  - 参数: {merged_call['function']['arguments']}")
 
             # 验证参数可以解析
-            args = json.loads(merged_call['function']['arguments'])
+            args = json.loads(merged_call["function"]["arguments"])
             print(f"  - 解析后参数: {args}")
             assert args["a"] == 2
             assert args["b"] == 3
@@ -299,14 +301,16 @@ def test_async_tool_calls():
 
         async def run_async_test():
             tool_caller = OpenAIToolCaller()
-            
+
             # 模拟工具列表
-            tools = [
-                {"type": "function", "function": {"name": "async_tool", "description": "An async tool"}}
-            ]
-            
+            tools = [{"type": "function", "function": {"name": "async_tool", "description": "An async tool"}}]
+
             tool_calls = [
-                {"id": "call_async_123", "type": "function", "function": {"name": "async_tool", "arguments": '{"param": "value"}'}}
+                {
+                    "id": "call_async_123",
+                    "type": "function",
+                    "function": {"name": "async_tool", "arguments": '{"param": "value"}'},
+                }
             ]
 
             # 测试异步执行（这里模拟）
@@ -349,14 +353,22 @@ def test_tool_call_validation():
 
         # 测试有效参数
         valid_tool_calls = [
-            {"id": "call_valid", "type": "function", "function": {"name": "valid_tool", "arguments": '{"param": "value"}'}}
+            {
+                "id": "call_valid",
+                "type": "function",
+                "function": {"name": "valid_tool", "arguments": '{"param": "value"}'},
+            }
         ]
         assistant_msg = tool_caller.create_assistant_message(valid_tool_calls)
         print(f"✓ 有效参数处理: {len(assistant_msg['tool_calls'])} calls")
 
         # 测试无效JSON参数
         invalid_json_calls = [
-            {"id": "call_invalid", "type": "function", "function": {"name": "invalid_tool", "arguments": '{"invalid": json}'}}
+            {
+                "id": "call_invalid",
+                "type": "function",
+                "function": {"name": "invalid_tool", "arguments": '{"invalid": json}'},
+            }
         ]
         try:
             assistant_msg = tool_caller.create_assistant_message(invalid_json_calls)
