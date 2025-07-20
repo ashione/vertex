@@ -400,9 +400,6 @@ class LLMVertex(Vertex[T]):
         统一的流式核心逻辑，支持reasoning和工具调用
         根据emit_events参数决定是否发送事件
         """
-        # 根据配置参数决定是否启用流式模式
-        is_streaming_mode = self.enable_stream
-
         try:
             # Build LLM options
             option = self._build_llm_option(inputs, context)
@@ -417,7 +414,7 @@ class LLMVertex(Vertex[T]):
                 message_type = MESSAGE_TYPE_REASONING if enable_reasoning else MESSAGE_TYPE_REGULAR
 
                 # 在流式模式下，坚持使用流式处理
-                if is_streaming_mode and hasattr(self.model, "chat_stream"):
+                if self.enable_stream and hasattr(self.model, "chat_stream"):
                     try:
                         # 使用流式模式
                         stream_option = option.copy() if option else {}
@@ -569,7 +566,7 @@ class LLMVertex(Vertex[T]):
                         finish_reason = "stop"  # 结束当前循环，不回退到非流式
 
                 # 非流式模式处理（仅在明确非流式模式下使用）
-                if not is_streaming_mode and (finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream")):
+                if not self.enable_stream and (finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream")):
                     if llm_tools:
                         choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                         finish_reason = choice.finish_reason
