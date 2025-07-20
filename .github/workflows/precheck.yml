@@ -1,0 +1,196 @@
+name: Precheck
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main, develop, master, release* ]
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install formatting tools
+      run: |
+        python -m pip install --upgrade pip
+        # 强制安装指定版本的格式化工具，确保与本地环境一致
+        pip install flake8==7.2.0 black==25.1.0 isort==6.0.1 autopep8==2.3.2
+    
+    - name: Check Python code formatting
+      run: |
+        # 设置系统编码和换行符，确保Ubuntu和macOS一致
+        export PYTHONIOENCODING=utf-8
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+        
+        # 配置git换行符处理
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+        
+        # 显示当前工作目录和文件结构
+        echo "🔍 Current working directory: $(pwd)"
+        echo "📁 Scripts directory:"
+        ls -la scripts/
+        
+        # 检查格式化工具版本
+        echo "🔧 Checking formatting tool versions:"
+        python -c "import flake8; print(f'flake8: {flake8.__version__}')"
+        python -c "import black; print(f'black: {black.__version__}')"
+        python -c "import isort; print(f'isort: {isort.__version__}')"
+        python -c "import autopep8; print(f'autopep8: {autopep8.__version__}')"
+        
+        # 检查.flake8文件是否存在
+        if [ -f ".flake8" ]; then
+          echo "✅ .flake8 file found"
+          cat .flake8
+        else
+          echo "❌ .flake8 file not found"
+          exit 1
+        fi
+        
+        # 检查precommit.sh脚本是否存在
+        if [ -f "scripts/precommit.sh" ]; then
+          echo "✅ precommit.sh script found"
+          chmod +x scripts/precommit.sh
+        else
+          echo "❌ precommit.sh script not found"
+          exit 1
+        fi
+        
+        # 运行precommit脚本
+        bash scripts/precommit.sh
+        
+        # 检查是否有格式化后的diff
+        if ! git diff --exit-code -- '*.py'; then
+          echo "❌ 代码格式不规范，请先在本地运行 bash scripts/precommit.sh 并提交格式化后的代码。"
+          echo "📊 格式化差异详情:"
+          git diff --stat -- '*.py'
+          exit 1
+        fi
+    
+    - name: 配置文件脱敏检查
+      run: |
+        echo "🔧 检查配置文件是否已脱敏..."
+        
+        # 运行脱敏脚本检查
+        if [ -f "scripts/sanitize_config.py" ]; then
+          python3 scripts/sanitize_config.py
+          
+          # 检查是否有未脱敏的文件 - 检查两个配置目录
+          CONFIG_CHANGED=false
+          
+          # 检查根目录config/（如果存在）
+          if [ -d "config" ] && ! git diff --quiet config/; then
+            echo "✗ 发现未脱敏的配置文件 (config/):"
+            git diff config/
+            CONFIG_CHANGED=true
+          fi
+          
+          # 检查vertex_flow/config/
+          if [ -d "vertex_flow/config" ] && ! git diff --quiet vertex_flow/config/; then
+            echo "✗ 发现未脱敏的配置文件 (vertex_flow/config/):"
+            git diff vertex_flow/config/
+            CONFIG_CHANGED=true
+          fi
+          
+          if [ "$CONFIG_CHANGED" = true ]; then
+            echo "请运行 'python3 scripts/sanitize_config.py' 进行脱敏处理"
+            exit 1
+          else
+            echo "✓ 配置文件已正确脱敏"
+          fi
+        else
+          echo "⚠ 脱敏脚本不存在，跳过脱敏检查"
+        fi
+    
+    - name: Check for sensitive information
+      run: |
+        echo "🔍 Checking for sensitive information in changes..."
+        
+        # 检查常见的敏感信息模式
+        SENSITIVE_PATTERNS=(
+          "sk-[a-zA-Z0-9]{32,}"
+          "sk-or-[a-zA-Z0-9-]{32,}"
+          "api[_-]?key[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "secret[_-]?key[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "access[_-]?token[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
+          "password[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]?"
+          "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}.*password"
+          "mongodb://[^\s]+"
+          "mysql://[^\s]+"
+          "postgres://[^\s]+"
+          "redis://[^\s]+"
+        )
+        
+        FOUND_SENSITIVE=false
+        
+        # 根据事件类型选择合适的diff范围
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # PR事件：检查PR中的变更
+          git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          DIFF_RANGE="origin/${{ github.base_ref }}..HEAD"
+        else
+          # Push事件：检查最近的提交
+          git diff --name-only HEAD~1..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          DIFF_RANGE="HEAD~1..HEAD"
+        fi
+        
+        echo "📁 Files changed:"
+        cat changed_files.txt
+        echo ""
+        
+        # 检查每个修改的文件
+        while IFS= read -r file; do
+          if [ -f "$file" ]; then
+            echo "🔍 Checking file: $file"
+            
+            # 获取文件的新增内容
+            git diff $DIFF_RANGE -- "$file" | grep "^+" > temp_additions.txt
+            
+            # 检查每个敏感信息模式
+            for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+              if grep -iE "$pattern" temp_additions.txt > /dev/null 2>&1; then
+                echo "❌ 发现可能的敏感信息在文件 $file:"
+                grep -iE "$pattern" temp_additions.txt | head -5
+                echo ""
+                FOUND_SENSITIVE=true
+              fi
+            done
+            
+            rm -f temp_additions.txt
+          fi
+        done < changed_files.txt
+        
+        rm -f changed_files.txt
+        
+        if [ "$FOUND_SENSITIVE" = true ]; then
+          echo "❌ 检测到可能的敏感信息泄露！请检查并移除API密钥、密码等敏感信息。"
+          echo "💡 建议使用环境变量或配置文件来管理敏感信息。"
+          exit 1
+        else
+          echo "✅ 未发现敏感信息泄露。"
+        fi
+    
+    - name: Summary
+      if: success()
+      run: |
+        echo "🎉 所有预检查项目都已通过！"
+        echo "✅ 敏感信息检查: 通过"
+        echo "✅ Python语法检查: 通过"
+        echo "✅ Import * 禁用检查: 通过"
+        echo "✅ 代码风格检查: 通过"
+        echo "✅ Import排序检查: 通过"
+        echo "✅ 代码格式检查: 通过"
+        echo ""
+        echo "🚀 代码已准备好进行下一步处理！"
