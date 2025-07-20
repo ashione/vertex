@@ -440,6 +440,15 @@ class LLMVertex(Vertex[T]):
                             # 有未处理的工具调用，直接处理
                             logging.info(f"Found {len(pending_tool_calls)} pending tool calls, processing directly")
 
+                            # 发送工具调用请求事件（pending calls）
+                            if emit_events and self.workflow:
+                                if self.tool_manager and self.tool_manager.tool_caller:
+                                    for request_msg in self.tool_manager.tool_caller.format_tool_call_request(pending_tool_calls):
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+                                        )
+
                             # 使用统一工具管理器执行工具调用
                             tool_messages = self.tool_manager.execute_tool_calls(pending_tool_calls, context)
                             # 确保所有工具消息的content不为null
@@ -447,6 +456,15 @@ class LLMVertex(Vertex[T]):
                                 if tool_msg.get("content") is None:
                                     tool_msg["content"] = ""
                             self.messages.extend(tool_messages)
+
+                            # 发送工具调用结果事件（pending calls）
+                            if emit_events and self.workflow:
+                                if self.tool_manager and self.tool_manager.tool_caller:
+                                    for result_msg in self.tool_manager.tool_caller.format_tool_call_results(pending_tool_calls, self.messages):
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+                                        )
 
                             # 继续循环以获取最终响应
                             finish_reason = None
@@ -485,6 +503,15 @@ class LLMVertex(Vertex[T]):
                                 # 有新的工具调用需要执行
                                 logging.info(f"LLM {self.id} executing {len(new_tool_calls)} tools after streaming")
 
+                                # 发送工具调用请求事件
+                                if emit_events and self.workflow:
+                                    if self.tool_manager and self.tool_manager.tool_caller:
+                                        for request_msg in self.tool_manager.tool_caller.format_tool_call_request(new_tool_calls):
+                                            self.workflow.emit_event(
+                                                EventType.MESSAGES,
+                                                {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+                                            )
+
                                 # 使用统一工具管理器执行工具调用
                                 tool_messages = self.tool_manager.execute_tool_calls(new_tool_calls, context)
                                 # 确保所有工具消息的content不为null
@@ -492,6 +519,15 @@ class LLMVertex(Vertex[T]):
                                     if tool_msg.get("content") is None:
                                         tool_msg["content"] = ""
                                 self.messages.extend(tool_messages)
+
+                                # 发送工具调用结果事件
+                                if emit_events and self.workflow:
+                                    if self.tool_manager and self.tool_manager.tool_caller:
+                                        for result_msg in self.tool_manager.tool_caller.format_tool_call_results(new_tool_calls, self.messages):
+                                            self.workflow.emit_event(
+                                                EventType.MESSAGES,
+                                                {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+                                            )
 
                                 # 继续循环以获取最终响应或处理更多工具调用
                                 finish_reason = None
@@ -550,7 +586,29 @@ class LLMVertex(Vertex[T]):
                         if finish_reason == "tool_calls":
                             # Handle tool calls
                             logging.info(f"LLM {self.id} wants to call tools")
+                            
+                            # 发送工具调用请求事件（非流式模式）
+                            if self.workflow:
+                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
+                                if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
+                                    for request_msg in self.tool_manager.tool_caller.format_tool_call_request(tool_calls):
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+                                        )
+                            
+                            # 执行工具调用
                             self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+                            
+                            # 发送工具调用结果事件（非流式模式）
+                            if self.workflow:
+                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
+                                if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
+                                    for result_msg in self.tool_manager.tool_caller.format_tool_call_results(tool_calls, self.messages):
+                                        self.workflow.emit_event(
+                                            EventType.MESSAGES,
+                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+                                        )
                             # Get the response after tool calls (may contain more tool calls)
                             final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
                             finish_reason = final_choice.finish_reason

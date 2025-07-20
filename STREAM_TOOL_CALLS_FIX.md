@@ -235,6 +235,122 @@ mcp_llm_vertex = MCPLLMVertex(
 )
 ```
 
+## 工具调用事件传递修复
+
+### 问题发现
+在检查过程中发现了另一个重要问题：工具调用的请求和结果内容没有通过事件系统传递到 `event messages` 中。
+
+### 新增修复内容
+
+#### 1. 流式模式下的事件发送
+在 `_unified_stream_core` 方法中添加了工具调用事件发送：
+
+**修复位置1：新增工具调用**
+```python
+# 发送工具调用请求事件
+if emit_events and self.workflow:
+    if self.tool_manager and self.tool_manager.tool_caller:
+        for request_msg in self.tool_manager.tool_caller.format_tool_call_request(new_tool_calls):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+            )
+
+# 执行工具调用
+tool_messages = self.tool_manager.execute_tool_calls(new_tool_calls, context)
+
+# 发送工具调用结果事件
+if emit_events and self.workflow:
+    if self.tool_manager and self.tool_manager.tool_caller:
+        for result_msg in self.tool_manager.tool_caller.format_tool_call_results(new_tool_calls, self.messages):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+            )
+```
+
+**修复位置2：待处理工具调用**
+```python
+# 发送工具调用请求事件（pending calls）
+if emit_events and self.workflow:
+    if self.tool_manager and self.tool_manager.tool_caller:
+        for request_msg in self.tool_manager.tool_caller.format_tool_call_request(pending_tool_calls):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+            )
+
+# 执行工具调用
+tool_messages = self.tool_manager.execute_tool_calls(pending_tool_calls, context)
+
+# 发送工具调用结果事件（pending calls）
+if emit_events and self.workflow:
+    if self.tool_manager and self.tool_manager.tool_caller:
+        for result_msg in self.tool_manager.tool_caller.format_tool_call_results(pending_tool_calls, self.messages):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+            )
+```
+
+#### 2. 非流式模式下的事件发送
+在非流式模式的工具调用处理中也添加了相同的事件发送逻辑：
+
+```python
+# 发送工具调用请求事件（非流式模式）
+if self.workflow:
+    tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
+    if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
+        for request_msg in self.tool_manager.tool_caller.format_tool_call_request(tool_calls):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: request_msg, TYPE_KEY: message_type},
+            )
+
+# 执行工具调用
+self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
+
+# 发送工具调用结果事件（非流式模式）
+if self.workflow:
+    tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
+    if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
+        for result_msg in self.tool_manager.tool_caller.format_tool_call_results(tool_calls, self.messages):
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {VERTEX_ID_KEY: self.id, CONTENT_KEY: result_msg, TYPE_KEY: message_type},
+            )
+```
+
+#### 3. MCP LLM Vertex 自动受益
+由于 MCP LLM Vertex 的 `_handle_tool_calls` 方法直接调用父类方法，它会自动受益于这些修复。
+
+### 事件内容格式
+工具调用事件包含格式化的内容：
+
+**请求事件格式**：
+```
+🔧 调用工具: tool_name
+📋 参数:
+```json
+{参数内容}
+```
+```
+
+**结果事件格式**：
+```
+✅ 工具 tool_name 执行结果:
+```
+{结果内容}
+```
+```
+
+### 测试验证
+- ✅ 流式模式下工具调用请求和结果都正确发送事件
+- ✅ 非流式模式下工具调用请求和结果都正确发送事件
+- ✅ pending tool calls 也正确发送事件
+- ✅ 事件发送可以通过 `emit_events` 参数控制
+- ✅ MCP LLM Vertex 通过继承自动支持事件发送
+
 ## 总结
 
 这次修复解决了流式模式下工具调用的核心问题：
@@ -242,7 +358,8 @@ mcp_llm_vertex = MCPLLMVertex(
 1. **修复了死代码问题**：`enable_stream` 配置现在能正确控制流式/非流式模式
 2. **改进了工具调用处理**：支持流式模式下的准确工具调用检测和执行
 3. **实现了多轮工具调用**：一次对话中可以进行多轮工具调用
-4. **保持了向后兼容性**：所有现有功能都能正常工作
-5. **提高了代码质量**：消除了硬编码，改进了逻辑结构
+4. **修复了事件传递问题**：工具调用的请求和结果现在都能通过事件系统传递
+5. **保持了向后兼容性**：所有现有功能都能正常工作
+6. **提高了代码质量**：消除了硬编码，改进了逻辑结构
 
-修复后的代码更加健壮、灵活且易于维护，为用户提供了更好的流式工具调用体验。
+修复后的代码更加健壮、灵活且易于维护，为用户提供了更好的流式工具调用体验。工具调用的完整过程（请求、执行、结果）都能正确地通过事件系统传递给工作流的监听者。
