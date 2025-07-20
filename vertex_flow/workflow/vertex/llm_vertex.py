@@ -588,7 +588,7 @@ class LLMVertex(Vertex[T]):
                             logging.info(f"LLM {self.id} wants to call tools")
                             
                             # 发送工具调用请求事件（非流式模式）
-                            if self.workflow:
+                            if emit_events and self.workflow:
                                 tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
                                 if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
                                     for request_msg in self.tool_manager.tool_caller.format_tool_call_request(tool_calls):
@@ -601,7 +601,7 @@ class LLMVertex(Vertex[T]):
                             self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
                             
                             # 发送工具调用结果事件（非流式模式）
-                            if self.workflow:
+                            if emit_events and self.workflow:
                                 tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
                                 if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
                                     for result_msg in self.tool_manager.tool_caller.format_tool_call_results(tool_calls, self.messages):
