@@ -679,12 +679,13 @@ class LLMVertex(Vertex[T]):
         finally:
             # Handle token usage after streaming is complete
             self._handle_token_usage()
-
-        # Send end event when streaming is complete (only for event-based streaming)
-        if emit_events and self.workflow:
-            self.workflow.emit_event(
-                EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END}
-            )
+            
+            # Send end event when streaming is complete (only for event-based streaming)
+            # This must be in the finally block to ensure it's always sent
+            if emit_events and self.workflow:
+                self.workflow.emit_event(
+                    EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END}
+                )
 
     def _is_tool_call_chunk(self, chunk: str) -> bool:
         """检查chunk是否包含工具调用相关内容，这些内容不应输出给用户
