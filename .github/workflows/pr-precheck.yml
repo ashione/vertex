@@ -1,8 +1,9 @@
-name: PR Precheck
+name: PR Precheck (Legacy)
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  # Precheck已移到precheck.yml，这个文件已废弃
+  # pull_request:
+  #   types: [opened, synchronize, reopened]
 
 jobs:
   precheck:
