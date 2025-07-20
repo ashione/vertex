@@ -54,10 +54,7 @@ def example_exchange_rate_query():
     if result.get("success"):
         data = result["data"]
         print(
-            f"汇率: 1 {
-                data['from_currency']} = {
-                data['rate']} {
-                data['to_currency']}"
+            f"汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}"
         )
         print(f"日期: {data['date']}")
         if "note" in data:
@@ -168,10 +165,7 @@ def example_function_tool_usage():
         data = result["data"]
         print(f"✅ 查询成功!")
         print(
-            f"汇率: 1 {
-                data['from_currency']} = {
-                data['rate']} {
-                data['to_currency']}"
+            f"汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}"
         )
     else:
         print(f"❌ 查询失败: {result.get('error')}")
@@ -193,10 +187,7 @@ def example_multiple_stocks():
             data = result["data"]
             change_indicator = "📈" if data["change"] > 0 else "📉" if data["change"] < 0 else "➡️"
             print(
-                f"{change_indicator} {
-                    data['symbol']}: ${
-                    data['price']} ({
-                    data['change_percent']})"
+                f"{change_indicator} {data['symbol']}: ${data['price']} ({data['change_percent']})"
             )
         else:
             print(f"❌ {symbol}: 查询失败")
@@ -218,16 +209,10 @@ def example_currency_conversion():
         converted_amount = amount * data["rate"]
         print(f"💱 货币转换:")
         print(
-            f"   {amount} {
-                data['from_currency']} = {
-                converted_amount:.2f} {
-                data['to_currency']}"
+            f"   {amount} {data['from_currency']} = {converted_amount:.2f} {data['to_currency']}"
         )
         print(
-            f"   汇率: 1 {
-                data['from_currency']} = {
-                data['rate']} {
-                data['to_currency']}"
+            f"   汇率: 1 {data['from_currency']} = {data['rate']} {data['to_currency']}"
         )
         print(f"   日期: {data['date']}")
     else:

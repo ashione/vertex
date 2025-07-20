@@ -200,8 +200,7 @@ class MCPServer:
                             return MCPResponse(id=message.id, result=result)
                         except Exception as e:
                             logger.error(
-                                f"Error handling {
-                                    message.method}: {e}"
+                                f"Error handling {message.method}: {e}"
                             )
                             return MCPResponse(
                                 id=message.id, error={"code": MCPErrorCode.INTERNAL_ERROR, "message": str(e)}
@@ -212,8 +211,7 @@ class MCPServer:
                             id=message.id,
                             error={
                                 "code": MCPErrorCode.METHOD_NOT_FOUND,
-                                "message": f"Method {
-                                    message.method} not found",
+                                "message": f"Method {message.method} not found",
                             },
                         )
                 else:
