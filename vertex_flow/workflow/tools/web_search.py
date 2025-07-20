@@ -215,9 +215,7 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
                     result["search_engine"] = provider
                     return result
                 else:
-                    logging.warning(
-                        f"{provider} 搜索失败: {result.get('error', '未知错误')}"
-                    )
+                    logging.warning(f"{provider} 搜索失败: {result.get('error', '未知错误')}")
 
         # 没有启用的搜索服务
         return {
@@ -816,9 +814,7 @@ class FreeWebSearchTool:
                 else:
                     if "error" in result:
                         errors.append(f"{method_name}: {result['error']}")
-                        self.logger.warning(
-                            f"{method_name} 搜索失败: {result['error']}"
-                        )
+                        self.logger.warning(f"{method_name} 搜索失败: {result['error']}")
 
                 # 避免过于频繁的请求
                 time.sleep(0.5)

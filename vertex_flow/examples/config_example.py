@@ -67,9 +67,7 @@ def main():
         print(f"\n嵌入模型配置:")
         local_enabled = embedding_config.get("local", {}).get("enabled", False)
         model_name = embedding_config.get("local", {}).get("model_name", "N/A")
-        print(
-            f"  本地嵌入: {'✓ 已启用' if local_enabled else '✗ 未启用'} (模型: {model_name})"
-        )
+        print(f"  本地嵌入: {'✓ 已启用' if local_enabled else '✗ 未启用'} (模型: {model_name})")
 
         dashscope_enabled = embedding_config.get("dashscope", {}).get("enabled", False)
         print(f"  DashScope: {'✓ 已启用' if dashscope_enabled else '✗ 未启用'}")

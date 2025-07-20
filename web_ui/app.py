@@ -367,7 +367,7 @@ def save_config():
             if "openrouter" in llm_config:
                 openrouter = llm_config["openrouter"]
                 config_data["llm"]["openrouter"] = {
-                    "sk": openrouter.get('sk', '-'),
+                    "sk": openrouter.get("sk", "-"),
                     "enabled": openrouter.get("enabled", False),
                     "models": [
                         {
