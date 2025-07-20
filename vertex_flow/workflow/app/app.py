@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import os
 import threading
@@ -6,6 +7,7 @@ import time
 import traceback
 from typing import Any, Dict, List, Optional
 
+import pytz
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -34,7 +36,7 @@ from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.dify_workflow import get_dify_workflow_instances
 from vertex_flow.workflow.event_channel import EventType
 from vertex_flow.workflow.service import VertexFlowService
-from vertex_flow.workflow.tools.functions import FunctionTool
+from vertex_flow.workflow.tools.functions import FunctionTool, today_func
 from vertex_flow.workflow.utils import default_config_path
 from vertex_flow.workflow.workflow import Any, LLMVertex, SinkVertex, SourceVertex, Workflow
 from vertex_flow.workflow.workflow_instance import WorkflowInstance
@@ -378,6 +380,34 @@ def get_default_workflow(input_data):
                     },
                 },
                 "required": ["value", "direction"],
+            },
+        ),
+        FunctionTool(
+            name="today",
+            description="获取当前时间，支持多种格式和时区。",
+            func=today_func,
+            schema={
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": [
+                            "timestamp",
+                            "timestamp_ms",
+                            "iso",
+                            "iso_utc",
+                            "date",
+                            "time",
+                            "datetime",
+                            "rfc2822",
+                            "custom",
+                        ],
+                        "description": "输出格式",
+                    },
+                    "timezone": {"type": "string", "description": "时区（如UTC, Asia/Shanghai）"},
+                    "custom_format": {"type": "string", "description": "自定义格式字符串"},
+                },
+                "required": [],
             },
         ),
     ]

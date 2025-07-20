@@ -94,9 +94,12 @@ class StdioTransport(MCPTransport):
         self._stdin_writer = asyncio.StreamWriter(transport, protocol, None, asyncio.get_event_loop())
 
     async def send_message(self, message: MCPMessage) -> None:
-        """Send a message via stdout with thread safety and event loop awareness"""
+        """Send a message via stdout with enhanced error handling to prevent process termination"""
         if self._closed or not self._stdin_writer:
-            raise RuntimeError("Transport is closed or not initialized")
+            logger.error("Transport is closed or not initialized")
+            # 不抛出异常，而是标记连接已关闭
+            self._closed = True
+            return
 
         try:
             json_str = message.to_json()
@@ -120,28 +123,44 @@ class StdioTransport(MCPTransport):
                 logger.warning("Transport writer in different event loop, using thread-safe approach")
                 # 使用线程安全的方法在正确的事件循环中执行
                 if transport_loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(self._send_in_transport_loop(line), transport_loop)
-                    # 等待完成，但有超时保护
-                    future.result(timeout=5.0)
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(self._send_in_transport_loop(line), transport_loop)
+                        # 等待完成，但有超时保护
+                        future.result(timeout=5.0)
+                    except Exception as e:
+                        logger.error(f"Failed to send message in transport loop: {e}")
+                        self._closed = True
+                        return
                 else:
                     # 如果transport的事件循环已关闭，直接在当前循环中尝试
                     logger.warning("Transport event loop not running, attempting direct send")
-                    self._stdin_writer.write(line.encode("utf-8"))
-                    await self._stdin_writer.drain()
+                    try:
+                        self._stdin_writer.write(line.encode("utf-8"))
+                        await self._stdin_writer.drain()
+                    except Exception as e:
+                        logger.error(f"Failed to send message directly: {e}")
+                        self._closed = True
+                        return
             else:
                 # 在同一事件循环中，直接发送
-                self._stdin_writer.write(line.encode("utf-8"))
-                await self._stdin_writer.drain()
+                try:
+                    self._stdin_writer.write(line.encode("utf-8"))
+                    await self._stdin_writer.drain()
+                except Exception as e:
+                    logger.error(f"Failed to write to stdin: {e}")
+                    self._closed = True
+                    return
 
             logger.debug(f"Sent message: {json_str}")
 
         except BrokenPipeError as e:
             logger.error(f"Broken pipe when sending message: {e}")
             self._closed = True
-            raise RuntimeError("MCP server connection broken")
+            # 不抛出异常，让调用者处理连接断开
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
-            raise
+            self._closed = True
+            # 不抛出异常，避免进程终止
 
     async def _send_in_transport_loop(self, line: str) -> None:
         """Helper method to send message in transport's event loop"""
@@ -150,31 +169,52 @@ class StdioTransport(MCPTransport):
             await self._stdin_writer.drain()
 
     async def receive_message(self) -> MCPMessage:
-        """Receive a message via stdin"""
+        """Receive a message via stdin with enhanced error handling"""
         if self._closed or not self._stdout_reader:
-            raise RuntimeError("Transport is closed or not initialized")
+            logger.error("Transport is closed or not initialized")
+            self._closed = True
+            raise EOFError("Transport connection closed")
 
         try:
             line = await self._stdout_reader.readline()
             if not line:
-                raise EOFError("Connection closed")
+                logger.warning("Connection closed by server")
+                self._closed = True
+                raise EOFError("Connection closed by server")
 
             json_str = line.decode("utf-8").strip()
             if not json_str:
-                # Empty line, try again
+                # Empty line, try again with recursion limit
+                if hasattr(self, "_empty_line_count"):
+                    self._empty_line_count += 1
+                    if self._empty_line_count > 10:
+                        logger.error("Too many empty lines, connection may be broken")
+                        self._closed = True
+                        raise EOFError("Connection appears broken")
+                else:
+                    self._empty_line_count = 1
+                return await self.receive_message()
+            else:
+                # Reset empty line counter on successful read
+                self._empty_line_count = 0
+
+            try:
+                message = MCPMessage.from_json(json_str)
+                logger.debug(f"Received message: {json_str}")
+                return message
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON message: {e}, raw: {json_str}")
+                # 继续尝试接收下一条消息，而不是终止
                 return await self.receive_message()
 
-            message = MCPMessage.from_json(json_str)
-            logger.debug(f"Received message: {json_str}")
-
-            return message
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON message: {e}")
+        except EOFError:
+            # EOFError需要向上传播，表示连接关闭
             raise
         except Exception as e:
             logger.error(f"Failed to receive message: {e}")
-            raise
+            # 对于其他异常，标记连接关闭但不终止进程
+            self._closed = True
+            raise EOFError(f"Transport error: {e}")
 
     async def _monitor_stderr(self) -> None:
         """Monitor stderr for logging output"""

@@ -63,9 +63,9 @@ class VertexFlowMCPToolProvider(MCPToolProvider):
         # Initialize tool manager if requested
         if self.use_tool_manager:
             try:
-                from vertex_flow.workflow.tools.tool_manager import get_function_tool_manager
+                from vertex_flow.workflow.tools.tool_manager import get_tool_manager
 
-                self._tool_manager = get_function_tool_manager()
+                self._tool_manager = get_tool_manager()
                 logger.info("VertexFlowMCPToolProvider initialized with tool manager")
             except ImportError:
                 logger.warning("Tool manager not available, using local tool storage")
@@ -355,19 +355,13 @@ class MCPLLMVertex(LLMVertex):
                 resources = await client.get_resources()
                 for resource in resources:
                     content = await client.read_resource(resource.uri)
-                    context_parts.append(
-                        f"Resource {
-                            resource.name}:\n{content}\n"
-                    )
+                    context_parts.append(f"Resource {resource.name}:\n{content}\n")
 
                 # Get prompts as context
                 prompts = await client.get_prompts()
                 for prompt in prompts:
                     prompt_content = await client.get_prompt(prompt.name)
-                    context_parts.append(
-                        f"Prompt {
-                            prompt.name}:\n{prompt_content}\n"
-                    )
+                    context_parts.append(f"Prompt {prompt.name}:\n{prompt_content}\n")
 
             except Exception as e:
                 logger.error(f"Error getting MCP context from {name}: {e}")

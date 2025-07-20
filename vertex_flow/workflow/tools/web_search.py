@@ -215,11 +215,7 @@ def web_search_function(inputs: Dict[str, Any], context: Optional[Dict[str, Any]
                     result["search_engine"] = provider
                     return result
                 else:
-                    logging.warning(
-                        f"{provider} 搜索失败: {
-                            result.get(
-                                'error', '未知错误')}"
-                    )
+                    logging.warning(f"{provider} 搜索失败: {result.get('error', '未知错误')}")
 
         # 没有启用的搜索服务
         return {
@@ -818,10 +814,7 @@ class FreeWebSearchTool:
                 else:
                     if "error" in result:
                         errors.append(f"{method_name}: {result['error']}")
-                        self.logger.warning(
-                            f"{method_name} 搜索失败: {
-                                result['error']}"
-                        )
+                        self.logger.warning(f"{method_name} 搜索失败: {result['error']}")
 
                 # 避免过于频繁的请求
                 time.sleep(0.5)
@@ -886,35 +879,18 @@ class WebSearchTool:
                 # 格式化结果
                 formatted_results = []
                 for i, item in enumerate(result["results"], 1):
-                    formatted_result = f"{i}. **{
-                        item.get(
-                            'title',
-                            'No Title')}**\n"
-                    formatted_result += f"   URL: {
-                        item.get(
-                            'url', 'No URL')}\n"
-                    formatted_result += f"   摘要: {
-                        item.get(
-                            'snippet',
-                            'No snippet available')}\n"
-                    formatted_result += f"   来源: {
-                        item.get(
-                            'source',
-                            'Unknown')}\n"
+                    formatted_result = f"{i}. **{item.get('title', 'No Title')}**\n"
+                    formatted_result += f"   URL: {item.get('url', 'No URL')}\n"
+                    formatted_result += f"   摘要: {item.get('snippet', 'No snippet available')}\n"
+                    formatted_result += f"   来源: {item.get('source', 'Unknown')}\n"
                     formatted_results.append(formatted_result)
 
                 search_summary = f"🔍 搜索查询: {query}\n"
                 search_summary += f"📊 找到 {result['total_results']} 个结果\n"
-                search_summary += f"🛠️ 使用的搜索方法: {
-                    ', '.join(
-                        result.get(
-                            'search_methods_used',
-                            []))}\n\n"
+                search_summary += f"🛠️ 使用的搜索方法: {', '.join(result.get('search_methods_used', []))}\n\n"
 
                 if result.get("errors"):
-                    search_summary += f"⚠️ 部分搜索方法失败: {
-                        '; '.join(
-                            result['errors'])}\n\n"
+                    search_summary += f"⚠️ 部分搜索方法失败: {'; '.join(result['errors'])}\n\n"
 
                 search_summary += "📋 搜索结果:\n" + "\n".join(formatted_results)
 

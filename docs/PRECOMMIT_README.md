@@ -222,7 +222,7 @@ git commit --no-verify -m "your commit message"
 
 ## 与 GitHub Actions 的关系
 
-本地的 `precommit.sh` 与 GitHub Actions 中的 `pr-precheck.yml` 工作流保持一致，确保：
+本地的 `precommit.sh` 与 GitHub Actions 中的 `precheck.yml` 工作流保持一致，确保：
 - 本地检查通过的代码在 CI 中也能通过
 - 减少因格式问题导致的 CI 失败
 - 提高代码质量和开发效率

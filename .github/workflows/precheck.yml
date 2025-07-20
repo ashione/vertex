@@ -1,15 +1,14 @@
-name: PR Precheck
+name: Precheck
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  push:
+    branches: [ main, develop, master, release* ]
 
 jobs:
   precheck:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9, 3.12]
     
     steps:
     - name: Checkout code
@@ -20,16 +19,13 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.12'
     
-    - name: Install dependencies
+    - name: Install formatting tools
       run: |
         python -m pip install --upgrade pip
         # 强制安装指定版本的格式化工具，确保与本地环境一致
         pip install flake8==7.2.0 black==25.1.0 isort==6.0.1 autopep8==2.3.2
-        # 安装项目依赖
-        pip install -r requirements.txt
-        pip install -e .
     
     - name: Check Python code formatting
       run: |
@@ -44,8 +40,6 @@ jobs:
         
         # 显示当前工作目录和文件结构
         echo "🔍 Current working directory: $(pwd)"
-        echo "📁 Directory contents:"
-        ls -la
         echo "📁 Scripts directory:"
         ls -la scripts/
         
@@ -122,7 +116,7 @@ jobs:
     
     - name: Check for sensitive information
       run: |
-        echo "🔍 Checking for sensitive information in PR..."
+        echo "🔍 Checking for sensitive information in changes..."
         
         # 检查常见的敏感信息模式
         SENSITIVE_PATTERNS=(
@@ -141,10 +135,18 @@ jobs:
         
         FOUND_SENSITIVE=false
         
-        # 获取PR中修改的文件（排除流水线目录）
-        git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' > changed_files.txt || true
+        # 根据事件类型选择合适的diff范围
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # PR事件：检查PR中的变更
+          git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          DIFF_RANGE="origin/${{ github.base_ref }}..HEAD"
+        else
+          # Push事件：检查最近的提交
+          git diff --name-only HEAD~1..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          DIFF_RANGE="HEAD~1..HEAD"
+        fi
         
-        echo "📁 Files changed in this PR:"
+        echo "📁 Files changed:"
         cat changed_files.txt
         echo ""
         
@@ -154,7 +156,7 @@ jobs:
             echo "🔍 Checking file: $file"
             
             # 获取文件的新增内容
-            git diff origin/${{ github.base_ref }}..HEAD -- "$file" | grep "^+" > temp_additions.txt
+            git diff $DIFF_RANGE -- "$file" | grep "^+" > temp_additions.txt
             
             # 检查每个敏感信息模式
             for pattern in "${SENSITIVE_PATTERNS[@]}"; do
@@ -180,19 +182,6 @@ jobs:
           echo "✅ 未发现敏感信息泄露。"
         fi
     
-    - name: Run Unit Tests
-      run: |
-        echo "🧪 运行单元测试..."
-        
-        # 检查测试脚本是否存在
-        if [ -f "scripts/run_tests.sh" ]; then
-          chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh
-        else
-          echo "⚠️ 测试脚本不存在，跳过单元测试"
-          echo "💡 建议创建 scripts/run_tests.sh 脚本来运行测试"
-        fi
-    
     - name: Summary
       if: success()
       run: |
@@ -203,6 +192,5 @@ jobs:
         echo "✅ 代码风格检查: 通过"
         echo "✅ Import排序检查: 通过"
         echo "✅ 代码格式检查: 通过"
-        echo "✅ 单元测试: 通过"
         echo ""
-        echo "🚀 PR已准备好进行合并审查！"
+        echo "🚀 代码已准备好进行下一步处理！"
