@@ -883,7 +883,7 @@ class WebSearchTool:
                 # 格式化结果
                 formatted_results = []
                 for i, item in enumerate(result["results"], 1):
-                                    formatted_result = f"{i}. **{item.get('title', 'No Title')}**\n"
+                    formatted_result = f"{i}. **{item.get('title', 'No Title')}**\n"
                     formatted_result += f"   URL: {item.get('url', 'No URL')}\n"
                     formatted_result += f"   摘要: {item.get('snippet', 'No snippet available')}\n"
                     formatted_result += f"   来源: {item.get('source', 'Unknown')}\n"

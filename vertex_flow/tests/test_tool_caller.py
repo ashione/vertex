@@ -51,7 +51,7 @@ def test_runtime_tool_call_import():
         runtime_tool_calls = RuntimeToolCall.normalize_list([test_tool_call])
         print(f"✓ RuntimeToolCall.normalize_list 工作正常: {len(runtime_tool_calls)} 个工具调用")
 
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ RuntimeToolCall 导入测试失败: {e}")
@@ -113,7 +113,7 @@ def test_runtime_tool_call_edge_cases():
         assert normalized is existing_runtime_call
 
         print("✓ 所有边界情况测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ RuntimeToolCall 边界情况测试失败: {e}")
@@ -149,7 +149,7 @@ def test_deepseek_tool_caller():
         tool_msg = tool_caller.create_tool_message("call_test_123", "calculator", {"result": 4})
         print(f"✓ 工具响应消息创建成功: {tool_msg['role']} for {tool_msg['tool_call_id']}")
 
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ DeepSeek 工具调用器测试失败: {e}")
@@ -186,7 +186,7 @@ def test_tool_caller_providers():
                 print("  ✓ Ollama正确配置为不支持流式")
 
         print("✓ 所有provider测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ provider工具调用器测试失败: {e}")
@@ -240,7 +240,7 @@ def test_streaming_tool_call_fragments():
         print("✓ 单个完整片段处理正常")
 
         print("✓ 流式片段合并测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 流式片段合并测试失败: {e}")
@@ -285,7 +285,7 @@ def test_tool_call_chunk_detection():
         assert not is_empty_chunk
 
         print("✓ 工具调用分片检测测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 工具调用分片检测测试失败: {e}")
@@ -319,10 +319,10 @@ def test_async_tool_calls():
                 # 这里主要测试接口的存在性
                 result = await tool_caller.execute_tool_calls(tool_calls, tools)
                 print(f"✓ 异步工具调用接口存在")
-                return True
+                assert True
             except NotImplementedError:
                 print("✓ 异步接口存在但未实现（符合预期）")
-                return True
+                assert True
             except Exception as e:
                 print(f"⚠️ 异步调用错误: {e}")
                 return True  # 接口存在即可
@@ -384,7 +384,7 @@ def test_tool_call_validation():
         print(f"✓ 空参数处理: {len(assistant_msg['tool_calls'])} calls")
 
         print("✓ 工具调用参数验证测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 工具调用参数验证测试失败: {e}")
@@ -424,7 +424,7 @@ def test_error_handling_and_recovery():
         print(f"✓ 空工具调用列表处理: {assistant_msg['role']}")
 
         print("✓ 错误处理和恢复测试通过")
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 错误处理和恢复测试失败: {e}")
@@ -482,7 +482,7 @@ def test_message_sequence_integrity():
                 print(f"✗ 工具调用 {tool_call_id} 缺少对应的响应")
                 return False
 
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 消息序列完整性测试失败: {e}")
@@ -531,7 +531,7 @@ def test_merged_functionality():
 
         print("✓ LLMVertex 和 MCPLLMVertex 导入成功")
 
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 测试失败: {e}")
@@ -551,7 +551,7 @@ def test_import_consistency():
         # 检查是否是同一个类
         if TC_RuntimeToolCall is LLM_RuntimeToolCall is MCP_RuntimeToolCall:
             print("✓ 所有模块使用相同的 RuntimeToolCall 类")
-            return True
+            assert True
         else:
             print("❌ 不同模块使用了不同的 RuntimeToolCall 类")
             return False
@@ -594,7 +594,7 @@ def test_tool_caller_types():
             except Exception as e:
                 print(f"⚠️ {caller_type} 工具调用器测试失败: {e}")
 
-        return True
+        assert True
 
     except Exception as e:
         print(f"❌ 工具调用器类型测试失败: {e}")
