@@ -610,9 +610,8 @@ class LLMVertex(Vertex[T]):
                         finish_reason = "stop"  # 结束当前循环，不回退到非流式
 
                 # 非流式模式处理（仅在明确非流式模式下使用）
-                non_stream_condition = (
-                    not self.enable_stream
-                    and (finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream"))
+                non_stream_condition = not self.enable_stream and (
+                    finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream")
                 )
                 if non_stream_condition:
                     if llm_tools:
@@ -625,11 +624,7 @@ class LLMVertex(Vertex[T]):
 
                             # 发送工具调用请求事件（非流式模式）
                             if emit_events and self.workflow:
-                                tool_calls = (
-                                    choice.message.tool_calls
-                                    if hasattr(choice.message, "tool_calls")
-                                    else []
-                                )
+                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
                                 if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
                                     tool_caller = self.tool_manager.tool_caller
                                     for request_msg in tool_caller.format_tool_call_request(tool_calls):
@@ -647,11 +642,7 @@ class LLMVertex(Vertex[T]):
 
                             # 发送工具调用结果事件（非流式模式）
                             if emit_events and self.workflow:
-                                tool_calls = (
-                                    choice.message.tool_calls
-                                    if hasattr(choice.message, "tool_calls")
-                                    else []
-                                )
+                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
                                 if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
                                     tool_caller = self.tool_manager.tool_caller
                                     for result_msg in tool_caller.format_tool_call_results(tool_calls, self.messages):
