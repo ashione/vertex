@@ -12,7 +12,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import pytz
+try:
+    import pytz
+    HAS_PYTZ = True
+except ImportError:
+    HAS_PYTZ = False
 
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall, ToolCaller
@@ -675,12 +679,19 @@ class ToolManager:
             format_type = inputs.get("format", "iso")
 
             try:
-                if timezone == "UTC":
-                    tz = pytz.UTC
+                if HAS_PYTZ:
+                    if timezone == "UTC":
+                        tz = pytz.UTC
+                    else:
+                        tz = pytz.timezone(timezone)
+                    now = datetime.datetime.now(tz)
                 else:
-                    tz = pytz.timezone(timezone)
-
-                now = datetime.datetime.now(tz)
+                    # 使用标准库的UTC时区支持
+                    if timezone == "UTC":
+                        now = datetime.datetime.now(datetime.timezone.utc)
+                    else:
+                        # 如果没有pytz，默认使用本地时间
+                        now = datetime.datetime.now()
 
                 if format_type == "iso":
                     result = now.isoformat()
