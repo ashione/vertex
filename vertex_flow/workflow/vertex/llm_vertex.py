@@ -400,8 +400,8 @@ class LLMVertex(Vertex[T]):
         统一的流式核心逻辑，支持reasoning和工具调用
         根据emit_events参数决定是否发送事件
         """
-        # 标记我们正在流式模式下运行
-        is_streaming_mode = True
+        # 根据配置参数决定是否启用流式模式
+        is_streaming_mode = self.enable_stream
 
         try:
             # Build LLM options
