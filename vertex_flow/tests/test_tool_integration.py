@@ -431,9 +431,8 @@ def test_streaming_tool_call():
             }
         ]
 
-        # 手动处理工具调用
-        tool_messages = llm_vertex.tool_manager.execute_tool_calls(mock_tool_calls, context)
-        llm_vertex.messages.extend(tool_messages)
+        # 手动处理工具调用 - 使用完整的工具调用处理方法
+        llm_vertex.tool_manager.handle_tool_calls_complete(mock_tool_calls, context, llm_vertex.messages)
 
     # 检查最终结果
     tool_messages = [msg for msg in llm_vertex.messages if msg.get("role") == "tool"]
@@ -616,9 +615,8 @@ def test_tool_calls_in_streaming():
             {"id": "call_123", "type": "function", "function": {"name": "today", "arguments": '{"format": "iso"}'}}
         ]
 
-        # 手动处理工具调用
-        tool_messages = llm_vertex.tool_manager.execute_tool_calls(mock_tool_calls, context)
-        llm_vertex.messages.extend(tool_messages)
+        # 手动处理工具调用 - 使用完整的工具调用处理方法
+        llm_vertex.tool_manager.handle_tool_calls_complete(mock_tool_calls, context, llm_vertex.messages)
 
         # 重新检查
         tool_messages = [msg for msg in llm_vertex.messages if msg.get("role") == "tool"]

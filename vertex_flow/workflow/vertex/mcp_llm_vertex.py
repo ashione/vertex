@@ -457,15 +457,15 @@ class MCPLLMVertex(LLMVertex):
 
         return llm_tools
 
-    def _handle_tool_calls(self, choice, context: WorkflowContext):
+    def _handle_tool_calls(self, tool_calls_data, context: WorkflowContext, emit_events: bool) -> bool:
         """Handle tool calls with MCP support using unified tool manager"""
-        if not choice.message.tool_calls:
-            return
+        if not tool_calls_data:
+            return False
 
         # 直接使用父类的工具调用处理机制
         # 父类已经使用统一工具管理器，而统一工具管理器支持MCP工具
         # 这样MCP工具调用也能获得完整的事件发送和格式化功能
-        super()._handle_tool_calls(choice, context)
+        return super()._handle_tool_calls(tool_calls_data, context, emit_events)
 
     # === Streaming Support ===
 

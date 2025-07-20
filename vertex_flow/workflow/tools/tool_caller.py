@@ -4,7 +4,10 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union
 
+from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.context import WorkflowContext
+
+logger = LoggerUtil.get_logger(__name__)
 
 
 class RuntimeToolCall:
@@ -108,6 +111,7 @@ class ToolCaller(ABC):
 
     def format_tool_call_request(self, tool_calls):
         """格式化工具调用请求消息"""
+        logger.info(f"Formatting tool call request for {len(tool_calls)} tool calls")
         for tool_call in tool_calls:
             # 构建工具调用请求消息
             tool_name = (
@@ -121,6 +125,9 @@ class ToolCaller(ABC):
                 else tool_call.function.arguments
             )
 
+            logger.info(f"Tool Call Request - Tool Name: {tool_name}")
+            logger.info(f"Tool Call Request - Arguments: {tool_args}")
+
             # 格式化JSON参数以便更好显示
             try:
                 import json
@@ -131,10 +138,12 @@ class ToolCaller(ABC):
                 formatted_args = str(tool_args)
 
             request_message = f"🔧 调用工具: {tool_name}\n📋 参数:\n```json\n{formatted_args}\n```"
+            logger.info(f"Yielding tool call request message for {tool_name}")
             yield f"\n{request_message}\n"
 
     def format_tool_call_results(self, tool_calls, messages):
         """格式化工具调用结果消息"""
+        logger.info(f"Formatting tool call results for {len(tool_calls)} tool calls")
         # 查找最新的工具响应消息
         for tool_call in tool_calls:
             tool_call_id = tool_call.get("id", "") if isinstance(tool_call, dict) else tool_call.id
@@ -144,10 +153,15 @@ class ToolCaller(ABC):
                 else tool_call.function.name
             )
 
+            logger.info(f"Tool Call Result - Looking for tool_call_id: {tool_call_id}, tool_name: {tool_name}")
+
             # 在messages中查找对应的tool响应
+            found_result = False
             for msg in reversed(messages):
                 if msg.get("role") == "tool" and msg.get("tool_call_id") == tool_call_id:
                     result_content = msg.get("content", "")
+                    logger.info(f"Tool Call Result - Found result for {tool_name}: {result_content[:200]}...")
+                    found_result = True
 
                     # 尝试格式化JSON结果
                     try:
@@ -164,13 +178,21 @@ class ToolCaller(ABC):
                     except (json.JSONDecodeError, TypeError):
                         result_message = f"✅ 工具 {tool_name} 执行结果:\n```\n{result_content}\n```"
 
+                    logger.info(f"Yielding tool call result message for {tool_name}")
                     yield f"\n{result_message}\n"
                     break
+
+            if not found_result:
+                logger.warning(
+                    f"Tool Call Result - No result found for tool_call_id: {tool_call_id}, tool_name: {tool_name}"
+                )
+                logger.info(f"Available tool messages: {[msg for msg in messages if msg.get('role') == 'tool']}")
 
     async def execute_tool_calls(
         self, tool_calls: List[Dict[str, Any]], context: Optional[WorkflowContext] = None
     ) -> List[Dict[str, Any]]:
         """执行工具调用并返回工具响应消息列表"""
+        logger.info(f"Executing {len(tool_calls)} tool calls")
         tool_messages = []
 
         async def call_tool(tool_call: Dict[str, Any], context: Optional[WorkflowContext] = None):
@@ -178,39 +200,52 @@ class ToolCaller(ABC):
             tool_name = tool_call.get("function", {}).get("name", "")
             arguments_str = tool_call.get("function", {}).get("arguments", "{}")
 
+            logger.info(f"Executing tool call - ID: {tool_call_id}, Name: {tool_name}")
+            logger.info(f"Tool arguments string: {arguments_str}")
+
             try:
                 arguments = json.loads(arguments_str)
-            except json.JSONDecodeError:
+                logger.info(f"Parsed arguments: {arguments}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse arguments as JSON: {e}, using empty dict")
                 arguments = {}
 
             # 查找对应的工具
             tool = None
+            available_tools = [getattr(t, "name", "unknown") for t in self.tools if hasattr(t, "name")]
+            logger.info(f"Available tools: {available_tools}")
+
             for t in self.tools:
                 if hasattr(t, "name") and t.name == tool_name:
                     tool = t
+                    logger.info(f"Found matching tool: {tool_name}")
                     break
 
             if tool:
                 try:
+                    logger.info(f"Executing tool {tool_name} with arguments: {arguments}")
                     # 执行工具
                     if asyncio.iscoroutinefunction(tool.execute):
                         result = await tool.execute(arguments, context)
                     else:
                         result = await asyncio.to_thread(tool.execute, arguments, context)
 
+                    logger.info(f"Tool {tool_name} execution completed with result: {str(result)[:200]}...")
                     return self.create_tool_message(tool_call_id, tool_name, result)
                 except Exception as e:
                     error_msg = f"Error executing tool '{tool_name}': {str(e)}"
-                    logging.error(error_msg)
+                    logger.error(error_msg)
                     return self.create_tool_message(tool_call_id, tool_name, {"error": error_msg})
             else:
                 error_msg = f"Tool '{tool_name}' not found"
-                logging.error(error_msg)
+                logger.error(error_msg)
                 return self.create_tool_message(tool_call_id, tool_name, {"error": error_msg})
 
         # 并发执行所有工具调用
         tasks = [call_tool(tool_call, context) for tool_call in tool_calls]
+        logger.info(f"Created {len(tasks)} tasks for tool execution")
         results = await asyncio.gather(*tasks) if tasks else []
+        logger.info(f"Tool execution completed, got {len(results)} results")
 
         return results
 
@@ -218,18 +253,26 @@ class ToolCaller(ABC):
         self, tool_calls: List[Dict[str, Any]], context: Optional[WorkflowContext] = None
     ) -> List[Dict[str, Any]]:
         """同步执行工具调用"""
+        logger.info(f"Synchronously executing {len(tool_calls)} tool calls")
         try:
             loop = asyncio.get_running_loop()
+            logger.info("Running in existing event loop")
             # 已在事件循环中
             coro = self.execute_tool_calls(tool_calls, context)
             if loop.is_running():
                 import nest_asyncio
 
+                logger.info("Applying nest_asyncio for nested event loop")
                 nest_asyncio.apply()
-            return loop.run_until_complete(coro)
+            result = loop.run_until_complete(coro)
+            logger.info(f"Sync execution completed with {len(result)} results")
+            return result
         except RuntimeError:
+            logger.info("No event loop running, creating new one")
             # 不在事件循环中
-            return asyncio.run(self.execute_tool_calls(tool_calls, context))
+            result = asyncio.run(self.execute_tool_calls(tool_calls, context))
+            logger.info(f"Sync execution completed with {len(result)} results")
+            return result
 
 
 class OpenAIToolCaller(ToolCaller):

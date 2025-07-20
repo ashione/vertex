@@ -14,9 +14,318 @@ from vertex_flow.workflow.constants import (
     REASONING_CONTENT_ATTR,
     SHOW_REASONING_KEY,
 )
+from vertex_flow.workflow.stream_data import StreamData, StreamDataType
 from vertex_flow.workflow.utils import factory_creator, timer_decorator
 
-logging = LoggerUtil.get_logger()
+logger = LoggerUtil.get_logger(__name__)
+
+
+class StreamProcessor:
+    """流式处理器，负责解析流式响应并返回结构化数据"""
+
+    def __init__(self, chat_model, messages):
+        self.chat_model = chat_model
+        self.messages = messages
+        self.tool_call_fragments = []
+        self.tool_calls_detected = False
+        self.tool_calls_completed = False
+
+        # 增量状态管理：避免重复合并操作
+        self.merged_tool_calls = {}  # {call_id: merged_call_dict}
+        self.executed_call_ids = set()  # 已执行的工具调用ID
+        self.last_fragment_count = 0  # 上次处理时的分片数量
+
+    def process_stream(self, completion):
+        """处理流式响应，返回结构化数据"""
+        chunk_count = 0
+
+        for chunk in completion:
+            chunk_count += 1
+            yield from self._process_chunk(chunk)
+
+        # 流式处理结束后，处理剩余的工具调用
+        yield from self._finalize_tool_calls()
+
+    def _process_chunk(self, chunk):
+        """处理单个响应块，返回结构化数据"""
+        # 处理usage信息
+        self._handle_usage(chunk)
+
+        if not (chunk.choices and len(chunk.choices) > 0):
+            return
+
+        delta = chunk.choices[0].delta
+
+        # 处理工具调用
+        tool_call_results = self._handle_tool_calls_in_chunk(chunk)
+        if tool_call_results:
+            yield from tool_call_results
+            return
+
+        # 处理内容
+        content_results = self._handle_content(delta)
+        if content_results:
+            yield from content_results
+
+    def _handle_usage(self, chunk):
+        """处理usage信息"""
+        if hasattr(chunk, "usage") and chunk.usage:
+            self.chat_model._set_usage(chunk)
+            logger.debug(f"Streaming usage received from {self.chat_model.provider}: {chunk.usage}")
+
+    def _handle_tool_calls_in_chunk(self, chunk):
+        """处理块中的工具调用，返回结构化的工具调用数据"""
+        tool_calls_in_chunk = self.chat_model._extract_tool_calls_from_chunk(chunk)
+        if not tool_calls_in_chunk:
+            return []
+
+        results = []
+
+        # 如果工具调用已完成但又检测到新的工具调用，先处理之前的
+        if self.tool_calls_completed:
+            remaining_results = list(self._process_remaining_tool_calls())
+            self._reset_tool_call_state()
+            results.extend(remaining_results)
+
+        self.tool_calls_detected = True
+        self.tool_call_fragments.extend(tool_calls_in_chunk)
+
+        # 尝试合并当前的工具调用分片，如果可以合并成完整调用则返回结构化数据
+        complete_tool_results = list(self._try_execute_complete_tool_calls())
+        results.extend(complete_tool_results)
+
+        return results
+
+    def _process_remaining_tool_calls(self):
+        """处理剩余的工具调用片段，返回结构化数据"""
+        if not self.tool_call_fragments:
+            return
+
+        remaining_calls = self.chat_model._merge_tool_call_fragments(self.tool_call_fragments)
+        if remaining_calls:
+            logger.info(f"Processing {len(remaining_calls)} remaining tool calls before new batch")
+            # 返回结构化的工具调用数据
+            yield StreamData.create_tool_calls(remaining_calls)
+
+    def _reset_tool_call_state(self):
+        """重置工具调用状态"""
+        self.tool_call_fragments = []
+        self.tool_calls_detected = False
+        self.tool_calls_completed = False
+        logger.info("Reset tool call state for new batch")
+
+    def _handle_content(self, delta):
+        """处理内容，返回结构化的内容数据"""
+        # 处理reasoning内容
+        reasoning_content = self._extract_reasoning_content(delta)
+        if reasoning_content:
+            yield StreamData.create_reasoning(reasoning_content)
+            return
+
+        # 处理普通内容
+        content = self._extract_regular_content(delta)
+        if content:
+            yield StreamData.create_content(content)
+
+    def _extract_reasoning_content(self, delta):
+        """提取reasoning内容"""
+        if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
+            return getattr(delta, REASONING_CONTENT_ATTR)
+        return None
+
+    def _extract_regular_content(self, delta):
+        """提取并处理普通内容"""
+        if not (hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR)):
+            return None
+
+        content = getattr(delta, CONTENT_ATTR)
+
+        # 检查是否包含推理标记
+        reasoning_markers = ["<thinking>", "<think>", "<reasoning>", "思考：", "分析："]
+        if any(marker in content for marker in reasoning_markers):
+            return self._clean_reasoning_markers(content)
+
+        return content
+
+    def _clean_reasoning_markers(self, content):
+        """清理推理标记"""
+        display_content = content
+        tags_to_remove = ["<thinking>", "</thinking>", "<think>", "</think>", "<reasoning>", "</reasoning>"]
+        for tag in tags_to_remove:
+            display_content = display_content.replace(tag, "")
+        return display_content
+
+    def _try_execute_complete_tool_calls(self):
+        """尝试识别已完整的工具调用，返回结构化数据"""
+        if not self.tool_call_fragments:
+            logger.debug("No tool call fragments to process")
+            return
+
+        # 检查是否有新的分片需要处理
+        current_fragment_count = len(self.tool_call_fragments)
+        if current_fragment_count == self.last_fragment_count:
+            logger.debug(
+                f"No new fragments to process (current: {current_fragment_count}, last: {self.last_fragment_count})"
+            )
+            return  # 没有新分片，无需重新处理
+
+        # 只处理新增的分片
+        new_fragments = self.tool_call_fragments[self.last_fragment_count :]
+        logger.debug(f"Processing {len(new_fragments)} new fragments (total: {current_fragment_count})")
+        self._update_merged_calls_incrementally(new_fragments)
+        self.last_fragment_count = current_fragment_count
+
+        # 检查哪些工具调用现在是完整的且未标记过
+        complete_calls = []
+        for call_id, merged_call in self.merged_tool_calls.items():
+            if call_id not in self.executed_call_ids:
+                is_complete = self._is_tool_call_complete(merged_call)
+                logger.debug(
+                    f"Tool call {call_id} complete: {is_complete}, arguments: {merged_call.get('function', {}).get('arguments', 'N/A')}"
+                )
+                if is_complete:
+                    complete_calls.append(merged_call)
+                    self.executed_call_ids.add(call_id)
+                    logger.info(f"Marking tool call {call_id} as identified (not executed by StreamProcessor)")
+
+        # 如果有完整的工具调用，返回结构化数据
+        if complete_calls:
+            logger.info(f"Found {len(complete_calls)} complete tool calls, sending to LLM layer for execution")
+            # 返回结构化的工具调用数据，由上层LLM负责实际执行
+            yield StreamData.create_tool_calls(complete_calls)
+        else:
+            logger.debug(
+                f"No complete tool calls found (merged: {len(self.merged_tool_calls)}, identified: {len(self.executed_call_ids)})"
+            )
+
+    def _update_merged_calls_incrementally(self, new_fragments):
+        """增量更新合并的工具调用状态"""
+        for fragment in new_fragments:
+            if not hasattr(fragment, "id") or not fragment.id:
+                continue
+
+            call_id = fragment.id
+
+            # 如果是新的工具调用，初始化
+            if call_id not in self.merged_tool_calls:
+                self.merged_tool_calls[call_id] = {
+                    "id": call_id,
+                    "function": {
+                        "name": getattr(fragment.function, "name", "") if hasattr(fragment, "function") else "",
+                        "arguments": "",
+                    },
+                }
+
+            # 增量更新function信息
+            if hasattr(fragment, "function") and fragment.function:
+                current_call = self.merged_tool_calls[call_id]
+
+                # 更新function name（如果有）
+                if hasattr(fragment.function, "name") and fragment.function.name:
+                    current_call["function"]["name"] = fragment.function.name
+
+                # 增量拼接arguments
+                if hasattr(fragment.function, "arguments") and fragment.function.arguments:
+                    current_call["function"]["arguments"] += fragment.function.arguments
+
+    def _is_tool_call_complete(self, tool_call):
+        """检查工具调用是否完整"""
+        if not tool_call or not isinstance(tool_call, dict):
+            return False
+
+        # 检查必要字段
+        if not tool_call.get("id") or not tool_call.get("function"):
+            return False
+
+        function = tool_call.get("function", {})
+        if not function.get("name"):
+            return False
+
+        # 检查arguments是否存在（允许空字符串）
+        arguments = function.get("arguments")
+        if arguments is None:
+            return False
+
+        # 放宽JSON完整性检查：允许空字符串、空对象或看起来完整的JSON
+        arguments_str = str(arguments).strip()
+
+        # 允许空参数
+        if arguments_str == "" or arguments_str == "{}":
+            return True
+
+        # 检查是否看起来像完整的JSON（以}、]、"或数字结尾）
+        if (
+            arguments_str.endswith("}")
+            or arguments_str.endswith("]")
+            or arguments_str.endswith('"')
+            or arguments_str.endswith("'")
+            or arguments_str[-1].isdigit()
+            or arguments_str.lower() in ["true", "false", "null"]
+        ):
+            return True
+
+        # 尝试解析JSON来验证完整性
+        try:
+            import json
+
+            json.loads(arguments_str)
+            return True
+        except (json.JSONDecodeError, ValueError):
+            # JSON不完整，但记录日志以便调试
+            logger.debug(f"Tool call {tool_call.get('id')} arguments incomplete: {arguments_str}")
+            return False
+
+    def _finalize_tool_calls(self):
+        """在流式处理结束时，清理残留状态"""
+        # 处理所有剩余的分片（如果有新的）
+        if len(self.tool_call_fragments) > self.last_fragment_count:
+            new_fragments = self.tool_call_fragments[self.last_fragment_count :]
+            self._update_merged_calls_incrementally(new_fragments)
+
+        # 检查是否有未执行的工具调用，记录警告但不执行
+        remaining_calls = []
+        incomplete_calls = []
+
+        for call_id, merged_call in self.merged_tool_calls.items():
+            if call_id not in self.executed_call_ids:
+                # 检查工具调用是否完整
+                if self._is_tool_call_complete(merged_call):
+                    remaining_calls.append(merged_call)
+                    logger.warning(
+                        f"Found unidentified complete tool call {call_id} at stream end: {merged_call.get('function', {}).get('name', 'unknown')}"
+                    )
+                else:
+                    incomplete_calls.append((call_id, merged_call))
+                    logger.warning(f"Found incomplete tool call {call_id} at stream end: {merged_call}")
+
+        # 记录统计信息
+        if remaining_calls:
+            logger.warning(f"Stream ended with {len(remaining_calls)} unidentified complete tool calls")
+
+        if incomplete_calls:
+            logger.warning(f"Stream ended with {len(incomplete_calls)} incomplete tool calls")
+            for call_id, incomplete_call in incomplete_calls:
+                function_name = incomplete_call.get("function", {}).get("name", "unknown")
+                arguments = incomplete_call.get("function", {}).get("arguments", "")
+                logger.debug(f"Incomplete tool call {call_id}: function={function_name}, arguments={arguments}")
+
+        # 清理所有状态，避免后续调用时状态残留
+        self._reset_all_state()
+
+        # 流式处理结束，不返回任何数据
+        return
+        yield  # 使这个方法成为生成器，但不产生任何数据
+
+    def _reset_all_state(self):
+        """重置所有状态，避免后续调用时状态残留"""
+        self.tool_call_fragments = []
+        self.tool_calls_detected = False
+        self.tool_calls_completed = True
+
+        # 清理增量状态管理相关的状态
+        self.merged_tool_calls.clear()
+        self.executed_call_ids.clear()
+        self.last_fragment_count = 0
 
 
 @factory_creator
@@ -30,7 +339,7 @@ class ChatModel(abc.ABC):
         self.sk = sk
         self.provider = provider
         self._usage = {}  # 存储最新的usage信息
-        logging.info(f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}.")
+        logger.info(f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}.")
         # 为序列化保存.
         self._base_url = base_url
         self.client = OpenAI(
@@ -60,11 +369,24 @@ class ChatModel(abc.ABC):
     def _process_multimodal_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         处理多模态消息，将文本和图片URL转换为OpenAI兼容的格式
+        同时验证消息序列的完整性
         """
         processed_messages = []
 
+        # 首先收集所有可用的tool_call_ids
+        available_tool_call_ids = set()
         for message in messages:
-            logging.debug(f"Processing message: {message}")
+            role = message.get("role", "")
+            if role == "assistant" and "tool_calls" in message:
+                tool_calls = message.get("tool_calls", [])
+                for tc in tool_calls:
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        available_tool_call_ids.add(tc_id)
+
+        # 然后处理所有消息
+        for message in messages:
+            logger.debug(f"Processing message: {message}")
 
             # 根据消息角色和内容类型来处理
             role = message.get("role", "")
@@ -74,7 +396,7 @@ class ChatModel(abc.ABC):
             if role == "assistant" and "tool_calls" in message:
                 # 工具调用消息，检查content是否为null
                 if content is None:
-                    logging.warning(f"Assistant message with null content detected, setting to empty string: {message}")
+                    logger.warning(f"Assistant message with null content detected, setting to empty string: {message}")
                     message_copy = message.copy()
                     message_copy["content"] = ""
                     processed_messages.append(message_copy)
@@ -82,9 +404,18 @@ class ChatModel(abc.ABC):
                     processed_messages.append(message)
             # 工具响应消息
             elif role == "tool":
+                tool_call_id = message.get("tool_call_id")
+
+                # 验证tool消息是否有对应的tool_calls
+                if tool_call_id and tool_call_id not in available_tool_call_ids:
+                    logger.error(
+                        f"Tool message with tool_call_id '{tool_call_id}' has no corresponding tool_calls message. Skipping this message."
+                    )
+                    continue  # 跳过这个无效的tool消息
+
                 # 工具响应消息，检查content是否为null
                 if content is None:
-                    logging.warning(f"Tool message with null content detected, setting to empty string: {message}")
+                    logger.warning(f"Tool message with null content detected, setting to empty string: {message}")
                     message_copy = message.copy()
                     message_copy["content"] = ""
                     processed_messages.append(message_copy)
@@ -110,16 +441,16 @@ class ChatModel(abc.ABC):
                 processed_messages.append(message)
             elif content is None:
                 # 空内容，设置为空字符串避免序列化问题
-                logging.warning(f"Message with null content detected, setting to empty string: {message}")
+                logger.warning(f"Message with null content detected, setting to empty string: {message}")
                 message_copy = message.copy()
                 message_copy["content"] = ""
                 processed_messages.append(message_copy)
             else:
                 # 其他格式，尝试转换为文本
-                logging.warning(f"Unknown message format: {message}")
+                logger.warning(f"Unknown message format: {message}")
                 processed_messages.append(message)
 
-        logging.debug(f"Processed messages: {processed_messages}")
+        logger.debug(f"Processed messages: {processed_messages}")
         return processed_messages
 
     def _build_api_params(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
@@ -170,6 +501,16 @@ class ChatModel(abc.ABC):
         if self.tool_manager and self.tool_manager.tool_caller:
             for message in self.tool_manager.tool_caller.format_tool_call_request(tool_calls):
                 yield message
+        else:
+            # 回退实现：确保即使没有tool_manager也能发送基本的工具调用请求消息
+            logger.warning("No tool_manager.tool_caller available, using fallback tool call request format")
+            for tool_call in tool_calls:
+                tool_name = (
+                    tool_call.get("function", {}).get("name", "")
+                    if isinstance(tool_call, dict)
+                    else tool_call.function.name
+                )
+                yield f"\n🔧 调用工具: {tool_name}\n"
 
     def _emit_tool_call_results(self, tool_calls, messages):
         """发送工具调用结果消息"""
@@ -180,16 +521,32 @@ class ChatModel(abc.ABC):
         if self.tool_manager and self.tool_manager.tool_caller:
             for message in self.tool_manager.tool_caller.format_tool_call_results(tool_calls, messages):
                 yield message
+        else:
+            # 回退实现：确保即使没有tool_manager也能发送基本的工具调用结果消息
+            logger.warning("No tool_manager.tool_caller available, using fallback tool call results format")
+            for tool_call in tool_calls:
+                tool_call_id = tool_call.get("id", "") if isinstance(tool_call, dict) else tool_call.id
+                tool_name = (
+                    tool_call.get("function", {}).get("name", "")
+                    if isinstance(tool_call, dict)
+                    else tool_call.function.name
+                )
+                # 查找对应的工具响应
+                for msg in reversed(messages):
+                    if msg.get("role") == "tool" and msg.get("tool_call_id") == tool_call_id:
+                        result_content = msg.get("content", "")
+                        yield f"\n✅ 工具 {tool_name} 执行结果:\n```\n{result_content}\n```\n"
+                        break
 
     def _create_completion(self, messages, option: Optional[Dict[str, Any]] = None, stream: bool = False, tools=None):
         """Create completion with proper error handling"""
         api_params = self._build_api_params(messages, option, stream, tools)
         try:
             completion = self.client.chat.completions.create(**api_params)
-            logging.info(f"show completion: {completion}")
+            logger.info(f"show completion: {completion}")
             return completion
         except Exception as e:
-            logging.error(f"Error creating completion: {e}, api_params: {api_params}")
+            logger.error(f"Error creating completion: {e}, api_params: {api_params}")
             raise
 
     def chat(self, messages, option: Optional[Dict[str, Any]] = None, tools=None) -> Choice:
@@ -210,7 +567,7 @@ class ChatModel(abc.ABC):
                 "output_tokens": getattr(completion.usage, "completion_tokens", None),
                 "total_tokens": getattr(completion.usage, "total_tokens", None),
             }
-        logging.info(f"usage: {usage}")
+        logger.info(f"usage: {usage}")
         self._usage = usage
 
     def get_usage(self) -> dict:
@@ -228,7 +585,7 @@ class ChatModel(abc.ABC):
             return self.tool_manager.tool_caller.merge_tool_call_fragments(fragments)
 
         # 回退到简单的默认实现（保持向后兼容）
-        logging.warning("No tool_manager.tool_caller available, using basic fragment merging")
+        logger.warning("No tool_manager.tool_caller available, using basic fragment merging")
         return fragments if isinstance(fragments, list) else [fragments]
 
     def chat_stream(self, messages, option: Optional[Dict[str, Any]] = None, tools=None):
@@ -240,93 +597,8 @@ class ChatModel(abc.ABC):
 
     def _unified_stream_processing(self, completion, messages):
         """统一的流式处理方法，动态选择工具处理策略"""
-        tool_call_fragments = []
-        tool_calls_detected = False
-        tool_calls_completed = False
-        content_after_tool_calls = False  # 新增：标记工具调用后是否有内容
-
-        for chunk in completion:
-            # 检查并记录usage信息（通用支持）
-            if hasattr(chunk, "usage") and chunk.usage:
-                self._set_usage(chunk)
-                logging.debug(f"Streaming usage received from {self.provider}: {chunk.usage}")
-
-            if chunk.choices and len(chunk.choices) > 0:
-                delta = chunk.choices[0].delta
-
-                # 检查工具调用 - 使用可用的工具处理器
-                tool_calls_in_chunk = self._extract_tool_calls_from_chunk(chunk)
-                if tool_calls_in_chunk:
-                    # 如果工具调用已完成，但又检测到新的工具调用，重置状态
-                    if tool_calls_completed:
-                        # 处理之前遗留的片段
-                        if tool_call_fragments:
-                            remaining_calls = self._merge_tool_call_fragments(tool_call_fragments)
-                            if remaining_calls:
-                                logging.info(f"Processing {len(remaining_calls)} remaining tool calls before new batch")
-                                # 发送工具调用请求消息
-                                for request_msg in self._emit_tool_call_request(remaining_calls):
-                                    yield request_msg
-                                # 处理工具调用
-                                if self._handle_tool_calls_in_stream(remaining_calls, messages):
-                                    # 发送工具调用结果消息
-                                    for result_msg in self._emit_tool_call_results(remaining_calls, messages):
-                                        yield result_msg
-
-                        # 重置状态开始新的工具调用批次
-                        tool_call_fragments = []
-                        tool_calls_detected = False
-                        tool_calls_completed = False
-                        content_after_tool_calls = False
-                        logging.info("Reset tool call state for new batch")
-
-                    tool_calls_detected = True
-                    tool_call_fragments.extend(tool_calls_in_chunk)
-                    continue
-
-                # 注意：移除了中途处理工具调用的逻辑
-                # 现在只收集片段，不在有内容时立即处理
-
-                # 处理reasoning内容（DeepSeek R1等模型）
-                if hasattr(delta, REASONING_CONTENT_ATTR) and getattr(delta, REASONING_CONTENT_ATTR):
-                    reasoning_content = getattr(delta, REASONING_CONTENT_ATTR)
-                    yield reasoning_content
-                    continue
-
-                # 处理普通内容
-                if hasattr(delta, CONTENT_ATTR) and getattr(delta, CONTENT_ATTR):
-                    content = getattr(delta, CONTENT_ATTR)
-                    # 检查是否包含推理标记
-                    if any(
-                        marker in content for marker in ["<thinking>", "<think>", "<reasoning>", "思考：", "分析："]
-                    ):
-                        # 清理推理标记
-                        display_content = content
-                        for tag in ["<thinking>", "</thinking>", "<think>", "</think>", "<reasoning>", "</reasoning>"]:
-                            display_content = display_content.replace(tag, "")
-                        yield display_content
-                        continue
-                    # 普通内容
-                    yield content
-            else:
-                self._set_usage(chunk)
-                logging.debug("Chunk object does not have valid choices or delta content.")
-
-        # 流式处理结束后，统一处理所有收集到的工具调用片段
-        if tool_calls_detected and tool_call_fragments:
-            tool_calls = self._merge_tool_call_fragments(tool_call_fragments)
-
-            if tool_calls:  # 只有在有有效工具调用时才处理
-                logging.info(f"Processing {len(tool_calls)} tool calls after stream completion")
-                # 发送工具调用请求消息
-                for request_msg in self._emit_tool_call_request(tool_calls):
-                    yield request_msg
-
-                if self._handle_tool_calls_in_stream(tool_calls, messages):
-                    # 发送工具调用结果消息
-                    for result_msg in self._emit_tool_call_results(tool_calls, messages):
-                        yield result_msg
-                    logging.info(f"Tool calls completed after stream: {len(tool_calls)} calls")
+        processor = StreamProcessor(self, messages)
+        yield from processor.process_stream(completion)
 
     def _extract_tool_calls_from_chunk(self, chunk):
         """从流式响应块中提取工具调用，统一使用ToolManager中的ToolCaller"""
@@ -354,10 +626,10 @@ class ChatModel(abc.ABC):
             assistant_msg = {"role": "assistant", "content": "", "tool_calls": tool_calls}
             if self._should_append_assistant_message(messages, tool_calls):
                 messages.append(assistant_msg)
-                logging.info(f"Tool calls detected in stream, assistant message appended: {assistant_msg}")
+                logger.info(f"Tool calls detected in stream, assistant message appended: {assistant_msg}")
                 return True
             else:
-                logging.info(f"Tool calls detected in stream, but identical assistant message already exists, skipping")
+                logger.info(f"Tool calls detected in stream, but identical assistant message already exists, skipping")
                 return True
 
     def _should_append_assistant_message(self, messages, tool_calls):
@@ -444,7 +716,7 @@ class Tongyi(ChatModel):
 
         # 处理enable_search参数（通义千问支持）
         if ENABLE_SEARCH_KEY in default_option:
-            logging.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
+            logger.info(f"Tongyi enable_search requested: {default_option[ENABLE_SEARCH_KEY]}")
             api_params["extra_body"] = {
                 "extra_body": {ENABLE_SEARCH_KEY: default_option[ENABLE_SEARCH_KEY], "search_options": True}
             }
@@ -453,7 +725,7 @@ class Tongyi(ChatModel):
             completion = self.client.chat.completions.create(**api_params)
             return completion
         except Exception as e:
-            logging.error(f"Error creating completion: {e}")
+            logger.error(f"Error creating completion: {e}")
             raise
 
 

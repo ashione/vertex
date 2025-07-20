@@ -4,6 +4,10 @@ from typing import Callable, Optional
 
 import pytz
 
+from vertex_flow.utils.logger import LoggerUtil
+
+logger = LoggerUtil.get_logger(__name__)
+
 
 def today_func(inputs, context=None):
     """获取当前时间，支持多种格式和时区。"""
@@ -54,9 +58,9 @@ class FunctionTool:
 
     def execute(self, inputs: dict, context=None):
         # 打印工具调用参数
-        logging.info(f"Tool '{self.name}' called with inputs: {inputs}")
+        logger.info(f"Tool '{self.name}' called with inputs: {inputs}")
         if context:
-            logging.info(f"Tool '{self.name}' context: {context}")
+            logger.info(f"Tool '{self.name}' context: {context}")
         return self.func(inputs, context)
 
     def to_dict(self):

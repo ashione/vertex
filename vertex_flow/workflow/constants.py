@@ -77,3 +77,6 @@ REASONING_CONTENT_ATTR = "reasoning_content"  # Attribute name for reasoning con
 
 # Loop index constants for WhileVertex and WhileVertexGroup
 ITERATION_INDEX_KEY = "iteration_index"  # Iteration index key
+
+# Tool calling limits
+DEFAULT_MAX_TOOL_ROUNDS = 10  # Default maximum tool calling rounds

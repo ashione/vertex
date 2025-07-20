@@ -8,7 +8,6 @@
 
 import datetime
 import json
-import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -19,10 +18,11 @@ try:
 except ImportError:
     HAS_PYTZ = False
 
+from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall, ToolCaller
 
-logger = logging.getLogger(__name__)
+logger = LoggerUtil.get_logger(__name__)
 
 
 class FunctionTool:
@@ -508,9 +508,29 @@ class ToolManager:
                 assistant_message = self.create_assistant_message(choice_or_tool_calls)
                 messages.append(assistant_message)
 
-            # 执行工具调用
-            tool_messages = self.execute_tool_calls(tool_calls, context)
-            messages.extend(tool_messages)
+            # 检查是否已经存在相同的tool消息（避免重复执行）
+            existing_tool_call_ids = set()
+            for msg in messages:
+                if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                    existing_tool_call_ids.add(msg.get("tool_call_id"))
+
+            # 过滤掉已经执行过的工具调用
+            tools_to_execute = []
+            for tool_call in normalized_tool_calls:
+                if tool_call.id not in existing_tool_call_ids:
+                    tools_to_execute.append(tool_call)
+                else:
+                    logger.debug(f"Skipping duplicate tool execution for call_id: {tool_call.id}")
+
+            # 执行未重复的工具调用
+            if tools_to_execute:
+                tool_messages = self.execute_tool_calls(tools_to_execute, context)
+                messages.extend(tool_messages)
+                logger.info(
+                    f"Executed {len(tools_to_execute)} new tool calls, skipped {len(normalized_tool_calls) - len(tools_to_execute)} duplicates"
+                )
+            else:
+                logger.info(f"All {len(normalized_tool_calls)} tool calls were already executed, skipping execution")
 
             return True
 

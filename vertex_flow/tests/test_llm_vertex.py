@@ -37,6 +37,7 @@ from vertex_flow.workflow.constants import (
 )
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.edge import Edge
+from vertex_flow.workflow.stream_data import StreamData, StreamDataType
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
 from vertex_flow.workflow.vertex.vertex import SinkVertex, SourceVertex
 from vertex_flow.workflow.workflow import Workflow
@@ -48,6 +49,12 @@ class MockChatModel:
     def __init__(self, responses=None):
         self.responses = responses or ["Mock response"]
         self.current_usage = {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30}
+        self.name = "mock-model"
+        # 模拟client对象
+        self.client = Mock()
+        self.client.chat = Mock()
+        self.client.chat.completions = Mock()
+        self.client.chat.completions.create = Mock(return_value=self._create_mock_completion())
 
     def chat(self, messages, option=None, tools=None):
         """模拟聊天响应"""
@@ -58,9 +65,44 @@ class MockChatModel:
         return mock_choice
 
     def chat_stream(self, messages, option=None, tools=None):
-        """模拟流式聊天响应 - 直接返回字符串避免阻塞"""
+        """模拟流式聊天响应 - 返回结构化数据生成器"""
         response = self.responses.pop(0) if self.responses else "Mock streaming response"
-        return response
+        # 模拟chat_stream返回的结构化数据格式
+        yield StreamData.create_content(response, usage=self.current_usage)
+
+    def _create_completion(self, messages, option=None, stream=False, tools=None):
+        """模拟创建completion"""
+        response = self.responses.pop(0) if self.responses else "Mock streaming response"
+        # 创建一个简单的mock chunk生成器
+        mock_chunk = Mock()
+        mock_chunk.choices = [Mock()]
+        mock_chunk.choices[0].delta = Mock()
+        mock_chunk.choices[0].delta.content = response
+        mock_chunk.usage = None
+        return [mock_chunk]
+
+    def _extract_tool_calls_from_chunk(self, chunk):
+        """模拟从chunk中提取工具调用"""
+        return []
+
+    def _merge_tool_call_fragments(self, fragments):
+        """模拟合并工具调用分片"""
+        return []
+
+    def _set_usage(self, chunk):
+        """模拟设置usage"""
+        pass
+
+    def _create_mock_completion(self):
+        """创建模拟的completion对象"""
+        response = self.responses[0] if self.responses else "Mock streaming response"
+        mock_chunk = Mock()
+        mock_chunk.choices = [Mock()]
+        mock_chunk.choices[0].delta = Mock()
+        mock_chunk.choices[0].delta.content = response
+        mock_chunk.choices[0].delta.tool_calls = None
+        mock_chunk.usage = None
+        return [mock_chunk]
 
     def get_usage(self):
         """获取token使用统计"""

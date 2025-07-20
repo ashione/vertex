@@ -5,15 +5,17 @@ import traceback
 from typing import List, Optional
 
 from vertex_flow.utils.logger import LoggerUtil
+from vertex_flow.workflow.stream_data import StreamData
+
+logger = LoggerUtil.get_logger(__name__)
 from vertex_flow.workflow.chat import ChatModel
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
     CONVERSATION_HISTORY,
+    DEFAULT_MAX_TOOL_ROUNDS,
     ENABLE_REASONING_KEY,
     ENABLE_SEARCH_KEY,
     ENABLE_STREAM,
-    ITERATION_INDEX_KEY,
-    LOCAL_VAR,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
@@ -299,58 +301,36 @@ class LLMVertex(Vertex[T]):
 
     def chat(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         """Chat with LLM and handle token usage"""
-        finish_reason = None
         if self.enable_stream and hasattr(self.model, "chat_stream"):
             return self._chat_stream(inputs, context)
 
-        # Build LLM options
+        # 非流式处理：直接使用模型的chat方法并处理工具调用
         option = self._build_llm_option(inputs, context)
         llm_tools = self._build_llm_tools()
 
-        # Handle tool calls in a loop
-        max_iterations = 10  # 防止无限循环
-        iteration_count = 0
-
-        while (finish_reason is None or finish_reason == "tool_calls") and iteration_count < max_iterations:
-            iteration_count += 1
+        # 使用tool_manager处理工具调用循环
+        if self.tool_manager and llm_tools:
+            choice = self.tool_manager.handle_tool_calls_complete(
+                None, context, self.messages, lambda: self.model.chat(self.messages, option=option, tools=llm_tools)
+            )
+            content = (
+                choice.message.content
+                if hasattr(choice, "message") and hasattr(choice.message, "content")
+                else str(choice)
+            )
+        else:
             choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-            finish_reason = choice.finish_reason
+            content = choice.message.content if hasattr(choice.message, "content") else str(choice)
 
-            if finish_reason == "tool_calls":
-                # Handle tool calls
-                logging.info(f"LLM {self.id} wants to call tools (iteration {iteration_count})")
+        # 应用postprocess处理
+        result = content if self.postprocess is None else self.postprocess(content, inputs, context)
+        self.output = result
 
-                # 检查是否有工具调用
-                if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
-                    # 使用统一工具管理器处理工具调用
-                    success = self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
-                    if not success:
-                        logging.warning(f"Tool call handling failed for LLM {self.id}")
-                        break
-                else:
-                    logging.warning(f"No tool calls found in choice for LLM {self.id}")
-                    break
+        # Handle token usage
+        self._handle_token_usage()
 
-                # Reset finish_reason to continue the loop and get the final response after tool calls
-                finish_reason = None
-                continue
-            else:
-                # No tool calls, process the final response
-                content = choice.message.content or ""
-                result = content if self.postprocess is None else self.postprocess(content, inputs, context)
-                self.output = result
-
-                # Handle token usage
-                self._handle_token_usage()
-
-                logging.debug(f"chat bot response : {result}")
-                return result
-
-        if iteration_count >= max_iterations:
-            logging.error(f"LLM {self.id} exceeded maximum iterations ({max_iterations}), stopping")
-            return "Error: Maximum tool call iterations exceeded"
-
-        return "Error: Unexpected end of chat loop"
+        logging.debug(f"chat bot response : {result}")
+        return result
 
     def chat_stream_generator(self, inputs: Dict[str, Any], context: WorkflowContext[T] = None):
         """返回流式输出的生成器，支持reasoning和工具调用"""
@@ -397,7 +377,7 @@ class LLMVertex(Vertex[T]):
 
     def _unified_stream_core(self, inputs: Dict[str, Any], context: WorkflowContext, emit_events: bool = True):
         """
-        统一的流式核心逻辑，支持reasoning和工具调用
+        统一的流式核心逻辑，支持多轮工具调用直到stop
         根据emit_events参数决定是否发送事件
         """
         try:
@@ -405,317 +385,63 @@ class LLMVertex(Vertex[T]):
             option = self._build_llm_option(inputs, context)
             llm_tools = self._build_llm_tools()
 
-            # Handle tool calls in a loop
-            finish_reason = None
-            while finish_reason is None or finish_reason == "tool_calls":
+            # 检查是否启用reasoning（用于消息类型判断）
+            enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
+            message_type = MESSAGE_TYPE_REASONING if enable_reasoning else MESSAGE_TYPE_REGULAR
 
-                # 检查是否启用reasoning（用于消息类型判断）
-                enable_reasoning = self.params.get(ENABLE_REASONING_KEY, False)
-                message_type = MESSAGE_TYPE_REASONING if enable_reasoning else MESSAGE_TYPE_REGULAR
-
-                # 在流式模式下，坚持使用流式处理
-                if self.enable_stream and hasattr(self.model, "chat_stream"):
-                    try:
-                        # 使用流式模式
-                        stream_option = option.copy() if option else {}
-                        if llm_tools:
-                            stream_option["tools"] = llm_tools
-
-                        # 检查messages中是否已经有未处理的assistant/tool_calls消息
-                        pending_tool_calls = []
-                        for msg in self.messages:
-                            if (
-                                msg.get("role") == "assistant"
-                                and msg.get("tool_calls")
-                                and not any(
-                                    tool_msg.get("tool_call_id") == tc.get("id")
-                                    for tc in msg["tool_calls"]
-                                    for tool_msg in self.messages
-                                    if tool_msg.get("role") == "tool"
-                                )
-                            ):
-                                pending_tool_calls.extend(msg["tool_calls"])
-
-                        if pending_tool_calls:
-                            # 有未处理的工具调用，直接处理
-                            logging.info(f"Found {len(pending_tool_calls)} pending tool calls, processing directly")
-
-                            # 发送工具调用请求事件（pending calls）
-                            if emit_events and self.workflow:
-                                if self.tool_manager and self.tool_manager.tool_caller:
-                                    tool_caller = self.tool_manager.tool_caller
-                                    for request_msg in tool_caller.format_tool_call_request(pending_tool_calls):
-                                        self.workflow.emit_event(
-                                            EventType.MESSAGES,
-                                            {
-                                                VERTEX_ID_KEY: self.id,
-                                                CONTENT_KEY: request_msg,
-                                                TYPE_KEY: message_type,
-                                            },
-                                        )
-
-                            # 使用统一工具管理器执行工具调用
-                            tool_messages = self.tool_manager.execute_tool_calls(pending_tool_calls, context)
-                            # 确保所有工具消息的content不为null
-                            for tool_msg in tool_messages:
-                                if tool_msg.get("content") is None:
-                                    tool_msg["content"] = ""
-                            self.messages.extend(tool_messages)
-
-                            # 发送工具调用结果事件（pending calls）
-                            if emit_events and self.workflow:
-                                if self.tool_manager and self.tool_manager.tool_caller:
-                                    tool_caller = self.tool_manager.tool_caller
-                                    for result_msg in tool_caller.format_tool_call_results(
-                                        pending_tool_calls, self.messages
-                                    ):
-                                        self.workflow.emit_event(
-                                            EventType.MESSAGES,
-                                            {
-                                                VERTEX_ID_KEY: self.id,
-                                                CONTENT_KEY: result_msg,
-                                                TYPE_KEY: message_type,
-                                            },
-                                        )
-
-                            # 继续循环以获取最终响应
-                            finish_reason = None
-                            continue
-                        else:
-                            # 使用改进的流式处理，支持实时工具调用检测和多轮处理
-                            has_content = False
-                            tool_calls_detected = False
-
-                            # 记录流式处理开始前的消息数量
-                            messages_before_stream = len(self.messages)
-
-                            # 使用流式处理，实时检测工具调用和内容
-                            for chunk in self.model.chat_stream(self.messages, option=stream_option):
-                                if chunk:
-                                    # 检查是否为工具调用相关的输出
-                                    if self._is_tool_call_chunk(chunk):
-                                        tool_calls_detected = True
-                                        # 工具调用内容不需要输出给用户
-                                        continue
-                                    else:
-                                        # 普通内容，输出给用户
-                                        has_content = True
-                                        # Emit event if requested
-                                        if emit_events and self.workflow:
-                                            self.workflow.emit_event(
-                                                EventType.MESSAGES,
-                                                {
-                                                    VERTEX_ID_KEY: self.id,
-                                                    CONTENT_KEY: chunk,
-                                                    TYPE_KEY: message_type,
-                                                },
-                                            )
-                                        yield chunk
-
-                            # 检查是否有新增的工具调用需要执行
-                            new_tool_calls = self._extract_new_tool_calls(messages_before_stream)
-
-                            if new_tool_calls:
-                                # 有新的工具调用需要执行
-                                logging.info(f"LLM {self.id} executing {len(new_tool_calls)} tools after streaming")
-
-                                # 发送工具调用请求事件
-                                if emit_events and self.workflow:
-                                    if self.tool_manager and self.tool_manager.tool_caller:
-                                        tool_caller = self.tool_manager.tool_caller
-                                        for request_msg in tool_caller.format_tool_call_request(new_tool_calls):
-                                            self.workflow.emit_event(
-                                                EventType.MESSAGES,
-                                                {
-                                                    VERTEX_ID_KEY: self.id,
-                                                    CONTENT_KEY: request_msg,
-                                                    TYPE_KEY: message_type,
-                                                },
-                                            )
-
-                                # 使用统一工具管理器执行工具调用
-                                tool_messages = self.tool_manager.execute_tool_calls(new_tool_calls, context)
-                                # 确保所有工具消息的content不为null
-                                for tool_msg in tool_messages:
-                                    if tool_msg.get("content") is None:
-                                        tool_msg["content"] = ""
-                                self.messages.extend(tool_messages)
-
-                                # 发送工具调用结果事件
-                                if emit_events and self.workflow:
-                                    if self.tool_manager and self.tool_manager.tool_caller:
-                                        tool_caller = self.tool_manager.tool_caller
-                                        for result_msg in tool_caller.format_tool_call_results(
-                                            new_tool_calls, self.messages
-                                        ):
-                                            self.workflow.emit_event(
-                                                EventType.MESSAGES,
-                                                {
-                                                    VERTEX_ID_KEY: self.id,
-                                                    CONTENT_KEY: result_msg,
-                                                    TYPE_KEY: message_type,
-                                                },
-                                            )
-
-                                # 继续循环以获取最终响应或处理更多工具调用
-                                finish_reason = None
-                                continue
-                            elif has_content or tool_calls_detected:
-                                # 有内容输出或处理了工具调用，结束当前轮次
-                                finish_reason = "stop"
-                            else:
-                                # 没有输出内容也没有工具调用，尝试获取最终响应
-                                logging.info(f"LLM {self.id} no content or tool calls found, getting final response")
-                                final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-
-                                if final_choice.finish_reason == "tool_calls":
-                                    # 还有工具调用，继续循环
-                                    finish_reason = None
-                                    continue
-                                else:
-                                    # 获取最终内容
-                                    content = final_choice.message.content or ""
-                                    if content:
-                                        if emit_events and self.workflow:
-                                            self.workflow.emit_event(
-                                                EventType.MESSAGES,
-                                                {
-                                                    VERTEX_ID_KEY: self.id,
-                                                    CONTENT_KEY: content,
-                                                    TYPE_KEY: message_type,
-                                                },
-                                            )
-                                        yield content
-                                    finish_reason = "stop"
-
-                    except Exception as stream_error:
-                        # 流式处理失败，记录错误但继续流式模式
-                        logging.error(f"Streaming error occurred: {stream_error}")
-                        import traceback
-
-                        logging.error(f"Streaming error details: {traceback.format_exc()}")
-
-                        # 在流式模式下优雅地处理错误
-                        error_message = f"流式处理遇到错误: {str(stream_error)}"
-                        if emit_events and self.workflow:
-                            self.workflow.emit_event(
-                                EventType.MESSAGES,
-                                {
-                                    VERTEX_ID_KEY: self.id,
-                                    CONTENT_KEY: error_message,
-                                    TYPE_KEY: message_type,
-                                },
-                            )
-                        yield error_message
-                        finish_reason = "stop"  # 结束当前循环，不回退到非流式
-
-                # 非流式模式处理（仅在明确非流式模式下使用）
-                non_stream_condition = not self.enable_stream and (
-                    finish_reason == "tool_calls" or not hasattr(self.model, "chat_stream")
+            # 确保只在流式模式下使用此方法
+            if not (self.enable_stream and hasattr(self.model, "chat_stream")):
+                raise ValueError(
+                    f"_unified_stream_core requires streaming mode, but enable_stream={self.enable_stream} or model doesn't support chat_stream"
                 )
-                if non_stream_condition:
-                    if llm_tools:
-                        choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                        finish_reason = choice.finish_reason
 
-                        if finish_reason == "tool_calls":
-                            # Handle tool calls
-                            logging.info(f"LLM {self.id} wants to call tools")
+            # 多轮对话循环，直到没有工具调用为止
+            # 支持通过参数配置最大工具调用轮数，默认使用常量值
+            max_tool_rounds = self.params.get("max_tool_rounds", DEFAULT_MAX_TOOL_ROUNDS)
+            tool_round_count = 0
 
-                            # 发送工具调用请求事件（非流式模式）
-                            if emit_events and self.workflow:
-                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
-                                if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
-                                    tool_caller = self.tool_manager.tool_caller
-                                    for request_msg in tool_caller.format_tool_call_request(tool_calls):
-                                        self.workflow.emit_event(
-                                            EventType.MESSAGES,
-                                            {
-                                                VERTEX_ID_KEY: self.id,
-                                                CONTENT_KEY: request_msg,
-                                                TYPE_KEY: message_type,
-                                            },
-                                        )
+            while True:
+                # 开始新一轮流式对话
+                has_tool_calls = False
 
-                            # 执行工具调用
-                            self.tool_manager.handle_tool_calls_complete(choice, context, self.messages)
-
-                            # 发送工具调用结果事件（非流式模式）
-                            if emit_events and self.workflow:
-                                tool_calls = choice.message.tool_calls if hasattr(choice.message, "tool_calls") else []
-                                if tool_calls and self.tool_manager and self.tool_manager.tool_caller:
-                                    tool_caller = self.tool_manager.tool_caller
-                                    for result_msg in tool_caller.format_tool_call_results(tool_calls, self.messages):
-                                        self.workflow.emit_event(
-                                            EventType.MESSAGES,
-                                            {
-                                                VERTEX_ID_KEY: self.id,
-                                                CONTENT_KEY: result_msg,
-                                                TYPE_KEY: message_type,
-                                            },
-                                        )
-                            # Get the response after tool calls (may contain more tool calls)
-                            final_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                            finish_reason = final_choice.finish_reason
-
-                            if finish_reason == "tool_calls":
-                                # More tool calls, continue the loop
-                                logging.info(f"LLM {self.id} has more tool calls after previous ones (non-streaming)")
-                                finish_reason = None
-                                continue
-                            else:
-                                # No more tool calls, yield the final response
-                                content = final_choice.message.content or ""
-                                if not content and final_choice.finish_reason == "stop":
-                                    # LLM没有自动总结，补一条user消息重试
-                                    max_retry = 2
-                                    retry_count = 0
-                                    while retry_count < max_retry and not content:
-                                        self.messages.append({"role": "user", "content": "请根据工具结果继续总结"})
-                                        retry_choice = self.model.chat(self.messages, option=option, tools=llm_tools)
-                                        content = retry_choice.message.content or ""
-                                        retry_count += 1
-                                        if content:
-                                            break
-                                    if not content:
-                                        content = "工具调用已完成，但LLM未返回总结内容。"
-                                if content:
-                                    if emit_events and self.workflow:
-                                        self.workflow.emit_event(
-                                            EventType.MESSAGES,
-                                            {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
-                                        )
-                                    yield content
-                                    logging.info(
-                                        f"LLM {self.id} yielded final response after tool calls "
-                                        f"(non-streaming): {content[:100]}..."
-                                    )
-                                finish_reason = "stop"
-                        else:
-                            # No tool calls, yield the content
-                            content = choice.message.content or ""
-                            if content:
-                                if emit_events and self.workflow:
-                                    self.workflow.emit_event(
-                                        EventType.MESSAGES,
-                                        {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
-                                    )
-                                yield content
-                            finish_reason = "stop"
+                # 处理单轮流式对话
+                for content_chunk in self._process_single_stream_round(
+                    option, llm_tools, message_type, emit_events, context
+                ):
+                    if content_chunk == "__TOOL_CALLS_DETECTED__":
+                        has_tool_calls = True
+                        break
                     else:
-                        choice = self.model.chat(self.messages, option=option)
-                        content = choice.message.content or ""
-                        if content:
-                            if emit_events and self.workflow:
-                                self.workflow.emit_event(
-                                    EventType.MESSAGES,
-                                    {VERTEX_ID_KEY: self.id, CONTENT_KEY: content, TYPE_KEY: message_type},
-                                )
-                            yield content
-                        finish_reason = "stop"
+                        yield content_chunk
+
+                # 如果没有工具调用，结束对话
+                if not has_tool_calls:
+                    break
+
+                # 检查工具调用次数保护
+                tool_round_count += 1
+                if tool_round_count >= max_tool_rounds:
+                    warning_msg = f"⚠️ 工具调用已达到最大轮数限制 ({max_tool_rounds})，停止继续调用"
+                    logger.warning(warning_msg)
+                    if emit_events and self.workflow:
+                        self.workflow.emit_event(
+                            EventType.MESSAGES,
+                            {
+                                VERTEX_ID_KEY: self.id,
+                                CONTENT_KEY: warning_msg,
+                                TYPE_KEY: MESSAGE_TYPE_ERROR,
+                            },
+                        )
+                    yield warning_msg
+                    break
+
+                # 如果有工具调用，继续下一轮（工具结果已经被tool_manager添加到messages中）
+                logger.info(
+                    f"Starting tool round {tool_round_count}/{max_tool_rounds}, messages count: {len(self.messages)}"
+                )
 
         except Exception as e:
-            error_msg = f"LLM streaming error: {str(e)}"
+            error_msg = f"LLM processing error: {str(e)}"
             logging.error(error_msg)
             if emit_events and self.workflow:
                 self.workflow.emit_event(
@@ -723,45 +449,116 @@ class LLMVertex(Vertex[T]):
                 )
             yield error_msg
         finally:
-            # Handle token usage after streaming is complete
+            # Handle token usage after processing is complete
             self._handle_token_usage()
 
-            # Send end event when streaming is complete (only for event-based streaming)
-            # This must be in the finally block to ensure it's always sent
+            # Send end event when processing is complete (only for event-based streaming)
             if emit_events and self.workflow:
                 self.workflow.emit_event(
                     EventType.MESSAGES, {VERTEX_ID_KEY: self.id, MESSAGE_KEY: None, "status": MESSAGE_TYPE_END}
                 )
 
-    def _is_tool_call_chunk(self, chunk: str) -> bool:
-        """检查chunk是否包含工具调用相关内容，这些内容不应输出给用户
-
-        注意：这个方法目前返回False，让ChatModel的流式处理自行处理工具调用。
-        因为ChatModel已经有完善的工具调用处理逻辑，我们不需要在这里过滤。
+    def _process_single_stream_round(
+        self, option: Dict[str, Any], llm_tools, message_type: str, emit_events: bool, context: WorkflowContext
+    ):
         """
-        # 暂时返回False，让所有内容都正常输出
-        # ChatModel的chat_stream方法会正确处理工具调用和内容的分离
+        处理单轮流式对话，返回内容块或工具调用信号
+        """
+        # 使用 ChatModel 的 chat_stream 接口获取流式生成器
+        stream_generator = self.model.chat_stream(self.messages, option, llm_tools)
+
+        for stream_data in stream_generator:
+            if stream_data is None:
+                continue
+
+            # 如果是StreamData对象，按照预期处理
+            if isinstance(stream_data, StreamData):
+                data_type = stream_data.type.value
+                data_content = stream_data.get_data()
+
+                if data_type == "content" or data_type == "reasoning":
+                    # 处理内容数据
+                    self._emit_content_event(data_content, message_type, emit_events)
+                    yield data_content
+                elif data_type == "tool_calls":
+                    # 处理工具调用
+                    if data_content and self._handle_tool_calls(data_content, context, emit_events):
+                        yield "__TOOL_CALLS_DETECTED__"
+                        return
+                elif data_type == "error":
+                    # 处理错误数据
+                    self._emit_error_event(data_content, emit_events)
+                    yield f"\n⚠️ {data_content}\n"
+                elif data_type == "usage":
+                    # 处理使用统计数据，累加到历史中
+                    self._accumulate_usage(data_content)
+                    continue
+            else:
+                # 处理非StreamData对象
+                content_str = str(stream_data) if stream_data else ""
+                if content_str:
+                    self._emit_content_event(content_str, message_type, emit_events)
+                    yield content_str
+
+    def _emit_content_event(self, content: str, message_type: str, emit_events: bool):
+        """发送内容事件"""
+        if emit_events and self.workflow:
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {
+                    VERTEX_ID_KEY: self.id,
+                    CONTENT_KEY: content,
+                    TYPE_KEY: message_type,
+                },
+            )
+
+    def _emit_error_event(self, error_content: str, emit_events: bool):
+        """发送错误事件"""
+        if emit_events and self.workflow:
+            self.workflow.emit_event(
+                EventType.MESSAGES,
+                {
+                    VERTEX_ID_KEY: self.id,
+                    "error": error_content,
+                    TYPE_KEY: MESSAGE_TYPE_ERROR,
+                },
+            )
+
+    def _handle_tool_calls(self, tool_calls_data, context: WorkflowContext, emit_events: bool) -> bool:
+        """处理工具调用，返回是否成功执行了工具"""
+        # 发送工具调用事件，让前端知道工具调用的参数
+        if emit_events and self.workflow:
+            for tool_call in tool_calls_data:
+                self.workflow.emit_event(
+                    EventType.MESSAGES,
+                    {
+                        VERTEX_ID_KEY: self.id,
+                        "tool_call": tool_call,
+                        TYPE_KEY: "tool_call",
+                    },
+                )
+
+        # 实际执行工具调用
+        if hasattr(self, "tool_manager") and self.tool_manager:
+            tool_executed = self.tool_manager.handle_tool_calls_complete(tool_calls_data, context, self.messages)
+            if tool_executed:
+                logger.info(f"Tool executed successfully, messages updated to {len(self.messages)} entries")
+                return True
+        else:
+            # 如果没有工具管理器，至少添加assistant消息到对话历史
+            assistant_msg = {"role": "assistant", "content": "", "tool_calls": tool_calls_data}
+            if assistant_msg not in self.messages:
+                self.messages.append(assistant_msg)
+                logger.info(f"Tool calls detected, assistant message appended: {assistant_msg}")
+
         return False
 
-    def _extract_new_tool_calls(self, messages_before_stream: int) -> List[Dict[str, Any]]:
-        """提取流式处理后新增的工具调用"""
-        new_tool_calls = []
-
-        # 只检查流式处理后新增的消息
-        for msg in self.messages[messages_before_stream:]:
-            if (
-                msg.get("role") == "assistant"
-                and msg.get("tool_calls")
-                and not any(
-                    tool_msg.get("tool_call_id") == tc.get("id")
-                    for tc in msg["tool_calls"]
-                    for tool_msg in self.messages
-                    if tool_msg.get("role") == "tool"
-                )
-            ):
-                new_tool_calls.extend(msg["tool_calls"])
-
-        return new_tool_calls
+    def _accumulate_usage(self, usage_data):
+        """累加token使用量"""
+        if usage_data and isinstance(usage_data, dict):
+            # 将使用统计添加到历史记录中
+            self.usage_history.append(usage_data)
+            logger.debug(f"Token usage accumulated: {usage_data}")
 
     def _build_llm_tools(self):
         if not self.tools:
@@ -814,98 +611,6 @@ class LLMVertex(Vertex[T]):
             option["tools"] = [tool.to_dict() for tool in self.tools]
 
         return option
-
-    async def _handle_tool_calls_async(self, choice, context):
-        # Convert ChatCompletionMessage to dict format
-        content = choice.message.content
-        message_dict = {
-            "role": choice.message.role,
-            "content": content if content is not None else "",  # 确保content不为null
-        }
-        # Add tool_calls if present
-        if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
-            message_dict["tool_calls"] = choice.message.tool_calls
-
-        self.messages.append(message_dict)
-
-        # 统一转换tool_calls为对象格式
-        normalized_tool_calls = RuntimeToolCall.normalize_list(choice.message.tool_calls)
-
-        async def call_tool(tool, tool_call, context):
-            # 现在tool_call一定是对象格式
-            tool_call_name = tool_call.function.name
-            tool_call_arguments = json.loads(tool_call.function.arguments)
-            tool_call_id = tool_call.id
-            return tool_call, await asyncio.to_thread(tool.execute, tool_call_arguments, context)
-
-        tasks = []
-        for tool_call in normalized_tool_calls:
-            tool_call_name = tool_call.function.name
-            for tool in self.tools:
-                if tool.name == tool_call_name:
-                    tasks.append(call_tool(tool, tool_call, context))
-                    break
-            else:
-                # 未找到tool
-                error_content = json.dumps(f"Error: unable to find tool by name '{tool_call.function.name}'")
-                self.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "content": error_content if error_content is not None else "",
-                    }
-                )
-        results = await asyncio.gather(*tasks) if tasks else []
-        for tool_call, tool_result in results:
-            # 确保content不为null
-            content = json.dumps(tool_result)
-            self.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": tool_call.function.name,
-                    "content": content if content is not None else "",
-                }
-            )
-
-    def _handle_tool_calls(self, choice, context):
-        # 优先使用tool_caller处理工具调用
-        if self.tool_caller:
-            # 使用tool_caller处理
-            tool_calls = self.tool_caller.extract_tool_calls_from_choice(choice)
-            if tool_calls:
-                # 添加assistant消息
-                assistant_message = self.tool_caller.create_assistant_message(tool_calls)
-                # 确保assistant消息的content不为null
-                if assistant_message.get("content") is None:
-                    assistant_message["content"] = ""
-                self.messages.append(assistant_message)
-
-                # 执行工具调用
-                tool_messages = self.tool_caller.execute_tool_calls_sync(tool_calls, context)
-
-                # 添加工具响应消息 - 确保所有工具消息的content不为null
-                for tool_msg in tool_messages:
-                    if tool_msg.get("content") is None:
-                        tool_msg["content"] = ""
-                self.messages.extend(tool_messages)
-            return
-
-        # 回退到原有逻辑
-        # 兼容同步/异步环境
-        try:
-            loop = asyncio.get_running_loop()
-            # 已在事件循环中
-            coro = self._handle_tool_calls_async(choice, context)
-            if loop.is_running():
-                import nest_asyncio
-
-                nest_asyncio.apply()
-            loop.run_until_complete(coro)
-        except RuntimeError:
-            # 不在事件循环中
-            asyncio.run(self._handle_tool_calls_async(choice, context))
 
     def get_total_usage(self) -> dict:
         """

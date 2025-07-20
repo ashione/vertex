@@ -375,8 +375,8 @@ class WorkflowChatApp:
                         and reasoning_header_added
                         and not answer_header_added
                         and chunk_count > 10
-                        and len(chunk.strip()) > 5
-                        and not any(marker in chunk for marker in ["思考", "分析", "考虑", "推理"])
+                        and len(str(chunk).strip()) > 5
+                        and not any(marker in str(chunk) for marker in ["思考", "分析", "考虑", "推理"])
                     ):
                         # 添加分隔符和最终答案头部
                         response_parts.append("\n\n" + "=" * 50 + "\n")
@@ -384,7 +384,9 @@ class WorkflowChatApp:
                         answer_header_added = True
                         is_reasoning_phase = False
 
-                    response_parts.append(chunk)
+                    # 确保chunk是字符串格式
+                    chunk_str = str(chunk) if chunk is not None else ""
+                    response_parts.append(chunk_str)
                     current_response = "".join(response_parts)
                     new_history[-1] = (display_message, current_response)
                     yield "", new_history
@@ -408,7 +410,7 @@ class WorkflowChatApp:
             logger.info(f"token usage: {usage}")
 
             # 如果输入token过多，给出优化建议
-            if usage.get("input_tokens", 0) > 2000:
+            if usage.get("input_tokens", 0) > 5000:
                 logger.warning(f"输入token过多({usage.get('input_tokens', 0)})，建议：")
                 logger.warning(f"1. 减少对话历史长度（当前保留轮次：{history_rounds}）")
                 logger.warning("2. 使用更简洁的system prompt")
