@@ -88,7 +88,8 @@ class MCPLLMVertex(LLMVertex):
         self._tools_built_for_streaming = False
 
         logger.info(
-            f"MCPLLMVertex {id} initialized with MCP enabled: {self.mcp_enabled}, context strategy: {self.mcp_context_update_strategy}"
+            f"MCPLLMVertex {id} initialized with MCP enabled: {self.mcp_enabled}, "
+            f"context strategy: {self.mcp_context_update_strategy}"
         )
 
     def __del__(self):
@@ -591,7 +592,7 @@ class MCPLLMVertex(LLMVertex):
 
     def _is_tool_call_chunk(self, chunk: str) -> bool:
         """检查chunk是否包含工具调用相关内容，这些内容不应输出给用户
-        
+
         注意：这个方法目前返回False，让ChatModel的流式处理自行处理工具调用。
         因为ChatModel已经有完善的工具调用处理逻辑，我们不需要在这里过滤。
         """
@@ -602,7 +603,7 @@ class MCPLLMVertex(LLMVertex):
     def _extract_new_tool_calls(self, messages_before_stream: int) -> List[Dict[str, Any]]:
         """提取流式处理后新增的工具调用"""
         new_tool_calls = []
-        
+
         # 只检查流式处理后新增的消息
         for msg in self.messages[messages_before_stream:]:
             if (
@@ -616,7 +617,7 @@ class MCPLLMVertex(LLMVertex):
                 )
             ):
                 new_tool_calls.extend(msg["tool_calls"])
-                
+
         return new_tool_calls
 
 
