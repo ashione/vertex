@@ -24,10 +24,11 @@ class RuntimeToolCall:
         original_id = data.get("id")
         if original_id is None or original_id == "":
             import uuid
-
             self.id = f"call_{uuid.uuid4().hex[:8]}"
+            logger.info(f"🔧 [RuntimeToolCall.__init__] Generated new tool call ID: {original_id} → {self.id}")
         else:
             self.id = original_id
+            logger.debug(f"🔧 [RuntimeToolCall.__init__] Using provided tool call ID: {self.id}")
         self.type = data.get("type", "function")
 
         # 安全获取function信息，确保name和arguments永远不为None
@@ -323,11 +324,18 @@ class OpenAIToolCaller(ToolCaller):
                 # 对象格式（如 ChoiceDeltaToolCallFunction）
                 frag_dict = getattr(frag, "__dict__", {})
                 # 对于流式响应片段，通常没有独立的id，需要推断
-                original_id = frag_dict.get("id")
+                original_id = getattr(frag, "id", None)
 
-                # 直接从对象获取name和arguments
-                fragment_name = (getattr(frag, "name", None) or "").strip() if getattr(frag, "name", None) else ""
-                fragment_args = getattr(frag, "arguments", "") or ""
+                # 获取function对象，可能是frag.function或直接在frag中
+                function_obj = getattr(frag, "function", None)
+                if function_obj:
+                    # function属性存在，从中获取name和arguments
+                    fragment_name = (getattr(function_obj, "name", None) or "").strip()
+                    fragment_args = getattr(function_obj, "arguments", "") or ""
+                else:
+                    # 直接从对象获取name和arguments（兼容性处理）
+                    fragment_name = (getattr(frag, "name", None) or "").strip()
+                    fragment_args = getattr(frag, "arguments", "") or ""
 
             # 如果有有效的工具名称和ID，说明这是一个新工具调用的开始
             if fragment_name and original_id:
@@ -335,6 +343,7 @@ class OpenAIToolCaller(ToolCaller):
                 last_valid_tool_call_id = tool_call_id
 
                 if tool_call_id not in tool_calls_by_id:
+                    logger.info(f"🔧 [merge_tool_call_fragments] Creating new tool call: {tool_call_id} → {fragment_name}")
                     tool_calls_by_id[tool_call_id] = {
                         "id": tool_call_id,
                         "type": "function",
@@ -345,54 +354,30 @@ class OpenAIToolCaller(ToolCaller):
                     existing_name = tool_calls_by_id[tool_call_id]["function"]["name"]
                     if not existing_name or len(fragment_name) > len(existing_name):
                         tool_calls_by_id[tool_call_id]["function"]["name"] = fragment_name
+                    logger.debug(f"🔧 [merge_tool_call_fragments] Appending to existing tool call: {tool_call_id}")
                     tool_calls_by_id[tool_call_id]["function"]["arguments"] += fragment_args
 
             # 如果有有效ID但没有工具名称，尝试匹配现有工具调用
             elif original_id and original_id in tool_calls_by_id:
                 tool_calls_by_id[original_id]["function"]["arguments"] += fragment_args
 
-            # 如果没有有效ID（None或空），这是需要合并的片段
+            # 如果没有原始ID，可能是流式处理中的参数片段
             elif not original_id:
-                # 检查这个片段是否包含完整的JSON参数
-                import json
-                import re
-
-                # 尝试解析arguments是否为完整的JSON
-                try:
-                    # 清理参数字符串
-                    cleaned_fragment_args = fragment_args.strip()
-                    if cleaned_fragment_args.startswith("{") and cleaned_fragment_args.endswith("}"):
-                        # 尝试解析为JSON
-                        json.loads(cleaned_fragment_args)
-                        # 如果解析成功，这可能是一个独立的工具调用
-                        # 检查是否包含常见的工具调用参数
-                        if any(keyword in cleaned_fragment_args for keyword in ["params", "arguments", "useUAT"]):
-                            # 这看起来像是一个独立的工具调用，创建新的工具调用
-                            new_tool_call_id = f"call_auto_{hash(cleaned_fragment_args) % 10000:04d}"
-                            tool_calls_by_id[new_tool_call_id] = {
-                                "id": new_tool_call_id,
-                                "type": "function",
-                                "function": {"name": "", "arguments": cleaned_fragment_args},
-                            }
-                            last_valid_tool_call_id = new_tool_call_id
-                            import logging
-
-                            logging.info(f"Created independent tool call from fragment: {new_tool_call_id}")
-                            continue
-                except (json.JSONDecodeError, ValueError):
-                    pass
-
-                # 如果不是独立的工具调用，则合并到现有的工具调用中
-                if last_valid_tool_call_id and last_valid_tool_call_id in tool_calls_by_id:
-                    # 合并到最后一个有效的工具调用中
-                    tool_calls_by_id[last_valid_tool_call_id]["function"]["arguments"] += fragment_args
+                # 无ID的片段应该合并到最后一个有效工具调用或序列化列表
+                cleaned_fragment_args = fragment_args.strip()
+                if cleaned_fragment_args:
+                    # 如果有最后一个有效的工具调用ID，则将此片段合并到该工具调用
+                    if last_valid_tool_call_id and last_valid_tool_call_id in tool_calls_by_id:
+                        tool_calls_by_id[last_valid_tool_call_id]["function"]["arguments"] += cleaned_fragment_args
+                        continue
+                    
+                    # 如果没有最后的有效ID，将此片段添加到序列化片段列表
+                    sequential_fragments.append(cleaned_fragment_args)
                 else:
-                    # 如果没有有效的工具调用，记录为序列片段
+                    # 空片段，添加到序列化列表
                     sequential_fragments.append(fragment_args)
-
-            # 其他情况：有ID但没有匹配的工具调用，可能是新的独立片段
             else:
-                # 记录为序列片段，稍后尝试重构
+                # 有其他情况的片段，添加到序列化列表
                 sequential_fragments.append(fragment_args)
 
         # 如果没有有效的工具调用，但有序列分片，尝试从序列分片中重构完整的工具调用
@@ -414,17 +399,17 @@ class OpenAIToolCaller(ToolCaller):
 
                 # 创建重构的工具调用
                 reconstructed_id = f"call_reconstructed_{hash(combined_args) % 10000:04d}"
+                logger.info(f"🔧 [merge_tool_call_fragments] Creating reconstructed tool call with name: {reconstructed_id} → {tool_name}")
                 tool_calls_by_id[reconstructed_id] = {
                     "id": reconstructed_id,
                     "type": "function",
                     "function": {"name": tool_name, "arguments": remaining_args or "{}"},
                 }
             else:
-                # 没有找到工具名称，但参数看起来像JSON，尝试创建一个通用工具调用
-                if combined_args.strip().startswith("{") or any(
-                    keyword in combined_args for keyword in ["params", "arguments"]
-                ):
+                # 没有找到工具名称，但参数看起来像JSON，创建一个通用工具调用
+                if combined_args.strip().startswith("{"):
                     reconstructed_id = f"call_reconstructed_{hash(combined_args) % 10000:04d}"
+                    logger.info(f"🔧 [merge_tool_call_fragments] Creating generic reconstructed tool call: {reconstructed_id}")
                     tool_calls_by_id[reconstructed_id] = {
                         "id": reconstructed_id,
                         "type": "function",
@@ -450,61 +435,24 @@ class OpenAIToolCaller(ToolCaller):
             try:
                 import json
 
-                # 尝试清理和修复常见的JSON问题
+                # 简化的JSON处理逻辑
                 cleaned_args = (arguments_str or "").strip()
                 if not cleaned_args:
                     cleaned_args = "{}"
-                else:
-                    # 修复常见的拼接问题
-                    cleaned_args = cleaned_args.replace('"}', '"').replace('{"', '{"').replace(':"', '":"')
-
-                    # 处理连续的引号问题
-                    import re
-
-                    cleaned_args = re.sub(r'"+', '"', cleaned_args)  # 多个连续引号合并为一个
-                    cleaned_args = re.sub(r'"{', '{"', cleaned_args)  # 修复 "{ 为 {"
-                    cleaned_args = re.sub(r'}"', '"}', cleaned_args)  # 修复 }" 为 "}
-
-                    # 修复常见的JSON结构问题
-                    # 1. 修复缺少逗号的问题
-                    cleaned_args = re.sub(r"}(\s*){", r"},\1{", cleaned_args)
-                    cleaned_args = re.sub(r'"(\s*)"', r'",\1"', cleaned_args)
-
-                    # 2. 修复重复的键值对
-                    cleaned_args = re.sub(r'(\w+):\s*"[^"]*"\s*,\s*\1:', r"\1:", cleaned_args)
-
-                    # 3. 确保JSON结构完整
-                    if not cleaned_args.startswith("{") and not cleaned_args.startswith("["):
-                        # 如果不是有效的JSON开始，尝试包装
-                        if cleaned_args and not cleaned_args.startswith('"'):
-                            cleaned_args = f'"{cleaned_args}"'
-                        cleaned_args = f"{{{cleaned_args}}}"
-
-                    # 4. 修复嵌套对象的问题
-                    # 处理类似 {"params":{"user_id_type":"open_id"}} 缺少逗号的情况
-                    cleaned_args = re.sub(r"}(\s*){", r"},\1{", cleaned_args)
-
-                    # 5. 修复键值对之间的逗号问题
-                    cleaned_args = re.sub(r'"(\s*)"', r'",\1"', cleaned_args)
-
-                # 验证JSON格式
-                if cleaned_args:
-                    try:
-                        json.loads(cleaned_args)  # 验证JSON格式
-                    except json.JSONDecodeError as json_error:
-                        # 如果JSON仍然无效，尝试更激进的修复
-                        import logging
-
-                        logging.warning(
-                            f"Initial JSON cleaning failed for {tool_call_id}, trying aggressive fix: {json_error}"
-                        )
-
-                        # 尝试提取有效的JSON部分
-                        # 查找最外层的完整JSON对象
+                
+                # 尝试直接解析JSON
+                try:
+                    json.loads(cleaned_args)
+                except json.JSONDecodeError:
+                    # 如果解析失败，使用基本的fallback
+                    if not cleaned_args.startswith(("{", "[")):
+                        cleaned_args = "{}"
+                    else:
+                        # 尝试提取完整的JSON对象
                         brace_count = 0
-                        start_pos = -1
-                        end_pos = -1
-
+                        start_pos = 0
+                        end_pos = len(cleaned_args)
+                        
                         for i, char in enumerate(cleaned_args):
                             if char == "{":
                                 if brace_count == 0:
@@ -512,31 +460,22 @@ class OpenAIToolCaller(ToolCaller):
                                 brace_count += 1
                             elif char == "}":
                                 brace_count -= 1
-                                if brace_count == 0 and start_pos != -1:
+                                if brace_count == 0:
                                     end_pos = i + 1
                                     break
-
-                        if start_pos != -1 and end_pos != -1:
-                            potential_json = cleaned_args[start_pos:end_pos]
-                            try:
-                                json.loads(potential_json)
-                                cleaned_args = potential_json
-                                logging.info(f"Successfully extracted valid JSON from fragment: {potential_json}")
-                            except json.JSONDecodeError:
-                                # 最后的尝试：创建一个基本的参数结构
-                                if "params" in cleaned_args or "arguments" in cleaned_args:
-                                    cleaned_args = '{"params":{}}'
-                                else:
-                                    cleaned_args = "{}"
-                                logging.warning(f"Failed to repair JSON, using fallback: {cleaned_args}")
+                        
+                        potential_json = cleaned_args[start_pos:end_pos]
+                        try:
+                            json.loads(potential_json)
+                            cleaned_args = potential_json
+                        except json.JSONDecodeError:
+                            cleaned_args = "{}"
 
                 tool_call["function"]["arguments"] = cleaned_args
                 valid_tool_calls.append(tool_call)
 
-            except json.JSONDecodeError as e:
-                import logging
-
-                logging.warning(f"Discarding tool call with invalid JSON arguments: {tool_call}, error: {e}")
+            except Exception as e:
+                logger.warning(f"Error processing tool call arguments: {e}")
                 continue
 
         return valid_tool_calls

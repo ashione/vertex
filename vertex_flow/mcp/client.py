@@ -175,7 +175,9 @@ class MCPClient:
                 if handler and self.transport:
                     result = await handler(message)
                     response = MCPResponse(id=message.id or 0, result=result)
-                    await self.transport.send_message(response)
+                    success = await self.transport.send_message(response)
+                    if not success:
+                        logger.error(f"Failed to send response for method: {message.method}")
                 else:
                     logger.warning(f"No handler for method: {message.method}")
                     if self.transport:
@@ -186,7 +188,9 @@ class MCPClient:
                                 "message": f"Method {message.method} not found",
                             },
                         )
-                        await self.transport.send_message(error)
+                        success = await self.transport.send_message(error)
+                        if not success:
+                            logger.error(f"Failed to send error response for method: {message.method}")
             elif message.result is not None:
                 # Handle response
                 if message.id is not None and message.id in self._pending_requests:
@@ -227,7 +231,9 @@ class MCPClient:
 
         try:
             # Send request (transport should be thread-safe)
-            await self.transport.send_message(request)
+            success = await self.transport.send_message(request)
+            if not success:
+                raise RuntimeError("Failed to send request message")
 
             # Wait for response (don't hold lock while waiting)
             response = await asyncio.wait_for(future, timeout=timeout)
@@ -254,7 +260,9 @@ class MCPClient:
         if not self.transport:
             raise RuntimeError("No transport connected")
 
-        await self.transport.send_message(notification)
+        success = await self.transport.send_message(notification)
+        if not success:
+            logger.warning("Failed to send notification, transport may be closed")
 
     # Resource management
     async def list_resources(self) -> List[MCPResource]:

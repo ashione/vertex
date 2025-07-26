@@ -27,8 +27,8 @@ class MCPTransport(ABC):
     """Abstract base class for MCP transport mechanisms"""
 
     @abstractmethod
-    async def send_message(self, message: MCPMessage) -> None:
-        """Send a message through the transport"""
+    async def send_message(self, message: MCPMessage) -> bool:
+        """Send a message through the transport. Returns True on success, False on failure."""
         pass
 
     @abstractmethod
@@ -93,13 +93,12 @@ class StdioTransport(MCPTransport):
         )
         self._stdin_writer = asyncio.StreamWriter(transport, protocol, None, asyncio.get_event_loop())
 
-    async def send_message(self, message: MCPMessage) -> None:
-        """Send a message via stdout with enhanced error handling to prevent process termination"""
+    async def send_message(self, message: MCPMessage) -> bool:
+        """Send a message via stdout. Returns True on success, False on failure."""
         if self._closed or not self._stdin_writer:
             logger.error("Transport is closed or not initialized")
-            # 不抛出异常，而是标记连接已关闭
             self._closed = True
-            return
+            return False
 
         try:
             json_str = message.to_json()
@@ -130,7 +129,7 @@ class StdioTransport(MCPTransport):
                     except Exception as e:
                         logger.error(f"Failed to send message in transport loop: {e}")
                         self._closed = True
-                        return
+                        return False
                 else:
                     # 如果transport的事件循环已关闭，直接在当前循环中尝试
                     logger.warning("Transport event loop not running, attempting direct send")
@@ -140,7 +139,7 @@ class StdioTransport(MCPTransport):
                     except Exception as e:
                         logger.error(f"Failed to send message directly: {e}")
                         self._closed = True
-                        return
+                        return False
             else:
                 # 在同一事件循环中，直接发送
                 try:
@@ -149,18 +148,15 @@ class StdioTransport(MCPTransport):
                 except Exception as e:
                     logger.error(f"Failed to write to stdin: {e}")
                     self._closed = True
-                    return
+                    return False
 
             logger.debug(f"Sent message: {json_str}")
+            return True
 
-        except BrokenPipeError as e:
-            logger.error(f"Broken pipe when sending message: {e}")
-            self._closed = True
-            # 不抛出异常，让调用者处理连接断开
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             self._closed = True
-            # 不抛出异常，避免进程终止
+            return False
 
     async def _send_in_transport_loop(self, line: str) -> None:
         """Helper method to send message in transport's event loop"""
@@ -387,13 +383,15 @@ class HTTPTransport(MCPTransport):
                 logger.error(f"SSE listener error: {e}")
                 await self.message_queue.put(e)
 
-    async def send_message(self, message: MCPMessage) -> None:
-        """Send a message via HTTP POST"""
+    async def send_message(self, message: MCPMessage) -> bool:
+        """Send a message via HTTP POST. Returns True on success, False on failure."""
         if self._closed or not self.session:
-            raise RuntimeError("Transport is closed or not connected")
+            logger.error("Transport is closed or not connected")
+            return False
 
         if not self.post_endpoint:
-            raise RuntimeError("POST endpoint not discovered yet")
+            logger.error("POST endpoint not discovered yet")
+            return False
 
         try:
             json_data = message.to_dict()
@@ -402,13 +400,15 @@ class HTTPTransport(MCPTransport):
                 self.post_endpoint, json=json_data, headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
-                    raise RuntimeError(f"HTTP request failed: {response.status}")
+                    logger.error(f"HTTP request failed: {response.status}")
+                    return False
 
             logger.debug(f"Sent HTTP message: {message.to_json()}")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to send HTTP message: {e}")
-            raise
+            return False
 
     async def receive_message(self) -> MCPMessage:
         """Receive a message from the message queue"""

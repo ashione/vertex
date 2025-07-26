@@ -128,7 +128,7 @@ class MCPManager:
         elif request_type == "get_all_prompts":
             return await self._async_get_all_prompts()
         elif request_type == "call_tool":
-            return await self._async_call_tool(kwargs.get("tool_name"), kwargs.get("arguments", {}))
+            return await self._async_call_tool(kwargs.get("tool_name"), kwargs.get("arguments", {}), kwargs.get("tool_call_id"))
         elif request_type == "read_resource":
             return await self._async_read_resource(kwargs.get("resource_uri"))
         elif request_type == "get_prompt":
@@ -180,27 +180,32 @@ class MCPManager:
         """Get all prompts from all connected MCP clients - thread safe"""
         return self._submit_request("get_all_prompts")
 
-    def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
+    def call_tool(self, tool_name: str, arguments: Dict[str, Any], tool_call_id: str = None) -> Optional[MCPToolResult]:
         """Call a tool from appropriate MCP client - thread safe"""
         import json
 
-        logger.info(f"Calling MCP tool: {tool_name} with arguments: {arguments}")
-        logger.info(f"MCP Manager Call - Tool Name: {tool_name}")
-        logger.info(f"MCP Manager Call - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
+        logger.info(f"🔧 [MCPManager] Calling MCP tool: {tool_name} with arguments: {arguments}")
+        if tool_call_id:
+            logger.info(f"🔧 [MCPManager] Tool Call ID: {tool_call_id}")
+        logger.info(f"🔧 [MCPManager] Tool Name: {tool_name}")
+        logger.info(f"🔧 [MCPManager] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
 
-        result = self._submit_request("call_tool", tool_name=tool_name, arguments=arguments)
+        result = self._submit_request("call_tool", tool_name=tool_name, arguments=arguments, tool_call_id=tool_call_id)
 
-        logger.info(f"MCP Manager Result - Tool Name: {tool_name}")
-        logger.info(f"MCP Manager Result - Result Type: {type(result)}")
-        if result:
-            logger.info(f"MCP Manager Result - Content Type: {type(result.content)}")
-            logger.info(f"MCP Manager Result - Content: {result.content}")
-            if hasattr(result, "__dict__"):
-                logger.info(f"MCP Manager Result - Attributes: {result.__dict__}")
+        if tool_call_id:
+            logger.info(f"🔧 [MCPManager] Result for Tool Call ID {tool_call_id} - Tool Name: {tool_name}")
         else:
-            logger.info(f"MCP Manager Result - Result: None")
+            logger.info(f"🔧 [MCPManager] Result - Tool Name: {tool_name}")
+        logger.info(f"🔧 [MCPManager] Result Type: {type(result)}")
+        if result:
+            logger.info(f"🔧 [MCPManager] Content Type: {type(result.content)}")
+            logger.info(f"🔧 [MCPManager] Content: {result.content}")
+            if hasattr(result, "__dict__"):
+                logger.info(f"🔧 [MCPManager] Attributes: {result.__dict__}")
+        else:
+            logger.info(f"🔧 [MCPManager] Result: None")
 
-        logger.info(f"MCP tool {tool_name} completed with result type: {type(result)}")
+        logger.info(f"🔧 [MCPManager] Tool {tool_name} completed with result type: {type(result)}")
         return result
 
     def read_resource(self, resource_uri: str) -> Optional[str]:
@@ -363,35 +368,42 @@ class MCPManager:
 
         return all_prompts
 
-    async def _async_call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[MCPToolResult]:
+    async def _async_call_tool(self, tool_name: str, arguments: Dict[str, Any], tool_call_id: str = None) -> Optional[MCPToolResult]:
         """Call a tool from appropriate MCP client with enhanced error handling"""
         if not MCP_AVAILABLE:
             # 返回错误结果而不是None，确保错误信息能传递给LLM
             from vertex_flow.mcp.types import MCPToolResult
 
-            return MCPToolResult(content=[{"type": "text", "text": "MCP functionality not available"}], isError=True)
+            error_msg = "MCP is not available in this environment"
+            if tool_call_id:
+                logger.error(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - {error_msg}")
+            else:
+                logger.error(f"🔧 [MCPManager._async_call_tool] {error_msg}")
+            return MCPToolResult(content=[{"type": "text", "text": error_msg}], isError=True)
 
-        if not self._initialized:
-            from vertex_flow.mcp.types import MCPToolResult
+        import json
 
-            return MCPToolResult(content=[{"type": "text", "text": "MCP manager not initialized"}], isError=True)
-
-        # Parse tool name to get client and original tool name
         if "_" not in tool_name:
-            logger.error(f"Invalid tool name format: {tool_name}")
+            error_msg = f"Invalid tool name format: {tool_name}"
+            if tool_call_id:
+                logger.error(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - {error_msg}")
+            else:
+                logger.error(f"🔧 [MCPManager._async_call_tool] {error_msg}")
             from vertex_flow.mcp.types import MCPToolResult
 
             return MCPToolResult(
-                content=[{"type": "text", "text": f"Invalid tool name format: {tool_name}"}], isError=True
+                content=[{"type": "text", "text": error_msg}], isError=True
             )
 
         client_name, original_tool_name = tool_name.split("_", 1)
 
-        logger.debug(f"Calling tool {original_tool_name} from client {client_name}")
-        logger.info(f"MCP Async Call - Tool Name: {tool_name}")
-        logger.info(f"MCP Async Call - Client Name: {client_name}")
-        logger.info(f"MCP Async Call - Original Tool Name: {original_tool_name}")
-        logger.info(f"MCP Async Call - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
+        logger.debug(f"🔧 [MCPManager._async_call_tool] Calling tool {original_tool_name} from client {client_name}")
+        if tool_call_id:
+            logger.info(f"🔧 [MCPManager._async_call_tool] Tool Call ID: {tool_call_id}")
+        logger.info(f"🔧 [MCPManager._async_call_tool] Tool Name: {tool_name}")
+        logger.info(f"🔧 [MCPManager._async_call_tool] Client Name: {client_name}")
+        logger.info(f"🔧 [MCPManager._async_call_tool] Original Tool Name: {original_tool_name}")
+        logger.info(f"🔧 [MCPManager._async_call_tool] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
 
         max_retries = 2
         last_error = None
@@ -432,29 +444,41 @@ class MCPManager:
                             )
                         continue
 
-                logger.info(f"Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
-                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Client: {client_name}")
-                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Tool: {original_tool_name}")
+                if tool_call_id:
+                    logger.info(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
+                else:
+                    logger.info(f"🔧 [MCPManager._async_call_tool] Calling tool {original_tool_name} with arguments: {arguments} (attempt {attempt + 1})")
+                logger.info(f"🔧 [MCPManager._async_call_tool] Client: {client_name} (Attempt {attempt + 1})")
+                logger.info(f"🔧 [MCPManager._async_call_tool] Tool: {original_tool_name} (Attempt {attempt + 1})")
                 logger.info(
-                    f"MCP Client Call Debug (Attempt {attempt + 1}) - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
+                    f"🔧 [MCPManager._async_call_tool] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)} (Attempt {attempt + 1})"
                 )
-                logger.info(f"MCP Client Call Debug (Attempt {attempt + 1}) - Client Connected: {client.is_connected}")
+                logger.info(f"🔧 [MCPManager._async_call_tool] Client Connected: {client.is_connected} (Attempt {attempt + 1})")
 
                 try:
                     # 使用更短的超时时间，避免长时间阻塞
                     result = await asyncio.wait_for(client.call_tool(original_tool_name, arguments), timeout=20.0)
 
                     if result:
-                        logger.info(f"MCP Client Result Debug - Tool: {original_tool_name}")
-                        logger.info(f"MCP Client Result Debug - Result Type: {type(result)}")
-                        logger.info(f"MCP Client Result Debug - Content Type: {type(result.content)}")
-                        logger.info(f"MCP Client Result Debug - Content: {result.content}")
+                        if tool_call_id:
+                            logger.info(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - Client Result - Tool: {original_tool_name}")
+                        else:
+                            logger.info(f"🔧 [MCPManager._async_call_tool] Client Result - Tool: {original_tool_name}")
+                        logger.info(f"🔧 [MCPManager._async_call_tool] Result Type: {type(result)}")
+                        logger.info(f"🔧 [MCPManager._async_call_tool] Content Type: {type(result.content)}")
+                        logger.info(f"🔧 [MCPManager._async_call_tool] Content: {result.content}")
                         if hasattr(result, "__dict__"):
-                            logger.info(f"MCP Client Result Debug - Attributes: {result.__dict__}")
-                        logger.info(f"Tool {original_tool_name} executed successfully")
+                            logger.info(f"🔧 [MCPManager._async_call_tool] Result Attributes: {result.__dict__}")
+                        if tool_call_id:
+                            logger.info(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - Tool {original_tool_name} executed successfully")
+                        else:
+                            logger.info(f"🔧 [MCPManager._async_call_tool] Tool {original_tool_name} executed successfully")
                         return result
                     else:
-                        logger.warning(f"Tool {original_tool_name} returned empty result")
+                        if tool_call_id:
+                            logger.warning(f"🔧 [MCPManager._async_call_tool] Tool Call ID {tool_call_id} - Tool {original_tool_name} returned empty result")
+                        else:
+                            logger.warning(f"🔧 [MCPManager._async_call_tool] Tool {original_tool_name} returned empty result")
                         from vertex_flow.mcp.types import MCPToolResult
 
                         return MCPToolResult(

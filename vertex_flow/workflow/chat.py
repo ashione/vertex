@@ -112,6 +112,9 @@ class StreamProcessor:
         self.tool_call_fragments = []
         self.tool_calls_detected = False
         self.tool_calls_completed = False
+        self.merged_tool_calls = {}  # 清理合并的工具调用
+        self.executed_call_ids = set()  # 清理已执行的工具调用ID
+        self.last_fragment_count = 0  # 重置分片计数
         logger.info("Reset tool call state for new batch")
 
     def _handle_content(self, delta):
@@ -158,45 +161,62 @@ class StreamProcessor:
     def _try_execute_complete_tool_calls(self):
         """尝试识别已完整的工具调用，返回结构化数据"""
         if not self.tool_call_fragments:
-            logger.debug("No tool call fragments to process")
+            logger.debug("🔧 [_try_execute_complete_tool_calls] No tool call fragments to process")
             return
 
         # 检查是否有新的分片需要处理
         current_fragment_count = len(self.tool_call_fragments)
         if current_fragment_count == self.last_fragment_count:
             logger.debug(
-                f"No new fragments to process (current: {current_fragment_count}, last: {self.last_fragment_count})"
+                f"🔧 [_try_execute_complete_tool_calls] No new fragments to process (current: {current_fragment_count}, last: {self.last_fragment_count})"
             )
             return  # 没有新分片，无需重新处理
 
         # 只处理新增的分片
         new_fragments = self.tool_call_fragments[self.last_fragment_count :]
-        logger.debug(f"Processing {len(new_fragments)} new fragments (total: {current_fragment_count})")
+        logger.debug(f"🔧 [_try_execute_complete_tool_calls] Processing {len(new_fragments)} new fragments (total: {current_fragment_count})")
         self._update_merged_calls_incrementally(new_fragments)
         self.last_fragment_count = current_fragment_count
 
         # 检查哪些工具调用现在是完整的且未标记过
         complete_calls = []
+        logger.debug(f"🔧 [_try_execute_complete_tool_calls] Checking {len(self.merged_tool_calls)} merged tool calls")
         for call_id, merged_call in self.merged_tool_calls.items():
+            logger.debug(f"🔧 [_try_execute_complete_tool_calls] Checking call_id: {call_id}")
+            logger.debug(f"🔧 [_try_execute_complete_tool_calls]   executed_call_ids: {self.executed_call_ids}")
+            logger.debug(f"🔧 [_try_execute_complete_tool_calls]   call_id in executed: {call_id in self.executed_call_ids}")
+            
             if call_id not in self.executed_call_ids:
                 is_complete = self._is_tool_call_complete(merged_call)
                 logger.debug(
-                    f"Tool call {call_id} complete: {is_complete}, arguments: {merged_call.get('function', {}).get('arguments', 'N/A')}"
+                    f"🔧 [_try_execute_complete_tool_calls] Tool call {call_id} complete: {is_complete}, arguments: {merged_call.get('function', {}).get('arguments', 'N/A')}"
                 )
                 if is_complete:
                     complete_calls.append(merged_call)
                     self.executed_call_ids.add(call_id)
-                    logger.info(f"Marking tool call {call_id} as identified (not executed by StreamProcessor)")
+                    logger.info(f"🔧 [_try_execute_complete_tool_calls] Marking tool call {call_id} as identified (will be sent to LLM layer)")
+            else:
+                logger.debug(f"🔧 [_try_execute_complete_tool_calls] Tool call {call_id} already executed, skipping")
 
-        # 如果有完整的工具调用，返回结构化数据
         if complete_calls:
-            logger.info(f"Found {len(complete_calls)} complete tool calls, sending to LLM layer for execution")
-            # 返回结构化的工具调用数据，由上层LLM负责实际执行
+            logger.info(f"🔧 [_try_execute_complete_tool_calls] Found {len(complete_calls)} complete tool calls, sending to LLM layer for execution")
+            for call in complete_calls:
+                logger.info(f"🔧 [_try_execute_complete_tool_calls]   Complete call: {call.get('id')} → {call.get('function', {}).get('name')}")
+            
+            # 清理已处理的工具调用状态，避免重复处理
+            for call in complete_calls:
+                call_id = call.get('id')
+                if call_id in self.merged_tool_calls:
+                    logger.debug(f"🔧 [_try_execute_complete_tool_calls] Removing processed tool call {call_id} from merged_tool_calls")
+                    del self.merged_tool_calls[call_id]
+            
+            # 返回StreamData格式的工具调用
             yield StreamData.create_tool_calls(complete_calls)
         else:
-            logger.debug(
-                f"No complete tool calls found (merged: {len(self.merged_tool_calls)}, identified: {len(self.executed_call_ids)})"
-            )
+            logger.debug(f"🔧 [_try_execute_complete_tool_calls] No complete tool calls found")
+        
+        # 不返回列表，而是通过yield发送StreamData
+        return
 
     def _update_merged_calls_incrementally(self, new_fragments):
         """增量更新合并的工具调用状态"""
@@ -373,7 +393,7 @@ class ChatModel(abc.ABC):
         """
         processed_messages = []
 
-        # 首先收集所有可用的tool_call_ids
+        # 首先收集所有可用的tool_call_ids，包括assistant消息中的和tool消息中的
         available_tool_call_ids = set()
         for message in messages:
             role = message.get("role", "")
@@ -383,6 +403,11 @@ class ChatModel(abc.ABC):
                     tc_id = tc.get("id")
                     if tc_id:
                         available_tool_call_ids.add(tc_id)
+            elif role == "tool":
+                # 也从tool消息中收集tool_call_id，这些是已经存在的有效工具调用
+                tool_call_id = message.get("tool_call_id")
+                if tool_call_id:
+                    available_tool_call_ids.add(tool_call_id)
 
         # 然后处理所有消息
         for message in messages:
@@ -546,7 +571,7 @@ class ChatModel(abc.ABC):
             logger.info(f"show completion: {completion}")
             return completion
         except Exception as e:
-            logger.error(f"Error creating completion: {e}, api_params: {api_params}")
+            logger.error(f"Error creating completion: {e}, api_params: {messages}, {option}")
             raise
 
     def chat(self, messages, option: Optional[Dict[str, Any]] = None, tools=None) -> Choice:
@@ -617,6 +642,12 @@ class ChatModel(abc.ABC):
 
     def _handle_tool_calls_in_stream(self, tool_calls, messages):
         """在流式处理中处理工具调用，统一使用tool_manager"""
+        logger.info(f"🔧 [_handle_tool_calls_in_stream] Processing {len(tool_calls)} tool calls")
+        for i, tc in enumerate(tool_calls):
+            tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+            tc_name = tc.get('function', {}).get('name') if isinstance(tc, dict) else getattr(tc, 'function', {}).name if hasattr(tc, 'function') else 'unknown'
+            logger.info(f"🔧 [_handle_tool_calls_in_stream]   [{i}] ID: {tc_id}, Name: {tc_name}")
+        
         # 统一使用工具管理器处理工具调用
         if self.tool_manager:
             return self.tool_manager.handle_tool_calls_complete(tool_calls, None, messages)

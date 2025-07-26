@@ -136,18 +136,18 @@ class MCPToolExecutor(ToolExecutor):
             else:
                 original_tool_name = tool_name
 
-            logger.info(f"Executing MCP tool: {original_tool_name} with arguments: {arguments}")
-            logger.info(f"MCP Tool Manager Call Debug - Tool Name: {original_tool_name}")
+            logger.info(f"🔧 [MCPToolExecutor] Executing MCP tool: {original_tool_name} with arguments: {arguments}")
+            logger.info(f"🔧 [MCPToolExecutor] Tool Call ID: {tool_call.id}")
+            logger.info(f"🔧 [MCPToolExecutor] Original Tool Name: {original_tool_name}")
             logger.info(
-                f"MCP Tool Manager Call Debug - Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
+                f"🔧 [MCPToolExecutor] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
             )
-            logger.info(f"MCP Tool Manager Call Debug - Tool Call ID: {tool_call.id}")
 
             # 调用MCP工具
             mcp_manager = get_mcp_manager()
-            result = mcp_manager.call_tool(original_tool_name, arguments)
+            result = mcp_manager.call_tool(original_tool_name, arguments, tool_call_id=tool_call.id)
 
-            logger.info(f"MCP Tool Manager Result Debug - Tool Name: {original_tool_name}")
+            logger.info(f"🔧 [MCPToolExecutor] Result for Tool Call ID {tool_call.id} - Tool Name: {original_tool_name}")
             logger.info(f"MCP Tool Manager Result Debug - Result Type: {type(result)}")
             if result:
                 logger.info(f"MCP Tool Manager Result Debug - Content Type: {type(result.content)}")
@@ -383,8 +383,11 @@ class ToolManager:
             # 确保有tool_call_id，处理None和空字符串
             if not tool_call.id or tool_call.id is None:
                 import uuid
-
+                old_id = tool_call.id
                 tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
+                logger.info(f"🔧 [execute_tool_calls] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+            else:
+                logger.debug(f"🔧 [execute_tool_calls] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
 
             # 检查工具名称是否有效
             tool_name = tool_call.function.name if tool_call.function else None
@@ -451,28 +454,43 @@ class ToolManager:
         choice_or_tool_calls: Union[Any, List[Dict[str, Any]]],
         context: WorkflowContext,
         messages: List[Dict[str, Any]],
-    ) -> bool:
-        """完整处理工具调用（创建assistant消息 + 执行工具调用）
-
-        Args:
-            choice_or_tool_calls: choice对象或工具调用列表
-            context: 工作流上下文
-            messages: 消息列表（会被修改）
-
-        Returns:
-            是否成功处理了工具调用
-        """
+        completion_func: Optional[Callable] = None,
+        max_rounds: int = 10,
+    ) -> Union[bool, Any]:
+        """完整处理工具调用，包括多轮调用和循环检测"""
+        import traceback
+        # 获取调用栈信息
+        call_stack = traceback.extract_stack()
+        caller_info = call_stack[-2] if len(call_stack) >= 2 else call_stack[-1]
+        logger.info(f"🔧 [handle_tool_calls_complete] Called from: {caller_info.filename}:{caller_info.lineno} in {caller_info.name}")
+        
         try:
             # 提取工具调用
             if hasattr(choice_or_tool_calls, "message") and hasattr(choice_or_tool_calls.message, "tool_calls"):
                 tool_calls = choice_or_tool_calls.message.tool_calls
+                logger.info(f"🔧 [handle_tool_calls_complete] Extracted {len(tool_calls)} tool calls from choice.message")
             elif isinstance(choice_or_tool_calls, list):
                 tool_calls = choice_or_tool_calls
+                logger.info(f"🔧 [handle_tool_calls_complete] Received {len(tool_calls)} tool calls as list")
             else:
+                logger.warning(f"🔧 [handle_tool_calls_complete] No tool calls found in input: {type(choice_or_tool_calls)}")
                 return False
 
             if not tool_calls:
+                logger.info(f"🔧 [handle_tool_calls_complete] No tool calls to process")
                 return False
+            
+            # 记录所有输入的工具调用详情
+            for i, tc in enumerate(tool_calls):
+                if isinstance(tc, dict):
+                    tc_id = tc.get('id')
+                    tc_name = tc.get('function', {}).get('name')
+                    tc_args = tc.get('function', {}).get('arguments')
+                else:
+                    tc_id = getattr(tc, 'id', None)
+                    tc_name = getattr(tc.function, 'name', None) if hasattr(tc, 'function') else None
+                    tc_args = getattr(tc.function, 'arguments', None) if hasattr(tc, 'function') else None
+                logger.info(f"🔧 [handle_tool_calls_complete]   Input[{i}] ID: {tc_id}, Name: {tc_name}, Args: {tc_args}")
 
             # 检查是否已经存在相同的assistant消息（避免重复）
             normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
@@ -503,9 +521,19 @@ class ToolManager:
                         should_add_assistant = False
                         logger.debug("Skipping duplicate assistant message with same tool calls")
 
-            # 添加assistant消息（如果需要）
+            # 添加assistant消息（如果需要），在执行工具之前
             if should_add_assistant:
-                assistant_message = self.create_assistant_message(choice_or_tool_calls)
+                # 预处理工具调用，确保有ID
+                for tool_call in normalized_tool_calls:
+                    if not tool_call.id or tool_call.id is None:
+                        import uuid
+                        old_id = tool_call.id
+                        tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
+                        logger.info(f"🔧 [handle_tool_calls_complete] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+                    else:
+                        logger.debug(f"🔧 [handle_tool_calls_complete] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+                
+                assistant_message = self.create_assistant_message(normalized_tool_calls)
                 messages.append(assistant_message)
 
             # 检查是否已经存在相同的tool消息（避免重复执行）
@@ -520,17 +548,12 @@ class ToolManager:
                 if tool_call.id not in existing_tool_call_ids:
                     tools_to_execute.append(tool_call)
                 else:
-                    logger.debug(f"Skipping duplicate tool execution for call_id: {tool_call.id}")
+                    logger.debug(f"Skipping already executed tool call: {tool_call.id}")
 
-            # 执行未重复的工具调用
+            # 执行工具调用
             if tools_to_execute:
                 tool_messages = self.execute_tool_calls(tools_to_execute, context)
                 messages.extend(tool_messages)
-                logger.info(
-                    f"Executed {len(tools_to_execute)} new tool calls, skipped {len(normalized_tool_calls) - len(tools_to_execute)} duplicates"
-                )
-            else:
-                logger.info(f"All {len(normalized_tool_calls)} tool calls were already executed, skipping execution")
 
             return True
 
