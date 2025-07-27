@@ -22,6 +22,8 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.tools.tool_caller import RuntimeToolCall, ToolCaller
 
+# 移除智能重试管理器导入，按用户要求不使用额外的retry manager
+
 logger = LoggerUtil.get_logger(__name__)
 
 
@@ -139,15 +141,15 @@ class MCPToolExecutor(ToolExecutor):
             logger.info(f"🔧 [MCPToolExecutor] Executing MCP tool: {original_tool_name} with arguments: {arguments}")
             logger.info(f"🔧 [MCPToolExecutor] Tool Call ID: {tool_call.id}")
             logger.info(f"🔧 [MCPToolExecutor] Original Tool Name: {original_tool_name}")
-            logger.info(
-                f"🔧 [MCPToolExecutor] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}"
-            )
+            logger.info(f"🔧 [MCPToolExecutor] Arguments: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
 
             # 调用MCP工具
             mcp_manager = get_mcp_manager()
             result = mcp_manager.call_tool(original_tool_name, arguments, tool_call_id=tool_call.id)
 
-            logger.info(f"🔧 [MCPToolExecutor] Result for Tool Call ID {tool_call.id} - Tool Name: {original_tool_name}")
+            logger.info(
+                f"🔧 [MCPToolExecutor] Result for Tool Call ID {tool_call.id} - Tool Name: {original_tool_name}"
+            )
             logger.info(f"MCP Tool Manager Result Debug - Result Type: {type(result)}")
             if result:
                 logger.info(f"MCP Tool Manager Result Debug - Content Type: {type(result.content)}")
@@ -240,13 +242,25 @@ class FunctionToolExecutor(ToolExecutor):
             if not function_tool:
                 return ToolCallResult(tool_call.id, f"Function tool '{tool_name}' not found", success=False)
 
-            # 解析参数
+            # 解析参数 - 使用增强的JSON验证
             if isinstance(tool_call.function.arguments, str):
-                import json
-
-                arguments = json.loads(tool_call.function.arguments)
+                arguments_str = tool_call.function.arguments.strip()
+                if not arguments_str:
+                    arguments = {}
+                else:
+                    try:
+                        # 使用严格的JSON解析
+                        arguments = self._parse_json_arguments(arguments_str)
+                    except Exception as parse_error:
+                        logger.error(f"Failed to parse JSON arguments for tool {tool_name}: {parse_error}")
+                        return ToolCallResult(
+                            tool_call.id,
+                            f"Invalid JSON arguments: {str(parse_error)}",
+                            success=False,
+                            error=str(parse_error),
+                        )
             else:
-                arguments = tool_call.function.arguments
+                arguments = tool_call.function.arguments or {}
 
             # 执行函数
             result = function_tool.execute(arguments, context)
@@ -264,6 +278,157 @@ class FunctionToolExecutor(ToolExecutor):
         except Exception as e:
             logger.error(f"Error executing function tool {tool_call.function.name}: {e}")
             return ToolCallResult(tool_call.id, str(e), success=False, error=str(e))
+
+    def _parse_json_arguments(self, arguments_str: str) -> dict:
+        """
+        使用严格的JSON解析验证来解析工具调用参数
+
+        Args:
+            arguments_str: 原始参数字符串
+
+        Returns:
+            dict: 解析后的参数字典
+
+        Raises:
+            json.JSONDecodeError: 当JSON无法解析时
+        """
+        import json
+        import re
+
+        if not arguments_str:
+            return {}
+
+        cleaned_args = arguments_str.strip()
+        if not cleaned_args:
+            return {}
+
+        # 首先尝试直接解析
+        try:
+            return json.loads(cleaned_args)
+        except json.JSONDecodeError as e:
+            logger.debug(f"Initial JSON parse failed: {e}, attempting repair")
+
+        # 如果直接解析失败，尝试修复常见问题
+        repaired_json = self._attempt_json_repair(cleaned_args)
+        if repaired_json:
+            try:
+                return json.loads(repaired_json)
+            except json.JSONDecodeError:
+                pass
+
+        # 如果修复失败，尝试提取完整的JSON对象
+        extracted_json = self._extract_complete_json_object(cleaned_args)
+        if extracted_json:
+            try:
+                return json.loads(extracted_json)
+            except json.JSONDecodeError:
+                pass
+
+        # 如果所有尝试都失败，抛出原始错误
+        raise json.JSONDecodeError(f"Unable to parse JSON arguments: {cleaned_args}", cleaned_args, 0)
+
+    def _attempt_json_repair(self, json_str: str) -> str:
+        """
+        尝试修复常见的JSON格式问题
+
+        Args:
+            json_str: 可能有问题的JSON字符串
+
+        Returns:
+            str: 修复后的JSON字符串，如果无法修复则返回空字符串
+        """
+        import re
+
+        if not json_str:
+            return ""
+
+        # 移除可能的前后缀
+        cleaned = json_str.strip()
+
+        # 修复常见问题
+        repairs = [
+            # 修复尾随逗号
+            (r",\s*}", "}"),
+            (r",\s*]", "]"),
+            # 修复缺失的引号
+            (r"(\w+):", r'"\1":'),
+            # 修复单引号
+            (r"'", '"'),
+            # 修复未闭合的字符串（简单情况）
+            (r'"([^"]*?)$', r'"\1"'),
+        ]
+
+        for pattern, replacement in repairs:
+            try:
+                cleaned = re.sub(pattern, replacement, cleaned)
+            except Exception:
+                continue
+
+        return cleaned
+
+    def _extract_complete_json_object(self, text: str) -> str:
+        """
+        从文本中提取完整的JSON对象
+
+        Args:
+            text: 包含JSON的文本
+
+        Returns:
+            str: 提取的JSON字符串，如果没有找到则返回空字符串
+        """
+        import re
+
+        if not text:
+            return ""
+
+        # 查找JSON对象的开始和结束
+        brace_count = 0
+        start_idx = -1
+
+        for i, char in enumerate(text):
+            if char == "{":
+                if start_idx == -1:
+                    start_idx = i
+                brace_count += 1
+            elif char == "}":
+                brace_count -= 1
+                if brace_count == 0 and start_idx != -1:
+                    return text[start_idx : i + 1]
+
+        return ""
+
+    def _is_obviously_incomplete_json(self, json_str: str) -> bool:
+        """
+        检查JSON字符串是否明显不完整
+
+        Args:
+            json_str: 要检查的JSON字符串
+
+        Returns:
+            bool: 如果明显不完整则返回True
+        """
+        if not json_str:
+            return True
+
+        stripped = json_str.strip()
+
+        # 检查明显的不完整标志
+        incomplete_patterns = [
+            r"[{,]\s*$",  # 以{或,结尾
+            r":\s*$",  # 以:结尾
+            r'"[^"]*$',  # 未闭合的字符串
+            r"\[\s*$",  # 以[结尾
+        ]
+
+        for pattern in incomplete_patterns:
+            if re.search(pattern, stripped):
+                return True
+
+        # 检查括号平衡
+        brace_count = stripped.count("{") - stripped.count("}")
+        bracket_count = stripped.count("[") - stripped.count("]")
+
+        return brace_count != 0 or bracket_count != 0
 
 
 class RegularToolExecutor(ToolExecutor):
@@ -311,6 +476,11 @@ class ToolManager:
         self.tools = tools or []
         self.function_tools: Dict[str, FunctionTool] = {}
 
+        # 初始化重复调用检测（针对DeepSeek等非OpenAI原生Tool Calling模型）
+        self.call_history = []  # 存储最近的工具调用历史
+        self.max_history_size = 10  # 最大历史记录数量
+        self.duplicate_threshold = 3  # 重复调用阈值
+
         # 初始化工具执行器
         self.function_tool_executor = FunctionToolExecutor(self.function_tools)
         self.executors: List[ToolExecutor] = [
@@ -346,8 +516,11 @@ class ToolManager:
                 content = getattr(choice.message, "content", None) if hasattr(choice, "message") else None
                 tool_calls = getattr(choice.message, "tool_calls", []) if hasattr(choice, "message") else []
 
-            # 标准化工具调用格式
-            normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
+            # 如果已经是RuntimeToolCall对象，直接使用；否则标准化
+            if tool_calls and isinstance(tool_calls[0], RuntimeToolCall):
+                normalized_tool_calls = tool_calls
+            else:
+                normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
 
             return {
                 "role": "assistant",
@@ -374,8 +547,11 @@ class ToolManager:
         Returns:
             工具消息列表
         """
-        # 标准化工具调用
-        normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
+        # 如果已经是RuntimeToolCall对象，直接使用；否则标准化
+        if tool_calls and isinstance(tool_calls[0], RuntimeToolCall):
+            normalized_tool_calls = tool_calls
+        else:
+            normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
 
         tool_messages = []
 
@@ -383,11 +559,16 @@ class ToolManager:
             # 确保有tool_call_id，处理None和空字符串
             if not tool_call.id or tool_call.id is None:
                 import uuid
+
                 old_id = tool_call.id
                 tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
-                logger.info(f"🔧 [execute_tool_calls] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+                logger.info(
+                    f"🔧 [execute_tool_calls] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}"
+                )
             else:
-                logger.debug(f"🔧 [execute_tool_calls] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+                logger.debug(
+                    f"🔧 [execute_tool_calls] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}"
+                )
 
             # 检查工具名称是否有效
             tool_name = tool_call.function.name if tool_call.function else None
@@ -429,13 +610,42 @@ class ToolManager:
                     tool_messages.append(error_msg)
                     continue
 
+            # 检测重复调用（针对DeepSeek等非OpenAI原生Tool Calling模型）
+            duplicate_warning = self._check_duplicate_call(tool_call)
+            if duplicate_warning:
+                logger.warning(f"Duplicate tool call detected: {tool_name}")
+                # 如果应该阻止重复调用，返回警告信息
+                if self._should_block_duplicate_call(tool_call):
+                    warning_result = ToolCallResult(
+                        tool_call.id, duplicate_warning, success=False, error="Duplicate call blocked"
+                    )
+                    tool_messages.append(warning_result.to_message())
+                    continue
+                else:
+                    # 不阻止但记录警告
+                    logger.info(f"Allowing duplicate call with warning: {tool_name}")
+
+            # 记录工具调用到历史
+            self._record_tool_call(tool_call)
+
             # 找到合适的执行器
             executor = self._find_executor(tool_name)
 
             if executor:
-                # 执行工具调用
-                result = executor.execute_tool_call(tool_call, context)
-                tool_messages.append(result.to_message())
+                # 如果有重复调用警告但不阻止执行，在结果中包含警告
+                if duplicate_warning and not self._should_block_duplicate_call(tool_call):
+                    # 执行工具但在结果中包含警告
+                    result = executor.execute_tool_call(tool_call, context)
+                    # 在结果内容前添加警告信息
+                    enhanced_content = f"{duplicate_warning}\n\n--- 工具执行结果 ---\n{result.content}"
+                    enhanced_result = ToolCallResult(
+                        result.tool_call_id, enhanced_content, success=result.success, error=result.error
+                    )
+                    tool_messages.append(enhanced_result.to_message())
+                else:
+                    # 正常执行工具调用
+                    result = executor.execute_tool_call(tool_call, context)
+                    tool_messages.append(result.to_message())
             else:
                 # 没有找到合适的执行器
                 logger.warning(f"No executor found for tool: {tool_call.function.name}")
@@ -459,38 +669,47 @@ class ToolManager:
     ) -> Union[bool, Any]:
         """完整处理工具调用，包括多轮调用和循环检测"""
         import traceback
+
         # 获取调用栈信息
         call_stack = traceback.extract_stack()
         caller_info = call_stack[-2] if len(call_stack) >= 2 else call_stack[-1]
-        logger.info(f"🔧 [handle_tool_calls_complete] Called from: {caller_info.filename}:{caller_info.lineno} in {caller_info.name}")
-        
+        logger.info(
+            f"🔧 [handle_tool_calls_complete] Called from: {caller_info.filename}:{caller_info.lineno} in {caller_info.name}"
+        )
+
         try:
             # 提取工具调用
             if hasattr(choice_or_tool_calls, "message") and hasattr(choice_or_tool_calls.message, "tool_calls"):
                 tool_calls = choice_or_tool_calls.message.tool_calls
-                logger.info(f"🔧 [handle_tool_calls_complete] Extracted {len(tool_calls)} tool calls from choice.message")
+                logger.info(
+                    f"🔧 [handle_tool_calls_complete] Extracted {len(tool_calls)} tool calls from choice.message"
+                )
             elif isinstance(choice_or_tool_calls, list):
                 tool_calls = choice_or_tool_calls
                 logger.info(f"🔧 [handle_tool_calls_complete] Received {len(tool_calls)} tool calls as list")
             else:
-                logger.warning(f"🔧 [handle_tool_calls_complete] No tool calls found in input: {type(choice_or_tool_calls)}")
+                logger.warning(
+                    f"🔧 [handle_tool_calls_complete] No tool calls found in input: {type(choice_or_tool_calls)}"
+                )
                 return False
 
             if not tool_calls:
                 logger.info(f"🔧 [handle_tool_calls_complete] No tool calls to process")
                 return False
-            
+
             # 记录所有输入的工具调用详情
             for i, tc in enumerate(tool_calls):
                 if isinstance(tc, dict):
-                    tc_id = tc.get('id')
-                    tc_name = tc.get('function', {}).get('name')
-                    tc_args = tc.get('function', {}).get('arguments')
+                    tc_id = tc.get("id")
+                    tc_name = tc.get("function", {}).get("name")
+                    tc_args = tc.get("function", {}).get("arguments")
                 else:
-                    tc_id = getattr(tc, 'id', None)
-                    tc_name = getattr(tc.function, 'name', None) if hasattr(tc, 'function') else None
-                    tc_args = getattr(tc.function, 'arguments', None) if hasattr(tc, 'function') else None
-                logger.info(f"🔧 [handle_tool_calls_complete]   Input[{i}] ID: {tc_id}, Name: {tc_name}, Args: {tc_args}")
+                    tc_id = getattr(tc, "id", None)
+                    tc_name = getattr(tc.function, "name", None) if hasattr(tc, "function") else None
+                    tc_args = getattr(tc.function, "arguments", None) if hasattr(tc, "function") else None
+                logger.info(
+                    f"🔧 [handle_tool_calls_complete]   Input[{i}] ID: {tc_id}, Name: {tc_name}, Args: {tc_args}"
+                )
 
             # 检查是否已经存在相同的assistant消息（避免重复）
             normalized_tool_calls = RuntimeToolCall.normalize_list(tool_calls)
@@ -502,16 +721,18 @@ class ToolManager:
                     existing_assistant_msg = msg
                     break
 
-            # 检查是否是相同的工具调用
+            # 检查是否是相同的工具调用（更严格的重复检查）
             should_add_assistant = True
             if existing_assistant_msg:
                 existing_tool_calls = existing_assistant_msg.get("tool_calls", [])
                 if len(existing_tool_calls) == len(normalized_tool_calls):
-                    # 比较工具调用是否相同
+                    # 比较工具调用是否相同（包括ID）
                     same_calls = True
                     for i, (existing, new) in enumerate(zip(existing_tool_calls, normalized_tool_calls)):
+                        # 更严格的比较：不仅比较函数名和参数，还要比较ID
                         if (
-                            existing.get("function", {}).get("name") != new.function.name
+                            existing.get("id") != new.id
+                            or existing.get("function", {}).get("name") != new.function.name
                             or existing.get("function", {}).get("arguments") != new.function.arguments
                         ):
                             same_calls = False
@@ -519,7 +740,13 @@ class ToolManager:
 
                     if same_calls:
                         should_add_assistant = False
-                        logger.debug("Skipping duplicate assistant message with same tool calls")
+                        logger.info(
+                            f"Skipping duplicate assistant message with same tool calls (IDs: {[tc.get('id') for tc in existing_tool_calls]})"
+                        )
+                    else:
+                        logger.info(
+                            f"Different tool calls detected, will add new assistant message (existing IDs: {[tc.get('id') for tc in existing_tool_calls]}, new IDs: {[tc.id for tc in normalized_tool_calls]})"
+                        )
 
             # 添加assistant消息（如果需要），在执行工具之前
             if should_add_assistant:
@@ -527,12 +754,17 @@ class ToolManager:
                 for tool_call in normalized_tool_calls:
                     if not tool_call.id or tool_call.id is None:
                         import uuid
+
                         old_id = tool_call.id
                         tool_call.id = f"call_{uuid.uuid4().hex[:8]}"
-                        logger.info(f"🔧 [handle_tool_calls_complete] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
+                        logger.info(
+                            f"🔧 [handle_tool_calls_complete] Generated new tool call ID: {old_id} → {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}"
+                        )
                     else:
-                        logger.debug(f"🔧 [handle_tool_calls_complete] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}")
-                
+                        logger.info(
+                            f"🔧 [handle_tool_calls_complete] Using existing tool call ID: {tool_call.id} for tool: {tool_call.function.name if tool_call.function else 'unknown'}"
+                        )
+
                 assistant_message = self.create_assistant_message(normalized_tool_calls)
                 messages.append(assistant_message)
 
@@ -548,7 +780,7 @@ class ToolManager:
                 if tool_call.id not in existing_tool_call_ids:
                     tools_to_execute.append(tool_call)
                 else:
-                    logger.debug(f"Skipping already executed tool call: {tool_call.id}")
+                    logger.info(f"Skipping already executed tool call: {tool_call.id}")
 
             # 执行工具调用
             if tools_to_execute:
@@ -567,6 +799,92 @@ class ToolManager:
             if executor.can_handle(tool_name):
                 return executor
         return None
+
+    def _check_duplicate_call(self, tool_call: RuntimeToolCall) -> Optional[str]:
+        """检测重复调用并返回提示信息"""
+        tool_name = tool_call.function.name
+        arguments = tool_call.function.arguments
+
+        # 创建调用签名
+        call_signature = f"{tool_name}:{arguments}"
+
+        # 检查历史中是否有相同的调用
+        duplicate_count = 0
+        for prev_signature, prev_timestamp in self.call_history:
+            if prev_signature == call_signature:
+                duplicate_count += 1
+
+        # 如果发现重复调用，返回警告
+        if duplicate_count > 0:
+            return self._generate_duplicate_warning(tool_call, duplicate_count)
+
+        return None
+
+    def _generate_duplicate_warning(self, tool_call: RuntimeToolCall, duplicate_count: int) -> str:
+        """生成重复调用警告信息"""
+        tool_name = tool_call.function.name
+
+        try:
+            args_dict = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+        except:
+            args_dict = {}
+
+        # 检查常见的无效参数模式
+        invalid_patterns = []
+        for key, value in args_dict.items():
+            if value == "" or value is None:
+                invalid_patterns.append(f"参数 '{key}' 为空")
+            elif isinstance(value, str) and value.lower() in ["unknown", "null", "undefined", "none"]:
+                invalid_patterns.append(f"参数 '{key}' 值无效: {value}")
+
+        warning_msg = f"⚠️ 检测到重复调用工具 '{tool_name}' (第{duplicate_count+1}次)。"
+
+        if invalid_patterns:
+            warning_msg += f"\n🔍 发现问题: {', '.join(invalid_patterns)}。"
+            warning_msg += (
+                f"\n💡 建议: 请检查并修正参数值，或向用户请求必要的信息，不要继续使用相同的无效参数调用工具。"
+            )
+        else:
+            warning_msg += f"\n💡 建议: 如果上次调用失败，请分析错误原因并调整参数，或考虑向用户请求更多信息。"
+
+        warning_msg += f"\n📋 当前参数: {json.dumps(args_dict, ensure_ascii=False, indent=2)}"
+
+        return warning_msg
+
+    def _record_tool_call(self, tool_call: RuntimeToolCall):
+        """记录工具调用到历史"""
+        import time
+
+        tool_name = tool_call.function.name
+        arguments = tool_call.function.arguments
+        call_signature = f"{tool_name}:{arguments}"
+        timestamp = time.time()
+
+        # 添加到历史记录
+        self.call_history.append((call_signature, timestamp))
+
+        # 保持历史记录大小
+        if len(self.call_history) > self.max_history_size:
+            self.call_history.pop(0)
+
+    def _should_block_duplicate_call(self, tool_call: RuntimeToolCall) -> bool:
+        """判断是否应该阻止重复调用"""
+        tool_name = tool_call.function.name
+        arguments = tool_call.function.arguments
+        call_signature = f"{tool_name}:{arguments}"
+
+        # 检查最近3次调用中是否有连续重复
+        recent_calls = self.call_history[-3:] if len(self.call_history) >= 3 else self.call_history
+        consecutive_duplicates = 0
+
+        for prev_signature, _ in reversed(recent_calls):
+            if prev_signature == call_signature:
+                consecutive_duplicates += 1
+            else:
+                break
+
+        # 如果连续重复超过阈值，则阻止调用
+        return consecutive_duplicates >= self.duplicate_threshold
 
     def add_executor(self, executor: ToolExecutor):
         """添加自定义工具执行器"""

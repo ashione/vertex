@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union
 
@@ -24,11 +25,12 @@ class RuntimeToolCall:
         original_id = data.get("id")
         if original_id is None or original_id == "":
             import uuid
+
             self.id = f"call_{uuid.uuid4().hex[:8]}"
             logger.info(f"🔧 [RuntimeToolCall.__init__] Generated new tool call ID: {original_id} → {self.id}")
         else:
             self.id = original_id
-            logger.debug(f"🔧 [RuntimeToolCall.__init__] Using provided tool call ID: {self.id}")
+            logger.info(f"🔧 [RuntimeToolCall.__init__] Using provided tool call ID: {self.id}")
         self.type = data.get("type", "function")
 
         # 安全获取function信息，确保name和arguments永远不为None
@@ -343,7 +345,9 @@ class OpenAIToolCaller(ToolCaller):
                 last_valid_tool_call_id = tool_call_id
 
                 if tool_call_id not in tool_calls_by_id:
-                    logger.info(f"🔧 [merge_tool_call_fragments] Creating new tool call: {tool_call_id} → {fragment_name}")
+                    logger.info(
+                        f"🔧 [merge_tool_call_fragments] Creating new tool call: {tool_call_id} → {fragment_name}"
+                    )
                     tool_calls_by_id[tool_call_id] = {
                         "id": tool_call_id,
                         "type": "function",
@@ -370,7 +374,7 @@ class OpenAIToolCaller(ToolCaller):
                     if last_valid_tool_call_id and last_valid_tool_call_id in tool_calls_by_id:
                         tool_calls_by_id[last_valid_tool_call_id]["function"]["arguments"] += cleaned_fragment_args
                         continue
-                    
+
                     # 如果没有最后的有效ID，将此片段添加到序列化片段列表
                     sequential_fragments.append(cleaned_fragment_args)
                 else:
@@ -399,7 +403,9 @@ class OpenAIToolCaller(ToolCaller):
 
                 # 创建重构的工具调用
                 reconstructed_id = f"call_reconstructed_{hash(combined_args) % 10000:04d}"
-                logger.info(f"🔧 [merge_tool_call_fragments] Creating reconstructed tool call with name: {reconstructed_id} → {tool_name}")
+                logger.info(
+                    f"🔧 [merge_tool_call_fragments] Creating reconstructed tool call with name: {reconstructed_id} → {tool_name}"
+                )
                 tool_calls_by_id[reconstructed_id] = {
                     "id": reconstructed_id,
                     "type": "function",
@@ -409,7 +415,9 @@ class OpenAIToolCaller(ToolCaller):
                 # 没有找到工具名称，但参数看起来像JSON，创建一个通用工具调用
                 if combined_args.strip().startswith("{"):
                     reconstructed_id = f"call_reconstructed_{hash(combined_args) % 10000:04d}"
-                    logger.info(f"🔧 [merge_tool_call_fragments] Creating generic reconstructed tool call: {reconstructed_id}")
+                    logger.info(
+                        f"🔧 [merge_tool_call_fragments] Creating generic reconstructed tool call: {reconstructed_id}"
+                    )
                     tool_calls_by_id[reconstructed_id] = {
                         "id": reconstructed_id,
                         "type": "function",
@@ -439,37 +447,9 @@ class OpenAIToolCaller(ToolCaller):
                 cleaned_args = (arguments_str or "").strip()
                 if not cleaned_args:
                     cleaned_args = "{}"
-                
-                # 尝试直接解析JSON
-                try:
-                    json.loads(cleaned_args)
-                except json.JSONDecodeError:
-                    # 如果解析失败，使用基本的fallback
-                    if not cleaned_args.startswith(("{", "[")):
-                        cleaned_args = "{}"
-                    else:
-                        # 尝试提取完整的JSON对象
-                        brace_count = 0
-                        start_pos = 0
-                        end_pos = len(cleaned_args)
-                        
-                        for i, char in enumerate(cleaned_args):
-                            if char == "{":
-                                if brace_count == 0:
-                                    start_pos = i
-                                brace_count += 1
-                            elif char == "}":
-                                brace_count -= 1
-                                if brace_count == 0:
-                                    end_pos = i + 1
-                                    break
-                        
-                        potential_json = cleaned_args[start_pos:end_pos]
-                        try:
-                            json.loads(potential_json)
-                            cleaned_args = potential_json
-                        except json.JSONDecodeError:
-                            cleaned_args = "{}"
+
+                # 使用严格的JSON解析验证
+                cleaned_args = self._validate_and_clean_json_arguments(arguments_str)
 
                 tool_call["function"]["arguments"] = cleaned_args
                 valid_tool_calls.append(tool_call)
@@ -479,6 +459,216 @@ class OpenAIToolCaller(ToolCaller):
                 continue
 
         return valid_tool_calls
+
+    def _validate_and_clean_json_arguments(self, arguments_str: str) -> str:
+        """
+        使用严格的JSON解析验证来清理和验证工具调用参数
+
+        Args:
+            arguments_str: 原始参数字符串
+
+        Returns:
+            str: 清理后的有效JSON字符串
+        """
+        if not arguments_str:
+            return "{}"
+
+        cleaned_args = arguments_str.strip()
+        if not cleaned_args:
+            return "{}"
+
+        # 首先尝试直接解析
+        try:
+            parsed = json.loads(cleaned_args)
+            # 重新序列化以确保格式正确
+            return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+        except json.JSONDecodeError as e:
+            logger.debug(f"Initial JSON parse failed: {e}, attempting repair")
+
+        # 如果直接解析失败，尝试修复常见问题
+        repaired_json = self._attempt_json_repair(cleaned_args)
+        if repaired_json:
+            try:
+                parsed = json.loads(repaired_json)
+                return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+            except json.JSONDecodeError:
+                pass
+
+        # 如果修复失败，尝试提取完整的JSON对象
+        extracted_json = self._extract_complete_json_object(cleaned_args)
+        if extracted_json:
+            try:
+                parsed = json.loads(extracted_json)
+                return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+            except json.JSONDecodeError:
+                pass
+
+        # 最后的fallback：检查是否明显不完整
+        if self._is_obviously_incomplete_json(cleaned_args):
+            logger.warning(f"Arguments appear incomplete, using empty object: {cleaned_args[:50]}...")
+            return "{}"
+
+        # 如果看起来像JSON但无法解析，记录警告并返回空对象
+        if cleaned_args.startswith(("{", "[")):
+            logger.warning(f"Invalid JSON format, using empty object: {cleaned_args[:50]}...")
+            return "{}"
+
+        # 对于非JSON格式的字符串，包装成字符串值
+        try:
+            return json.dumps({"value": cleaned_args}, ensure_ascii=False)
+        except Exception:
+            return "{}"
+
+    def _attempt_json_repair(self, json_str: str) -> Optional[str]:
+        """
+        尝试修复常见的JSON格式问题
+
+        Args:
+            json_str: 可能损坏的JSON字符串
+
+        Returns:
+            Optional[str]: 修复后的JSON字符串，如果无法修复则返回None
+        """
+        if not json_str:
+            return None
+
+        # 移除前后空白字符
+        repaired = json_str.strip()
+
+        # 修复常见的引号问题
+        if repaired.count('"') % 2 != 0:
+            # 奇数个引号，尝试在末尾添加引号
+            if repaired.endswith('"'):
+                repaired = repaired[:-1]
+            else:
+                repaired += '"'
+
+        # 修复未闭合的大括号
+        open_braces = repaired.count("{")
+        close_braces = repaired.count("}")
+        if open_braces > close_braces:
+            repaired += "}" * (open_braces - close_braces)
+        elif close_braces > open_braces:
+            # 移除多余的闭合括号
+            excess_closes = close_braces - open_braces
+            for _ in range(excess_closes):
+                repaired = repaired.rstrip("}")
+
+        # 修复未闭合的方括号
+        open_brackets = repaired.count("[")
+        close_brackets = repaired.count("]")
+        if open_brackets > close_brackets:
+            repaired += "]" * (open_brackets - close_brackets)
+        elif close_brackets > open_brackets:
+            # 移除多余的闭合括号
+            excess_closes = close_brackets - open_brackets
+            for _ in range(excess_closes):
+                repaired = repaired.rstrip("]")
+
+        # 修复末尾的逗号
+        import re
+
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+
+        return repaired if repaired != json_str else None
+
+    def _extract_complete_json_object(self, json_str: str) -> Optional[str]:
+        """
+        尝试从字符串中提取完整的JSON对象
+
+        Args:
+            json_str: 包含JSON的字符串
+
+        Returns:
+            Optional[str]: 提取的完整JSON对象，如果找不到则返回None
+        """
+        if not json_str:
+            return None
+
+        # 查找第一个 { 或 [
+        start_pos = -1
+        start_char = None
+        for i, char in enumerate(json_str):
+            if char in "{[":
+                start_pos = i
+                start_char = char
+                break
+
+        if start_pos == -1:
+            return None
+
+        # 匹配对应的结束字符
+        end_char = "}" if start_char == "{" else "]"
+        bracket_count = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start_pos, len(json_str)):
+            char = json_str[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == start_char:
+                    bracket_count += 1
+                elif char == end_char:
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        # 找到完整的JSON对象
+                        return json_str[start_pos : i + 1]
+
+        return None
+
+    def _is_obviously_incomplete_json(self, json_str: str) -> bool:
+        """
+        检查JSON字符串是否明显不完整
+
+        Args:
+            json_str: 要检查的JSON字符串
+
+        Returns:
+            bool: 如果明显不完整则返回True
+        """
+        if not json_str:
+            return True
+
+        stripped = json_str.strip()
+
+        # 检查是否以JSON开始但没有正确结束
+        if stripped.startswith("{") and not stripped.endswith("}"):
+            return True
+        if stripped.startswith("[") and not stripped.endswith("]"):
+            return True
+        if stripped.startswith('"') and not stripped.endswith('"'):
+            return True
+
+        # 检查括号是否匹配
+        open_braces = stripped.count("{")
+        close_braces = stripped.count("}")
+        if open_braces != close_braces:
+            return True
+
+        open_brackets = stripped.count("[")
+        close_brackets = stripped.count("]")
+        if open_brackets != close_brackets:
+            return True
+
+        # 检查引号是否匹配
+        quote_count = stripped.count('"')
+        if quote_count % 2 != 0:
+            return True
+
+        return False
 
     def create_assistant_message(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
         """创建助手消息"""
@@ -515,7 +705,7 @@ class TongyiToolCaller(OpenAIToolCaller):
 
 
 class DeepSeekToolCaller(OpenAIToolCaller):
-    """DeepSeek工具调用器"""
+    """DeepSeek工具调用器 - 支持去重功能以处理重复的tool_calls"""
 
     def can_handle_streaming(self) -> bool:
         return True
@@ -524,6 +714,68 @@ class DeepSeekToolCaller(OpenAIToolCaller):
         """DeepSeek的流式工具调用提取"""
         # DeepSeek的流式工具调用格式与OpenAI兼容
         return super().extract_tool_calls_from_stream(chunk)
+
+    def _deduplicate_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """基于name+arguments去重工具调用
+
+        DeepSeek等非OpenAI模型在流式调用中可能返回重复的tool_calls，
+        这个方法通过比较function.name和function.arguments来去除重复项。
+
+        Args:
+            tool_calls: 原始工具调用列表
+
+        Returns:
+            List[Dict[str, Any]]: 去重后的工具调用列表
+        """
+        if not tool_calls:
+            return tool_calls
+
+        seen = set()
+        deduplicated = []
+
+        for call in tool_calls:
+            function_info = call.get("function", {})
+            fn_name = function_info.get("name", "")
+            args_str = function_info.get("arguments", "{}")
+
+            # 标准化arguments字符串以便比较
+            try:
+                import json
+
+                # 解析并重新序列化以标准化格式
+                args_obj = json.loads(args_str) if args_str else {}
+                normalized_args = json.dumps(args_obj, sort_keys=True, separators=(",", ":"))
+            except (json.JSONDecodeError, TypeError):
+                # 如果解析失败，直接使用原始字符串
+                normalized_args = args_str
+
+            # 创建去重键
+            dedup_key = (fn_name, normalized_args)
+
+            if dedup_key not in seen:
+                deduplicated.append(call)
+                seen.add(dedup_key)
+                logger.debug(f"✅ [DeepSeek去重] 保留工具调用: {fn_name}")
+            else:
+                logger.info(f"⚠️ [DeepSeek去重] 检测到重复工具调用，已跳过: {fn_name}({normalized_args[:100]}...)")
+
+        if len(deduplicated) < len(tool_calls):
+            logger.info(f"🔧 [DeepSeek去重] 原始调用数: {len(tool_calls)}, 去重后: {len(deduplicated)}")
+
+        return deduplicated
+
+    def merge_tool_call_fragments(self, fragments: List[Any]) -> List[Dict[str, Any]]:
+        """合并工具调用分片并去重"""
+        # 先使用父类方法合并片段
+        merged_calls = super().merge_tool_call_fragments(fragments)
+        # 然后对合并后的结果进行去重
+        return self._deduplicate_tool_calls(merged_calls)
+
+    def create_assistant_message(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """创建助手消息，自动去重工具调用"""
+        # 对DeepSeek的工具调用进行去重处理
+        deduplicated_calls = self._deduplicate_tool_calls(tool_calls)
+        return super().create_assistant_message(deduplicated_calls)
 
 
 class OllamaToolCaller(OpenAIToolCaller):

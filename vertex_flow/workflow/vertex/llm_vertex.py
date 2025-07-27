@@ -442,6 +442,7 @@ class LLMVertex(Vertex[T]):
 
         except Exception as e:
             error_msg = f"LLM processing error: {str(e)}"
+            traceback.print_exc()
             logging.error(error_msg)
             if emit_events and self.workflow:
                 self.workflow.emit_event(
@@ -475,15 +476,25 @@ class LLMVertex(Vertex[T]):
             if isinstance(stream_data, StreamData):
                 data_type = stream_data.type.value
                 data_content = stream_data.get_data()
-                
-                logger.debug(f"🔧 [_process_single_stream_round] Received StreamData: type={data_type}, content_type={type(data_content)}")
+
+                logger.debug(
+                    f"🔧 [_process_single_stream_round] Received StreamData: type={data_type}, content_type={type(data_content)}"
+                )
                 if data_type == "tool_calls":
-                    logger.info(f"🔧 [_process_single_stream_round] Tool calls detected: {len(data_content) if data_content and isinstance(data_content, list) else 'invalid'} calls")
+                    logger.info(
+                        f"🔧 [_process_single_stream_round] Tool calls detected: {len(data_content) if data_content and isinstance(data_content, list) else 'invalid'} calls"
+                    )
                     if data_content:
                         for i, tc in enumerate(data_content):
-                            tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-                            tc_name = tc.get('function', {}).get('name') if isinstance(tc, dict) else getattr(tc, 'function', {}).name if hasattr(tc, 'function') else 'unknown'
-                            logger.info(f"🔧 [_process_single_stream_round]   Tool call[{i}]: ID={tc_id}, Name={tc_name}")
+                            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                            tc_name = (
+                                tc.get("function", {}).get("name")
+                                if isinstance(tc, dict)
+                                else getattr(tc, "function", {}).name if hasattr(tc, "function") else "unknown"
+                            )
+                            logger.info(
+                                f"🔧 [_process_single_stream_round]   Tool call[{i}]: ID={tc_id}, Name={tc_name}"
+                            )
 
                 if data_type == "content" or data_type == "reasoning":
                     # 处理内容数据
@@ -491,13 +502,19 @@ class LLMVertex(Vertex[T]):
                     yield data_content
                 elif data_type == "tool_calls":
                     # 处理工具调用
-                    logger.info(f"🔧 [_process_single_stream_round] About to call _handle_tool_calls with {len(data_content) if data_content and isinstance(data_content, list) else 'invalid'} tool calls")
+                    logger.info(
+                        f"🔧 [_process_single_stream_round] About to call _handle_tool_calls with {len(data_content) if data_content and isinstance(data_content, list) else 'invalid'} tool calls"
+                    )
                     if data_content and self._handle_tool_calls(data_content, context, emit_events):
-                        logger.info(f"🔧 [_process_single_stream_round] Tool calls handled successfully, yielding signal")
+                        logger.info(
+                            f"🔧 [_process_single_stream_round] Tool calls handled successfully, yielding signal"
+                        )
                         yield "__TOOL_CALLS_DETECTED__"
                         return
                     else:
-                        logger.warning(f"🔧 [_process_single_stream_round] Tool calls handling failed or returned False")
+                        logger.warning(
+                            f"🔧 [_process_single_stream_round] Tool calls handling failed or returned False"
+                        )
                 elif data_type == "error":
                     # 处理错误数据
                     self._emit_error_event(data_content, emit_events)
@@ -539,9 +556,42 @@ class LLMVertex(Vertex[T]):
 
     def _handle_tool_calls(self, tool_calls_data, context: WorkflowContext, emit_events: bool) -> bool:
         """处理工具调用，返回是否成功执行了工具"""
-        logger.info(f"🔧 [_handle_tool_calls] Called with {len(tool_calls_data) if tool_calls_data and isinstance(tool_calls_data, list) else 'invalid'} tool calls")
-        logger.info(f"🔧 [_handle_tool_calls] Tool manager available: {hasattr(self, 'tool_manager') and self.tool_manager is not None}")
-        
+        logger.info(
+            f"🔧 [_handle_tool_calls] Called with {len(tool_calls_data) if tool_calls_data and isinstance(tool_calls_data, list) else 'invalid'} tool calls"
+        )
+        logger.info(
+            f"🔧 [_handle_tool_calls] Tool manager available: {hasattr(self, 'tool_manager') and self.tool_manager is not None}"
+        )
+
+        # 添加当前消息历史的调试信息
+        logger.info(f"🔧 [_handle_tool_calls] Current messages count: {len(self.messages)}")
+        last_messages = self.messages[-3:] if len(self.messages) >= 3 else self.messages
+        for i, msg in enumerate(last_messages):
+            role = msg.get("role", "unknown")
+            content_preview = str(msg.get("content", ""))[:50] + (
+                "..." if len(str(msg.get("content", ""))) > 50 else ""
+            )
+            tool_calls_count = len(msg.get("tool_calls", [])) if msg.get("tool_calls") else 0
+            logger.info(
+                f'🔧 [_handle_tool_calls]   Message[-{len(last_messages)-i}]: role={role}, content="{content_preview}", tool_calls={tool_calls_count}'
+            )
+
+        # 显示当前工具调用的详细信息
+        for i, tool_call in enumerate(tool_calls_data):
+            if isinstance(tool_call, dict):
+                tc_id = tool_call.get("id", "no-id")
+                tc_name = tool_call.get("function", {}).get("name", "no-name")
+                tc_args = tool_call.get("function", {}).get("arguments", "no-args")
+            else:
+                tc_id = getattr(tool_call, "id", "no-id")
+                tc_name = (
+                    getattr(tool_call.function, "name", "no-name") if hasattr(tool_call, "function") else "no-name"
+                )
+                tc_args = (
+                    getattr(tool_call.function, "arguments", "no-args") if hasattr(tool_call, "function") else "no-args"
+                )
+            logger.info(f'🔧 [_handle_tool_calls]   ToolCall[{i}]: ID={tc_id}, Name={tc_name}, Args="{tc_args}"')
+
         # 发送工具调用事件，让前端知道工具调用的参数
         if emit_events and self.workflow:
             for tool_call in tool_calls_data:

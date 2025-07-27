@@ -1,5 +1,6 @@
 import abc
 import base64
+import json
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -174,7 +175,9 @@ class StreamProcessor:
 
         # 只处理新增的分片
         new_fragments = self.tool_call_fragments[self.last_fragment_count :]
-        logger.debug(f"🔧 [_try_execute_complete_tool_calls] Processing {len(new_fragments)} new fragments (total: {current_fragment_count})")
+        logger.debug(
+            f"🔧 [_try_execute_complete_tool_calls] Processing {len(new_fragments)} new fragments (total: {current_fragment_count})"
+        )
         self._update_merged_calls_incrementally(new_fragments)
         self.last_fragment_count = current_fragment_count
 
@@ -184,8 +187,10 @@ class StreamProcessor:
         for call_id, merged_call in self.merged_tool_calls.items():
             logger.debug(f"🔧 [_try_execute_complete_tool_calls] Checking call_id: {call_id}")
             logger.debug(f"🔧 [_try_execute_complete_tool_calls]   executed_call_ids: {self.executed_call_ids}")
-            logger.debug(f"🔧 [_try_execute_complete_tool_calls]   call_id in executed: {call_id in self.executed_call_ids}")
-            
+            logger.debug(
+                f"🔧 [_try_execute_complete_tool_calls]   call_id in executed: {call_id in self.executed_call_ids}"
+            )
+
             if call_id not in self.executed_call_ids:
                 is_complete = self._is_tool_call_complete(merged_call)
                 logger.debug(
@@ -194,27 +199,29 @@ class StreamProcessor:
                 if is_complete:
                     complete_calls.append(merged_call)
                     self.executed_call_ids.add(call_id)
-                    logger.info(f"🔧 [_try_execute_complete_tool_calls] Marking tool call {call_id} as identified (will be sent to LLM layer)")
+                    logger.info(
+                        f"🔧 [_try_execute_complete_tool_calls] Marking tool call {call_id} as identified (will be sent to LLM layer)"
+                    )
             else:
                 logger.debug(f"🔧 [_try_execute_complete_tool_calls] Tool call {call_id} already executed, skipping")
 
         if complete_calls:
-            logger.info(f"🔧 [_try_execute_complete_tool_calls] Found {len(complete_calls)} complete tool calls, sending to LLM layer for execution")
+            logger.info(
+                f"🔧 [_try_execute_complete_tool_calls] Found {len(complete_calls)} complete tool calls, sending to LLM layer for execution"
+            )
             for call in complete_calls:
-                logger.info(f"🔧 [_try_execute_complete_tool_calls]   Complete call: {call.get('id')} → {call.get('function', {}).get('name')}")
-            
-            # 清理已处理的工具调用状态，避免重复处理
-            for call in complete_calls:
-                call_id = call.get('id')
-                if call_id in self.merged_tool_calls:
-                    logger.debug(f"🔧 [_try_execute_complete_tool_calls] Removing processed tool call {call_id} from merged_tool_calls")
-                    del self.merged_tool_calls[call_id]
-            
+                logger.info(
+                    f"🔧 [_try_execute_complete_tool_calls]   Complete call: {call.get('id')} → {call.get('function', {}).get('name')}"
+                )
+
+            # 不删除已处理的工具调用，而是依赖executed_call_ids来跟踪
+            # 这样可以避免在_finalize_tool_calls中重复处理
+
             # 返回StreamData格式的工具调用
             yield StreamData.create_tool_calls(complete_calls)
         else:
             logger.debug(f"🔧 [_try_execute_complete_tool_calls] No complete tool calls found")
-        
+
         # 不返回列表，而是通过yield发送StreamData
         return
 
@@ -266,45 +273,110 @@ class StreamProcessor:
         if arguments is None:
             return False
 
-        # 放宽JSON完整性检查：允许空字符串、空对象或看起来完整的JSON
         arguments_str = str(arguments).strip()
 
-        # 允许空参数
-        if arguments_str == "" or arguments_str == "{}":
+        # 允许空对象
+        if arguments_str == "{}":
             return True
 
-        # 检查是否看起来像完整的JSON（以}、]、"或数字结尾）
+        # 检查是否以常见的完整JSON结尾
         if (
-            arguments_str.endswith("}")
-            or arguments_str.endswith("]")
-            or arguments_str.endswith('"')
-            or arguments_str.endswith("'")
-            or arguments_str[-1].isdigit()
-            or arguments_str.lower() in ["true", "false", "null"]
+            arguments_str.endswith(("}", "]", '"', "'"))
+            or arguments_str.isdigit()
+            or arguments_str in ["true", "false", "null"]
         ):
-            return True
+            # 尝试JSON解析验证
+            try:
+                import json
 
-        # 尝试解析JSON来验证完整性
+                json.loads(arguments_str)
+                return True
+            except json.JSONDecodeError:
+                return False
+
+        return False
+
+    def _try_fix_incomplete_tool_call(self, tool_call):
+        """尝试修复不完整的工具调用"""
+        if not tool_call.get("id") or not tool_call.get("function"):
+            return None
+
+        function = tool_call["function"]
+        if not function.get("name"):
+            return None
+
+        # 创建修复后的工具调用副本
+        fixed_call = {
+            "id": tool_call["id"],
+            "type": tool_call.get("type", "function"),
+            "function": {"name": function["name"], "arguments": function.get("arguments", "")},
+        }
+
+        arguments = function.get("arguments", "")
+
+        # 如果arguments为空或None，使用空对象
+        if not arguments:
+            fixed_call["function"]["arguments"] = "{}"
+            logger.info(f"Fixed incomplete tool call {tool_call['id']}: empty arguments -> {{}}")
+            return fixed_call
+
+        # 尝试解析JSON
         try:
-            import json
+            json.loads(arguments)
+            # 如果已经是有效JSON，直接返回
+            return fixed_call
+        except json.JSONDecodeError:
+            # 尝试修复常见的JSON问题
+            fixed_arguments = self._try_fix_json_arguments(arguments)
+            if fixed_arguments:
+                fixed_call["function"]["arguments"] = fixed_arguments
+                logger.info(f"Fixed incomplete tool call {tool_call['id']}: invalid JSON -> {fixed_arguments}")
+                return fixed_call
+            else:
+                # 如果无法修复，使用空对象
+                fixed_call["function"]["arguments"] = "{}"
+                logger.warning(f"Could not fix arguments for tool call {tool_call['id']}, using empty object")
+                return fixed_call
 
-            json.loads(arguments_str)
-            return True
-        except (json.JSONDecodeError, ValueError):
-            # JSON不完整，但记录日志以便调试
-            logger.debug(f"Tool call {tool_call.get('id')} arguments incomplete: {arguments_str}")
-            return False
+    def _try_fix_json_arguments(self, arguments):
+        """尝试修复JSON格式的arguments"""
+        if not arguments or not isinstance(arguments, str):
+            return None
+
+        # 移除前后空白
+        arguments = arguments.strip()
+
+        # 如果不是以{开头，尝试添加
+        if not arguments.startswith("{"):
+            arguments = "{" + arguments
+
+        # 如果不是以}结尾，尝试添加
+        if not arguments.endswith("}"):
+            arguments = arguments + "}"
+
+        # 尝试解析修复后的JSON
+        try:
+            json.loads(arguments)
+            return arguments
+        except json.JSONDecodeError:
+            # 如果仍然无法解析，返回None
+            return None
 
     def _finalize_tool_calls(self):
-        """在流式处理结束时，清理残留状态"""
+        """在流式处理结束时，清理残留状态并尝试执行不完整的工具调用"""
         # 处理所有剩余的分片（如果有新的）
         if len(self.tool_call_fragments) > self.last_fragment_count:
             new_fragments = self.tool_call_fragments[self.last_fragment_count :]
             self._update_merged_calls_incrementally(new_fragments)
 
-        # 检查是否有未执行的工具调用，记录警告但不执行
+        # 检查是否有未执行的工具调用
         remaining_calls = []
         incomplete_calls = []
+        incomplete_count = 0
+
+        logger.debug(
+            f"🔧 [_finalize_tool_calls] Checking {len(self.merged_tool_calls)} merged tool calls, executed_call_ids: {self.executed_call_ids}"
+        )
 
         for call_id, merged_call in self.merged_tool_calls.items():
             if call_id not in self.executed_call_ids:
@@ -315,26 +387,52 @@ class StreamProcessor:
                         f"Found unidentified complete tool call {call_id} at stream end: {merged_call.get('function', {}).get('name', 'unknown')}"
                     )
                 else:
-                    incomplete_calls.append((call_id, merged_call))
-                    logger.warning(f"Found incomplete tool call {call_id} at stream end: {merged_call}")
+                    # 对于不完整的工具调用，也尝试执行
+                    function_name = merged_call.get("function", {}).get("name", "unknown")
+                    arguments = merged_call.get("function", {}).get("arguments", "")
+                    logger.warning(
+                        f"Found incomplete tool call {call_id} at stream end: function={function_name}, arguments={arguments}"
+                    )
+
+                    # 检查是否有基本的工具调用信息（ID和函数名）
+                    if merged_call.get("id") and merged_call.get("function", {}).get("name"):
+                        # 尝试修复不完整的arguments
+                        fixed_call = self._try_fix_incomplete_tool_call(merged_call)
+                        if fixed_call:
+                            incomplete_calls.append(fixed_call)
+                            logger.info(f"Attempting to execute incomplete tool call {call_id} with fixed arguments")
+                        else:
+                            incomplete_count += 1
+                    else:
+                        incomplete_count += 1
+            else:
+                logger.debug(f"🔧 [_finalize_tool_calls] Tool call {call_id} already executed, skipping")
 
         # 记录统计信息
         if remaining_calls:
             logger.warning(f"Stream ended with {len(remaining_calls)} unidentified complete tool calls")
 
         if incomplete_calls:
-            logger.warning(f"Stream ended with {len(incomplete_calls)} incomplete tool calls")
-            for call_id, incomplete_call in incomplete_calls:
-                function_name = incomplete_call.get("function", {}).get("name", "unknown")
-                arguments = incomplete_call.get("function", {}).get("arguments", "")
-                logger.debug(f"Incomplete tool call {call_id}: function={function_name}, arguments={arguments}")
+            logger.warning(f"Stream ended with {len(incomplete_calls)} incomplete tool calls that will be attempted")
+
+        if incomplete_count > 0:
+            logger.warning(f"Stream ended with {incomplete_count} incomplete tool calls that cannot be executed")
+
+        # 执行所有可执行的工具调用（完整的和修复后的不完整的）
+        all_executable_calls = remaining_calls + incomplete_calls
+        if all_executable_calls:
+            logger.info(
+                f"Executing {len(all_executable_calls)} tool calls at stream end ({len(remaining_calls)} complete, {len(incomplete_calls)} incomplete)"
+            )
+            # 标记这些调用为已执行，避免重复
+            for call in all_executable_calls:
+                self.executed_call_ids.add(call.get("id"))
+
+            # 返回StreamData格式的工具调用，让上层处理执行
+            yield StreamData.create_tool_calls(all_executable_calls)
 
         # 清理所有状态，避免后续调用时状态残留
         self._reset_all_state()
-
-        # 流式处理结束，不返回任何数据
-        return
-        yield  # 使这个方法成为生成器，但不产生任何数据
 
     def _reset_all_state(self):
         """重置所有状态，避免后续调用时状态残留"""
@@ -644,10 +742,14 @@ class ChatModel(abc.ABC):
         """在流式处理中处理工具调用，统一使用tool_manager"""
         logger.info(f"🔧 [_handle_tool_calls_in_stream] Processing {len(tool_calls)} tool calls")
         for i, tc in enumerate(tool_calls):
-            tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
-            tc_name = tc.get('function', {}).get('name') if isinstance(tc, dict) else getattr(tc, 'function', {}).name if hasattr(tc, 'function') else 'unknown'
+            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            tc_name = (
+                tc.get("function", {}).get("name")
+                if isinstance(tc, dict)
+                else getattr(tc, "function", {}).name if hasattr(tc, "function") else "unknown"
+            )
             logger.info(f"🔧 [_handle_tool_calls_in_stream]   [{i}] ID: {tc_id}, Name: {tc_name}")
-        
+
         # 统一使用工具管理器处理工具调用
         if self.tool_manager:
             return self.tool_manager.handle_tool_calls_complete(tool_calls, None, messages)

@@ -156,6 +156,66 @@ def test_deepseek_tool_caller():
         return False
 
 
+def test_deepseek_deduplication():
+    """测试DeepSeek工具调用去重功能"""
+    print("\n=== 测试 DeepSeek 工具调用去重功能 ===")
+
+    try:
+        from vertex_flow.workflow.tools.tool_caller import DeepSeekToolCaller
+
+        # 创建DeepSeek工具调用器
+        tool_caller = DeepSeekToolCaller()
+        print("✓ DeepSeek 工具调用器创建成功")
+
+        # 测试基本去重功能
+        duplicate_tool_calls = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search_codebase", "arguments": '{"information_request": "find main function"}'},
+            },
+            {
+                "id": "call_2",
+                "type": "function",
+                "function": {"name": "search_codebase", "arguments": '{"information_request": "find main function"}'},
+            },
+            {
+                "id": "call_3",
+                "type": "function",
+                "function": {"name": "view_files", "arguments": '{"files": [{"file_path": "/test.py"}]}'},
+            },
+        ]
+
+        # 测试去重功能
+        deduplicated = tool_caller._deduplicate_tool_calls(duplicate_tool_calls)
+        print(f"✓ 去重测试: {len(duplicate_tool_calls)} → {len(deduplicated)}")
+        assert len(deduplicated) == 2, f"期望2个调用，实际得到{len(deduplicated)}个"
+
+        # 测试参数标准化
+        different_format_calls = [
+            {"id": "call_1", "type": "function", "function": {"name": "test_func", "arguments": '{"a": 1, "b": 2}'}},
+            {"id": "call_2", "type": "function", "function": {"name": "test_func", "arguments": '{"b": 2, "a": 1}'}},
+        ]
+
+        normalized = tool_caller._deduplicate_tool_calls(different_format_calls)
+        print(f"✓ 参数标准化测试: {len(different_format_calls)} → {len(normalized)}")
+        assert len(normalized) == 1, f"期望1个调用，实际得到{len(normalized)}个"
+
+        # 测试create_assistant_message中的自动去重
+        assistant_msg = tool_caller.create_assistant_message(duplicate_tool_calls)
+        print(f"✓ 助手消息去重测试: {len(assistant_msg['tool_calls'])} 个工具调用")
+        assert len(assistant_msg["tool_calls"]) == 2, f"期望2个调用，实际得到{len(assistant_msg['tool_calls'])}个"
+
+        print("✅ DeepSeek去重功能测试全部通过")
+
+    except Exception as e:
+        print(f"❌ DeepSeek去重功能测试失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+        assert False, f"DeepSeek去重功能测试失败: {e}"
+
+
 def test_tool_caller_providers():
     """测试不同provider的工具调用器"""
     print("\n=== 测试不同provider的工具调用器 ===")
