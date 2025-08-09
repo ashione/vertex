@@ -16,6 +16,9 @@ loguru>=0.7.0
 # 环境变量管理
 python-dotenv>=1.0.0
 
+# 加密库（用于微信消息加解密）
+pycryptodome>=3.19.0
+
 # XML处理（Python内置，但列出以明确依赖）
 # xml.etree.ElementTree - 内置模块
 

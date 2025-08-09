@@ -27,16 +27,20 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="WeChat Plugin for Vertex Flow", version="1.0.0")
 
 # 初始化组件
-wechat_handler = WeChatHandler(config.wechat_token)
+wechat_handler = WeChatHandler(
+    token=config.wechat_token,
+    encoding_aes_key=config.wechat_encoding_aes_key,
+    app_id=config.wechat_app_id
+)
 message_processor = MessageProcessor(
     api_base_url=config.vertex_flow_api_url,
     default_workflow=config.default_workflow
 )
 
 
-@app.get("/wechat")
+@app.get("/")
 async def wechat_verify(request: Request):
-    """微信服务器验证"""
+    """微信服务器验证和根路径处理"""
     try:
         # 获取验证参数
         signature = request.query_params.get('signature', '')
@@ -44,15 +48,25 @@ async def wechat_verify(request: Request):
         nonce = request.query_params.get('nonce', '')
         echostr = request.query_params.get('echostr', '')
         
-        logger.info(f"收到微信验证请求: signature={signature}, timestamp={timestamp}, nonce={nonce}")
-        
-        # 验证签名
-        if wechat_handler.verify_signature(signature, timestamp, nonce):
-            logger.info("微信签名验证成功")
-            return PlainTextResponse(echostr)
+        # 如果有微信验证参数，进行验证
+        if signature and timestamp and nonce and echostr:
+            logger.info(f"收到微信验证请求: signature={signature}, timestamp={timestamp}, nonce={nonce}")
+            
+            # 验证签名
+            if wechat_handler.verify_signature(signature, timestamp, nonce):
+                logger.info("微信签名验证成功")
+                return PlainTextResponse(echostr)
+            else:
+                logger.warning("微信签名验证失败")
+                raise HTTPException(status_code=403, detail="签名验证失败")
         else:
-            logger.warning("微信签名验证失败")
-            raise HTTPException(status_code=403, detail="签名验证失败")
+            # 没有验证参数，返回基本信息
+            return {
+                "message": "微信公众号插件 for Vertex Flow",
+                "version": "1.0.0",
+                "webhook_url": config.get_webhook_url(),
+                "health_check": "/health"
+            }
             
     except HTTPException:
         # 重新抛出HTTPException，不要转换为500错误
@@ -70,11 +84,7 @@ async def wechat_message(request: Request):
         signature = request.query_params.get('signature', '')
         timestamp = request.query_params.get('timestamp', '')
         nonce = request.query_params.get('nonce', '')
-        
-        # 验证签名
-        if not wechat_handler.verify_signature(signature, timestamp, nonce):
-            logger.warning("微信消息签名验证失败")
-            raise HTTPException(status_code=403, detail="签名验证失败")
+        msg_signature = request.query_params.get('msg_signature', '')  # 安全模式需要
         
         # 获取消息内容
         xml_data = await request.body()
@@ -82,10 +92,42 @@ async def wechat_message(request: Request):
         
         logger.info(f"收到微信消息: {xml_str[:200]}...")  # 只记录前200字符
         
+        # 安全模式下使用msg_signature验证，明文模式使用signature验证
+        if wechat_handler.secure_mode:
+            # 安全模式：需要提取Encrypt字段进行验证
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(xml_str)
+                encrypt_elem = root.find('Encrypt')
+                encrypt_msg = encrypt_elem.text if encrypt_elem is not None else None
+                
+                if not encrypt_msg:
+                    logger.warning("安全模式下未找到加密消息")
+                    raise HTTPException(status_code=403, detail="消息格式错误")
+                
+                # 使用msg_signature验证
+                verify_signature = msg_signature if msg_signature else signature
+                if not wechat_handler.verify_signature(verify_signature, timestamp, nonce, encrypt_msg):
+                    logger.warning("微信消息签名验证失败（安全模式）")
+                    raise HTTPException(status_code=403, detail="签名验证失败")
+            except ET.ParseError:
+                logger.error("XML解析失败")
+                raise HTTPException(status_code=400, detail="消息格式错误")
+        else:
+            # 明文模式：使用原有验证逻辑
+            if not wechat_handler.verify_signature(signature, timestamp, nonce):
+                logger.warning("微信消息签名验证失败（明文模式）")
+                raise HTTPException(status_code=403, detail="签名验证失败")
+        
         # 解析消息
         message = wechat_handler.parse_xml_message(xml_str)
         if not message:
             logger.error("消息解析失败")
+            return PlainTextResponse("")
+        
+        # 检查解析错误
+        if 'Error' in message:
+            logger.error(f"消息解析错误: {message['Error']}")
             return PlainTextResponse("")
         
         # 提取消息信息
@@ -97,7 +139,7 @@ async def wechat_message(request: Request):
         if not wechat_handler.is_supported_message_type(msg_type):
             logger.warning(f"不支持的消息类型: {msg_type}")
             reply_content = "抱歉，暂时只支持文本消息。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content)
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
             return PlainTextResponse(reply_xml, media_type="application/xml")
         
         # 处理文本消息
@@ -105,7 +147,7 @@ async def wechat_message(request: Request):
             # 检查消息长度
             if len(content) > config.max_message_length:
                 reply_content = f"消息太长了，请控制在{config.max_message_length}字符以内。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content)
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
             
             # 处理消息并获取AI回复
@@ -118,7 +160,7 @@ async def wechat_message(request: Request):
             message_processor.update_user_session(from_user, content, ai_response)
             
             # 创建回复
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response)
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
             
             logger.info(f"回复用户 {from_user}: {ai_response[:100]}...")
             
@@ -134,17 +176,17 @@ async def wechat_message(request: Request):
                     image_url=pic_url
                 )
                 
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response)
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
             else:
                 reply_content = "图片处理失败，请重新发送。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content)
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
         
         # 其他消息类型的默认回复
         else:
             reply_content = "收到您的消息，但暂时只支持文本消息处理。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content)
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
             return PlainTextResponse(reply_xml, media_type="application/xml")
             
     except Exception as e:
@@ -202,15 +244,7 @@ async def health_check():
         return {"status": "error", "message": f"健康检查失败: {str(e)}"}
 
 
-@app.get("/")
-async def root():
-    """根路径"""
-    return {
-        "message": "微信公众号插件 for Vertex Flow",
-        "version": "1.0.0",
-        "webhook_url": config.get_webhook_url(),
-        "health_check": "/health"
-    }
+
 
 
 # 定期清理过期会话

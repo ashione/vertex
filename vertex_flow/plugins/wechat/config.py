@@ -16,6 +16,7 @@ class WeChatConfig:
         self.wechat_token = os.getenv('WECHAT_TOKEN', '')
         self.wechat_app_id = os.getenv('WECHAT_APP_ID', '')
         self.wechat_app_secret = os.getenv('WECHAT_APP_SECRET', '')
+        self.wechat_encoding_aes_key = os.getenv('WECHAT_ENCODING_AES_KEY', '')
         
         # Vertex Flow API配置
         self.vertex_flow_api_url = os.getenv('VERTEX_FLOW_API_URL', 'http://localhost:8000')
