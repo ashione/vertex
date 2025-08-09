@@ -6,12 +6,21 @@
 
 import argparse
 import logging
+import os
 import sys
 
 import uvicorn
 
-from wechat_plugin.config import config
-from wechat_plugin.wechat_server import app
+try:
+    from .config import config
+    from .wechat_server import app
+except ImportError:
+    from config import config
+    from wechat_server import app
+
+# 确保日志目录存在
+log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(log_dir, exist_ok=True)
 
 # 配置日志
 logging.basicConfig(
@@ -19,7 +28,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('logs/wechat_plugin.log', encoding='utf-8')
+        logging.FileHandler(os.path.join(log_dir, 'wechat_plugin.log'), encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -49,7 +58,7 @@ def main():
     try:
         # 启动服务器
         uvicorn.run(
-            "wechat_plugin.wechat_server:app",
+            app,
             host=args.host,
             port=args.port,
             reload=args.reload,

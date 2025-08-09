@@ -10,7 +10,10 @@ import hashlib
 import time
 import xml.etree.ElementTree as ET
 from typing import Dict, Optional, Tuple
-from .wechat_crypto import WeChatCrypto
+try:
+    from .wechat_crypto import WeChatCrypto
+except ImportError:
+    from wechat_crypto import WeChatCrypto
 
 
 class WeChatHandler:
@@ -78,13 +81,17 @@ class WeChatHandler:
                     if not self.crypto:
                         raise ValueError("安全模式需要配置加密密钥")
                     encrypted_msg = encrypt_element.text
-                    decrypted_xml = self.crypto.decrypt_message(encrypted_msg)
+                    success, decrypted_xml, error = self.crypto.decrypt_message(encrypted_msg)
+                    if not success:
+                        raise ValueError(f"消息解密失败: {error}")
                     root = ET.fromstring(decrypted_xml)
                 elif self.message_mode == 'compatible':
                     # 兼容模式：如果有加密工具则解密，否则报错
                     if self.crypto:
                         encrypted_msg = encrypt_element.text
-                        decrypted_xml = self.crypto.decrypt_message(encrypted_msg)
+                        success, decrypted_xml, error = self.crypto.decrypt_message(encrypted_msg)
+                        if not success:
+                            raise ValueError(f"消息解密失败: {error}")
                         root = ET.fromstring(decrypted_xml)
                     else:
                         raise ValueError("接收到加密消息但未配置解密密钥")
@@ -194,16 +201,37 @@ class WeChatHandler:
             if not (timestamp and nonce):
                 raise ValueError("安全模式需要timestamp和nonce参数")
             try:
-                encrypted_reply = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
-                return encrypted_reply
+                success, encrypt_msg, signature, error = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
+                if success:
+                    # 创建加密回复XML
+                    encrypted_xml = f'''<xml>
+<Encrypt><![CDATA[{encrypt_msg}]]></Encrypt>
+<MsgSignature><![CDATA[{signature}]]></MsgSignature>
+<TimeStamp>{timestamp}</TimeStamp>
+<Nonce><![CDATA[{nonce}]]></Nonce>
+</xml>'''
+                    return encrypted_xml
+                else:
+                    raise ValueError(f"图片回复加密失败: {error}")
             except Exception as e:
                 raise ValueError(f"图片回复加密失败: {str(e)}")
         elif self.message_mode == 'compatible':
             # 兼容模式：如果有加密工具且有必要参数则加密，否则返回明文
             if self.crypto and timestamp and nonce:
                 try:
-                    encrypted_reply = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
-                    return encrypted_reply
+                    success, encrypt_msg, signature, error = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
+                    if success:
+                        # 创建加密回复XML
+                        encrypted_xml = f'''<xml>
+<Encrypt><![CDATA[{encrypt_msg}]]></Encrypt>
+<MsgSignature><![CDATA[{signature}]]></MsgSignature>
+<TimeStamp>{timestamp}</TimeStamp>
+<Nonce><![CDATA[{nonce}]]></Nonce>
+</xml>'''
+                        return encrypted_xml
+                    else:
+                        # 加密失败，返回明文
+                        return reply_xml
                 except Exception:
                     # 加密失败，返回明文
                     return reply_xml
