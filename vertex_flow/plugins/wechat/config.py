@@ -46,6 +46,9 @@ class WeChatConfig:
         self.max_message_length = int(os.getenv('MAX_MESSAGE_LENGTH', '2000'))
         self.session_timeout = int(os.getenv('SESSION_TIMEOUT', '3600'))  # 1小时
         
+        # 微信回复超时配置
+        self.wechat_response_timeout = float(os.getenv('WECHAT_RESPONSE_TIMEOUT', '4.5'))  # 微信5秒超时，预留0.5秒缓冲
+        
         # 日志配置
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
         

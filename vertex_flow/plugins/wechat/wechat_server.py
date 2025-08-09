@@ -7,6 +7,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -204,7 +205,13 @@ async def _process_wechat_message(request: Request):
         if not wechat_handler.is_supported_message_type(msg_type):
             logger.warning(f"不支持的消息类型: {msg_type}")
             reply_content = "抱歉，暂时只支持文本消息。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(
+                to_user=from_user,  # 回复给发送者
+                from_user=to_user,  # 来自公众号
+                content=reply_content, 
+                timestamp=timestamp, 
+                nonce=nonce
+            )
             return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
         
         # 处理文本消息
@@ -212,10 +219,16 @@ async def _process_wechat_message(request: Request):
             # 检查消息长度
             if len(content) > config.max_message_length:
                 reply_content = f"消息太长了，请控制在{config.max_message_length}字符以内。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(
+                    to_user=from_user,  # 回复给发送者
+                    from_user=to_user,  # 来自公众号
+                    content=reply_content, 
+                    timestamp=timestamp, 
+                    nonce=nonce
+                )
                 return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             
-            # 异步处理模式：立即返回短回复，后台处理
+            # 异步处理模式：智能等待，只有快超时才发送"稍后回复"
             if ENABLE_ASYNC_PROCESSING:
                 try:
                     # 获取异步处理器
@@ -227,11 +240,49 @@ async def _process_wechat_message(request: Request):
                         message_content=content
                     )
                     
-                    # 立即返回短回复
-                    quick_reply = "收到您的消息，正在为您处理中，请稍候..."
-                    reply_xml = wechat_handler.create_text_reply(from_user, to_user, quick_reply, timestamp, nonce)
-                    
                     logger.info(f"异步处理任务已提交: {task_id}, 用户: {from_user}")
+                    
+                    # 智能等待：在超时前等待结果
+                    start_time = time.time()
+                    wait_timeout = config.wechat_response_timeout
+                    
+                    while time.time() - start_time < wait_timeout:
+                        # 检查任务是否完成
+                        task_status = async_proc.get_task_status(task_id)
+                        
+                        if task_status.get('status') == 'completed':
+                            # 任务已完成，直接返回结果
+                            result = task_status.get('result', '')
+                            if result:
+                                reply_xml = wechat_handler.create_text_reply(
+                                    to_user=from_user,  # 回复给发送者
+                                    from_user=to_user,  # 来自公众号
+                                    content=result, 
+                                    timestamp=timestamp, 
+                                    nonce=nonce
+                                )
+                                logger.info(f"任务快速完成，直接返回结果: {task_id}, 耗时: {time.time() - start_time:.2f}秒")
+                                return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
+                        
+                        elif task_status.get('status') == 'failed':
+                            # 任务失败，回退到同步模式
+                            logger.warning(f"异步任务失败，回退到同步模式: {task_id}")
+                            break
+                        
+                        # 短暂等待后再检查
+                        await asyncio.sleep(0.1)
+                    
+                    # 超时了，发送"稍后回复"消息，让后台继续处理
+                    quick_reply = "收到您的消息，正在为您处理中，请稍候..."
+                    reply_xml = wechat_handler.create_text_reply(
+                        to_user=from_user,  # 回复给发送者
+                        from_user=to_user,  # 来自公众号
+                        content=quick_reply, 
+                        timestamp=timestamp, 
+                        nonce=nonce
+                    )
+                    
+                    logger.info(f"等待超时，发送稍后回复: {task_id}, 等待时间: {time.time() - start_time:.2f}秒")
                     return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
                     
                 except Exception as e:
@@ -248,7 +299,13 @@ async def _process_wechat_message(request: Request):
             message_processor.update_user_session(from_user, content, ai_response)
             
             # 创建回复
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(
+                to_user=from_user,  # 回复给发送者
+                from_user=to_user,  # 来自公众号
+                content=ai_response, 
+                timestamp=timestamp, 
+                nonce=nonce
+            )
             
             logger.info(f"回复用户 {from_user}: {ai_response[:100]}...")
             
@@ -264,17 +321,35 @@ async def _process_wechat_message(request: Request):
                     image_url=pic_url
                 )
                 
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(
+                    to_user=from_user,  # 回复给发送者
+                    from_user=to_user,  # 来自公众号
+                    content=ai_response, 
+                    timestamp=timestamp, 
+                    nonce=nonce
+                )
                 return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             else:
                 reply_content = "图片处理失败，请重新发送。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(
+                    to_user=from_user,  # 回复给发送者
+                    from_user=to_user,  # 来自公众号
+                    content=reply_content, 
+                    timestamp=timestamp, 
+                    nonce=nonce
+                )
                 return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
         
         # 其他消息类型的默认回复
         else:
             reply_content = "收到您的消息，但暂时只支持文本消息处理。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(
+                to_user=from_user,  # 回复给发送者
+                from_user=to_user,  # 来自公众号
+                content=reply_content, 
+                timestamp=timestamp, 
+                nonce=nonce
+            )
             return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             
     except Exception as e:

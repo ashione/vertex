@@ -50,6 +50,7 @@ class AsyncMessageProcessor:
         # 任务管理
         self.pending_tasks: Dict[str, AsyncTask] = {}
         self.processing_tasks: Set[str] = set()
+        self.completed_tasks: Dict[str, Dict] = {}  # 存储已完成任务的结果
         self.task_queue = None  # 延迟初始化
         
         # 启动后台处理器
@@ -173,8 +174,17 @@ class AsyncMessageProcessor:
                     message=response
                 )
                 
+                processing_time = time.time() - start_time
+                
+                # 存储任务结果（无论客服消息是否发送成功）
+                self.completed_tasks[task.task_id] = {
+                    'status': 'completed',
+                    'result': response,
+                    'processing_time': processing_time,
+                    'completed_at': time.time()
+                }
+                
                 if success:
-                    processing_time = time.time() - start_time
                     self.logger.info(f"任务处理完成: {task.task_id}, 耗时: {processing_time:.2f}秒")
                     
                     # 更新用户会话
@@ -192,6 +202,14 @@ class AsyncMessageProcessor:
         except Exception as e:
             self.logger.error(f"处理任务异常: {task.task_id}, 错误: {str(e)}")
             
+            # 存储失败状态
+            self.completed_tasks[task.task_id] = {
+                'status': 'failed',
+                'error': str(e),
+                'processing_time': time.time() - start_time,
+                'completed_at': time.time()
+            }
+            
             # 发送错误消息给用户
             if self.wechat_api:
                 try:
@@ -205,6 +223,16 @@ class AsyncMessageProcessor:
         finally:
             # 清理任务
             self.processing_tasks.discard(task.task_id)
+            
+            # 定期清理过期的已完成任务（保留10分钟）
+            current_time = time.time()
+            expired_tasks = [
+                tid for tid, task_info in self.completed_tasks.items()
+                if current_time - task_info.get('completed_at', 0) > 600  # 10分钟
+            ]
+            for tid in expired_tasks:
+                self.completed_tasks.pop(tid, None)
+                self.logger.debug(f"清理过期任务: {tid}")
     
     def get_task_status(self, task_id: str) -> Dict[str, any]:
         """获取任务状态
@@ -215,7 +243,10 @@ class AsyncMessageProcessor:
         Returns:
             任务状态信息
         """
-        if task_id in self.pending_tasks:
+        if task_id in self.completed_tasks:
+            # 任务已完成
+            return self.completed_tasks[task_id]
+        elif task_id in self.pending_tasks:
             task = self.pending_tasks[task_id]
             return {
                 'status': 'pending',
