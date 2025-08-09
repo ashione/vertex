@@ -1,0 +1,83 @@
+# Git相关
+.git
+.gitignore
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+logs/
+*.log
+
+# 临时文件
+.tmp/
+temp/
+*.tmp
+*.temp
+
+# 测试相关
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Docker相关
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 文档
+*.md
+!README.md
+
+# 示例和测试
+example.py
+test_*.py
+*_test.py
+tests/
+
+# Serverless部署文件
+serverless/
+serverless.yml
+serverless_handler.py
+
+# 脚本文件
+*.sh
+
+# 其他
+.DS_Store
+Thumbs.db
