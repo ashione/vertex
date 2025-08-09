@@ -149,7 +149,7 @@ async def wechat_message(request: Request):
         if not wechat_handler.is_supported_message_type(msg_type):
             logger.warning(f"不支持的消息类型: {msg_type}")
             reply_content = "抱歉，暂时只支持文本消息。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
             return PlainTextResponse(reply_xml, media_type="application/xml")
         
         # 处理文本消息
@@ -157,7 +157,7 @@ async def wechat_message(request: Request):
             # 检查消息长度
             if len(content) > config.max_message_length:
                 reply_content = f"消息太长了，请控制在{config.max_message_length}字符以内。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
             
             # 处理消息并获取AI回复
@@ -186,17 +186,17 @@ async def wechat_message(request: Request):
                     image_url=pic_url
                 )
                 
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(to_user, from_user, ai_response, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
             else:
                 reply_content = "图片处理失败，请重新发送。"
-                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
                 return PlainTextResponse(reply_xml, media_type="application/xml")
         
         # 其他消息类型的默认回复
         else:
             reply_content = "收到您的消息，但暂时只支持文本消息处理。"
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
             return PlainTextResponse(reply_xml, media_type="application/xml")
             
     except Exception as e:
