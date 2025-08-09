@@ -64,6 +64,7 @@ class WorkflowChatApp:
         self.available_tools = []
         self.mcp_enabled = False
         self.mcp_manager = None
+        self.enable_stream = True  # 默认启用流模式
 
         # 初始化各个组件
         self._initialize_llm()
@@ -212,6 +213,7 @@ class WorkflowChatApp:
         enable_reasoning: bool = False,
         show_reasoning: bool = SHOW_REASONING,
         enable_mcp: bool = False,
+        enable_stream: bool = None,
     ):
         """创建 LLM Vertex 实例，支持MCP增强"""
         if self.llm_model is None:
@@ -220,10 +222,14 @@ class WorkflowChatApp:
         # 根据工具启用状态决定是否传递工具
         tools = self.available_tools if self.tools_enabled else []
 
+        # 如果没有指定enable_stream，使用实例的默认设置
+        if enable_stream is None:
+            enable_stream = self.enable_stream
+
         # 记录MCP状态
         mcp_manager = self.get_mcp_manager()
         logger.info(
-            f"创建LLM Vertex - MCP启用: {enable_mcp}, MCP可用: {MCP_AVAILABLE}, MCP管理器: {mcp_manager is not None}"
+            f"创建LLM Vertex - MCP启用: {enable_mcp}, MCP可用: {MCP_AVAILABLE}, MCP管理器: {mcp_manager is not None}, 流模式: {enable_stream}"
         )
 
         # 如果启用MCP且MCP功能可用，使用MCPLLMVertex
@@ -236,7 +242,7 @@ class WorkflowChatApp:
                     params={
                         SYSTEM: system_prompt,
                         USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
-                        ENABLE_STREAM: True,  # 启用流模式
+                        ENABLE_STREAM: enable_stream,  # 根据设置启用/禁用流模式
                         ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                         SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
                         ENABLE_SEARCH_KEY: True,
@@ -256,7 +262,7 @@ class WorkflowChatApp:
             params={
                 SYSTEM: system_prompt,
                 USER: [],  # 空的用户消息列表，因为我们会通过 conversation_history 传递
-                ENABLE_STREAM: True,  # 启用流模式
+                ENABLE_STREAM: enable_stream,  # 根据设置启用/禁用流模式
                 ENABLE_REASONING_KEY: enable_reasoning,  # 启用思考过程
                 SHOW_REASONING_KEY: show_reasoning,  # 显示思考过程
                 ENABLE_SEARCH_KEY: True,
@@ -265,7 +271,14 @@ class WorkflowChatApp:
         )
 
     def chat_with_vertex(
-        self, message, history, system_prompt, enable_reasoning=False, show_reasoning=SHOW_REASONING, history_rounds=3
+        self,
+        message,
+        history,
+        system_prompt,
+        enable_reasoning=False,
+        show_reasoning=SHOW_REASONING,
+        history_rounds=3,
+        enable_stream=None,
     ):
         """使用 LLM Vertex 进行聊天（流式输出），支持多模态输入和思考过程"""
         # MCP启用状态使用预初始化的结果
@@ -310,7 +323,9 @@ class WorkflowChatApp:
             }
         try:
             # 创建新的 LLM Vertex 实例（每次对话使用新实例避免状态污染）
-            llm_vertex = self._create_llm_vertex(system_prompt, enable_reasoning, show_reasoning, enable_mcp)
+            llm_vertex = self._create_llm_vertex(
+                system_prompt, enable_reasoning, show_reasoning, enable_mcp, enable_stream
+            )
             # 先进行消息重定向处理
             llm_vertex.messages_redirect(inputs, self.context)
             # 使用流式聊天方法
@@ -1328,6 +1343,13 @@ def create_gradio_interface(app: WorkflowChatApp):
                     label="启用思考过程", value=False, info="让AI显示推理过程（支持DeepSeek R1等模型）"
                 )
 
+                # 流模式管理
+                gr.Markdown("### 🌊 流模式")
+
+                enable_stream = gr.Checkbox(
+                    label="启用流模式", value=app.enable_stream, info="启用流式输出，实时显示AI回复过程"
+                )
+
                 # MCP管理
                 gr.Markdown("### 🔗 MCP集成")
 
@@ -1348,7 +1370,9 @@ def create_gradio_interface(app: WorkflowChatApp):
                     cmd_result = gr.JSON(label="执行结果", visible=True)
 
         # 事件绑定
-        def respond(message, history, sys_prompt, image_url, enable_reasoning_val, history_rounds_val):
+        def respond(
+            message, history, sys_prompt, image_url, enable_reasoning_val, history_rounds_val, enable_stream_val
+        ):
             multimodal_inputs = {}
             # 文本
             if message:
@@ -1377,6 +1401,7 @@ def create_gradio_interface(app: WorkflowChatApp):
                     enable_reasoning_val,
                     enable_reasoning_val,
                     history_rounds_val,
+                    enable_stream_val,
                 ):
                     # 确保输入框始终为空字符串，保持可输入状态
                     if isinstance(result, tuple) and len(result) == 2:
@@ -1469,6 +1494,13 @@ def create_gradio_interface(app: WorkflowChatApp):
             logger.info(f"工具状态已更改: {status}")
             return f"工具状态: {status}"
 
+        def toggle_stream(enabled):
+            """切换流模式启用状态"""
+            app.enable_stream = enabled
+            status = "✅ 已启用" if enabled else "❌ 已禁用"
+            logger.info(f"流模式状态已更改: {status}")
+            return f"流模式状态: {status}"
+
         def execute_command_test(command):
             """测试执行命令"""
             if not command.strip():
@@ -1511,13 +1543,13 @@ def create_gradio_interface(app: WorkflowChatApp):
         # 绑定发送消息事件（支持流式输出）
         msg.submit(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds],
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds, enable_stream],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )
         send_btn.click(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds],
+            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds, enable_stream],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )
@@ -1618,6 +1650,9 @@ def create_gradio_interface(app: WorkflowChatApp):
 
         # 绑定工具启用切换事件
         tools_enabled.change(toggle_tools, inputs=[tools_enabled], outputs=[])
+
+        # 绑定流模式切换事件
+        enable_stream.change(toggle_stream, inputs=[enable_stream], outputs=[])
 
         # 绑定命令执行事件
         cmd_execute_btn.click(execute_command_test, inputs=[cmd_input], outputs=[cmd_result])
