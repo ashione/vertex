@@ -10,7 +10,7 @@ import hashlib
 import time
 import xml.etree.ElementTree as ET
 from typing import Dict, Optional, Tuple
-from wechat_crypto import WeChatCrypto
+from .wechat_crypto import WeChatCrypto
 
 
 class WeChatHandler:

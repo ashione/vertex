@@ -12,9 +12,9 @@ from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from config import config
-from message_processor import MessageProcessor
-from wechat_handler import WeChatHandler
+from .config import config
+from .message_processor import MessageProcessor
+from .wechat_handler import WeChatHandler
 
 # 配置日志
 logging.basicConfig(

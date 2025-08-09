@@ -18,10 +18,10 @@ __version__ = "1.0.0"
 __author__ = "Vertex Flow Team"
 __description__ = "微信公众号插件 for Vertex Flow"
 
-from wechat_plugin.config import config
-from wechat_plugin.message_processor import MessageProcessor
-from wechat_plugin.wechat_handler import WeChatHandler
-from wechat_plugin.wechat_server import app
+from .config import config
+from .message_processor import MessageProcessor
+from .wechat_handler import WeChatHandler
+from .wechat_server import app
 
 __all__ = [
     "config",
