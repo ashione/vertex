@@ -16,10 +16,14 @@ try:
     from .config import config
     from .message_processor import MessageProcessor
     from .wechat_handler import WeChatHandler
+    from .async_processor import get_async_processor
+    from .wechat_api import get_wechat_api
 except ImportError:
     from config import config
     from message_processor import MessageProcessor
     from wechat_handler import WeChatHandler
+    from async_processor import get_async_processor
+    from wechat_api import get_wechat_api
 
 # 配置日志
 logging.basicConfig(
@@ -42,6 +46,9 @@ message_processor = MessageProcessor(
     api_base_url=config.vertex_flow_api_url,
     default_workflow=config.default_workflow
 )
+
+# 异步处理模式开关
+ENABLE_ASYNC_PROCESSING = config.wechat_app_id and config.wechat_app_secret
 
 
 @app.get("/")
@@ -87,12 +94,40 @@ async def wechat_message(request: Request):
     """处理微信消息"""
     import asyncio
     
+    # 先快速提取用户信息用于超时回复
+    user_info = None
     try:
+        xml_data = await request.body()
+        xml_str = xml_data.decode('utf-8')
+        message = wechat_handler.parse_xml_message(xml_str)
+        if message and 'Error' not in message:
+            to_user, from_user, msg_type, content = wechat_handler.extract_message_info(message)
+            user_info = (to_user, from_user)
+    except Exception:
+        pass  # 如果提取失败，user_info保持None
+    
+    try:
+        # 重新创建request对象，因为body已经被读取
+        from fastapi import Request
+        import io
+        request._body = xml_data
+        
         # 设置5秒超时，避免微信重试
         return await asyncio.wait_for(_process_wechat_message(request), timeout=4.5)
     except asyncio.TimeoutError:
-        logger.warning("消息处理超时，返回空响应避免微信重试")
-        return PlainTextResponse("", status_code=200)
+        logger.warning("消息处理超时，返回友好提示消息")
+        # 返回友好的超时提示消息
+        if user_info:
+            to_user, from_user = user_info
+            timeout_reply = wechat_handler.create_text_reply(
+                to_user=from_user,  # 回复给发送者
+                from_user=to_user,  # 来自公众号
+                content="抱歉，您的请求处理时间较长，请稍后再试。如有紧急问题，请重新发送消息。"
+            )
+            return PlainTextResponse(timeout_reply, status_code=200, media_type="application/xml")
+        else:
+            # 如果无法提取用户信息，返回空响应
+            return PlainTextResponse("", status_code=200)
     except Exception as e:
         logger.error(f"处理微信消息时发生错误: {str(e)}")
         # 返回空响应，避免微信重复推送
@@ -159,7 +194,11 @@ async def _process_wechat_message(request: Request):
         # 提取消息信息
         to_user, from_user, msg_type, content = wechat_handler.extract_message_info(message)
         
-        logger.info(f"消息类型: {msg_type}, 发送者: {from_user}, 内容: {content[:100]}...")
+        logger.info(f"消息类型: {msg_type}, 发送者: {from_user}, 接收者: {to_user}, 内容: {content[:100]}...")
+        
+        # 48001错误排查：记录ToUserName用于确认公众号匹配
+        if to_user:
+            logger.info(f"消息接收公众号ToUserName: {to_user} (应与配置的APPID对应的公众号一致)")
         
         # 检查消息类型是否支持
         if not wechat_handler.is_supported_message_type(msg_type):
@@ -176,7 +215,30 @@ async def _process_wechat_message(request: Request):
                 reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
                 return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             
-            # 处理消息并获取AI回复
+            # 异步处理模式：立即返回短回复，后台处理
+            if ENABLE_ASYNC_PROCESSING:
+                try:
+                    # 获取异步处理器
+                    async_proc = await get_async_processor()
+                    
+                    # 提交后台任务
+                    task_id = await async_proc.submit_task(
+                        user_openid=from_user,
+                        message_content=content
+                    )
+                    
+                    # 立即返回短回复
+                    quick_reply = "收到您的消息，正在为您处理中，请稍候..."
+                    reply_xml = wechat_handler.create_text_reply(from_user, to_user, quick_reply, timestamp, nonce)
+                    
+                    logger.info(f"异步处理任务已提交: {task_id}, 用户: {from_user}")
+                    return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
+                    
+                except Exception as e:
+                    logger.error(f"异步处理失败，回退到同步模式: {str(e)}")
+                    # 回退到同步处理
+            
+            # 同步处理模式（原有逻辑）
             ai_response = await message_processor.process_message(
                 user_id=from_user,
                 content=content
@@ -249,6 +311,15 @@ async def health_check():
                 "message": f"无法连接到Vertex Flow API: {str(e)}"
             }
         
+        # 获取异步处理状态
+        async_status = {}
+        if ENABLE_ASYNC_PROCESSING:
+            try:
+                async_proc = await get_async_processor()
+                async_status = async_proc.get_queue_status()
+            except Exception as e:
+                async_status = {"error": str(e)}
+        
         return {
             "status": "ok",
             "message": "微信公众号插件运行正常",
@@ -263,8 +334,10 @@ async def health_check():
                     "search": config.enable_search,
                     "multimodal": config.enable_multimodal,
                     "reasoning": config.enable_reasoning
-                }
-            }
+                },
+                "async_processing_enabled": ENABLE_ASYNC_PROCESSING
+            },
+            "async_status": async_status
         }
         
     except Exception as e:
@@ -273,6 +346,50 @@ async def health_check():
 
 
 
+
+
+@app.get("/async/status")
+async def get_async_status():
+    """获取异步处理状态"""
+    if not ENABLE_ASYNC_PROCESSING:
+        return {
+            "enabled": False,
+            "message": "异步处理未启用"
+        }
+    
+    try:
+        async_proc = await get_async_processor()
+        status = async_proc.get_queue_status()
+        
+        return {
+            "enabled": True,
+            "status": status,
+            "message": "异步处理器运行正常"
+        }
+    except Exception as e:
+        return {
+            "enabled": True,
+            "error": str(e),
+            "message": "获取异步处理状态失败"
+        }
+
+
+@app.get("/async/task/{task_id}")
+async def get_task_status(task_id: str):
+    """获取特定任务状态"""
+    if not ENABLE_ASYNC_PROCESSING:
+        return {
+            "error": "异步处理未启用"
+        }
+    
+    try:
+        async_proc = await get_async_processor()
+        status = async_proc.get_task_status(task_id)
+        return status
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
 
 
 # 定期清理过期会话
@@ -301,6 +418,16 @@ async def startup_event():
     logger.info("配置验证通过")
     logger.info(f"配置信息:\n{config}")
     
+    # 启动异步处理器（如果启用）
+    if ENABLE_ASYNC_PROCESSING:
+        try:
+            await get_async_processor()
+            logger.info("异步消息处理器已启动")
+        except Exception as e:
+            logger.error(f"启动异步处理器失败: {str(e)}")
+    else:
+        logger.info("异步处理模式未启用（需要配置WECHAT_APP_ID和WECHAT_APP_SECRET）")
+    
     # 启动会话清理任务
     asyncio.create_task(cleanup_sessions())
     
@@ -311,3 +438,14 @@ async def startup_event():
 async def shutdown_event():
     """关闭事件"""
     logger.info("微信公众号插件正在关闭...")
+    
+    # 停止异步处理器
+    if ENABLE_ASYNC_PROCESSING:
+        try:
+            from .async_processor import async_processor
+            await async_processor.stop()
+            logger.info("异步消息处理器已停止")
+        except Exception as e:
+            logger.error(f"停止异步处理器失败: {str(e)}")
+    
+    logger.info("微信公众号插件已关闭")
