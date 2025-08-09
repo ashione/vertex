@@ -85,6 +85,22 @@ async def wechat_verify(request: Request):
 @app.post("/")
 async def wechat_message(request: Request):
     """处理微信消息"""
+    import asyncio
+    
+    try:
+        # 设置5秒超时，避免微信重试
+        return await asyncio.wait_for(_process_wechat_message(request), timeout=4.5)
+    except asyncio.TimeoutError:
+        logger.warning("消息处理超时，返回空响应避免微信重试")
+        return PlainTextResponse("", status_code=200)
+    except Exception as e:
+        logger.error(f"处理微信消息时发生错误: {str(e)}")
+        # 返回空响应，避免微信重复推送
+        return PlainTextResponse("", status_code=200)
+
+
+async def _process_wechat_message(request: Request):
+    """内部消息处理函数"""
     try:
         # 获取验证参数
         signature = request.query_params.get('signature', '')
@@ -149,16 +165,16 @@ async def wechat_message(request: Request):
         if not wechat_handler.is_supported_message_type(msg_type):
             logger.warning(f"不支持的消息类型: {msg_type}")
             reply_content = "抱歉，暂时只支持文本消息。"
-            reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
-            return PlainTextResponse(reply_xml, media_type="application/xml")
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
         
         # 处理文本消息
         if msg_type == 'text':
             # 检查消息长度
             if len(content) > config.max_message_length:
                 reply_content = f"消息太长了，请控制在{config.max_message_length}字符以内。"
-                reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
-                return PlainTextResponse(reply_xml, media_type="application/xml")
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             
             # 处理消息并获取AI回复
             ai_response = await message_processor.process_message(
@@ -170,7 +186,7 @@ async def wechat_message(request: Request):
             message_processor.update_user_session(from_user, content, ai_response)
             
             # 创建回复
-            reply_xml = wechat_handler.create_text_reply(to_user, from_user, ai_response, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
             
             logger.info(f"回复用户 {from_user}: {ai_response[:100]}...")
             
@@ -186,23 +202,23 @@ async def wechat_message(request: Request):
                     image_url=pic_url
                 )
                 
-                reply_xml = wechat_handler.create_text_reply(to_user, from_user, ai_response, timestamp, nonce)
-                return PlainTextResponse(reply_xml, media_type="application/xml")
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
+                return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             else:
                 reply_content = "图片处理失败，请重新发送。"
-                reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
-                return PlainTextResponse(reply_xml, media_type="application/xml")
+                reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+                return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
         
         # 其他消息类型的默认回复
         else:
             reply_content = "收到您的消息，但暂时只支持文本消息处理。"
-            reply_xml = wechat_handler.create_text_reply(to_user, from_user, reply_content, timestamp, nonce)
-            return PlainTextResponse(reply_xml, media_type="application/xml")
+            reply_xml = wechat_handler.create_text_reply(from_user, to_user, reply_content, timestamp, nonce)
+            return PlainTextResponse(reply_xml, status_code=200, media_type="text/xml; charset=utf-8")
             
     except Exception as e:
-        logger.error(f"处理微信消息时发生错误: {str(e)}")
-        # 返回空响应，避免微信重复推送
-        return PlainTextResponse("")
+        logger.error(f"内部消息处理错误: {str(e)}")
+        # 抛出异常让外层处理
+        raise
 
 
 @app.get("/health")

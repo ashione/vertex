@@ -115,14 +115,8 @@ class WeChatHandler:
         if timestamp is None:
             timestamp = str(int(time.time()))
         
-        # 创建明文回复XML
-        reply_xml = f"""<xml>
-<ToUserName><![CDATA[{to_user}]]></ToUserName>
-<FromUserName><![CDATA[{from_user}]]></FromUserName>
-<CreateTime>{timestamp}</CreateTime>
-<MsgType><![CDATA[text]]></MsgType>
-<Content><![CDATA[{content}]]></Content>
-</xml>"""
+        # 创建明文回复XML（紧凑格式，避免多余空格）
+        reply_xml = f"<xml><ToUserName><![CDATA[{to_user}]]></ToUserName><FromUserName><![CDATA[{from_user}]]></FromUserName><CreateTime>{timestamp}</CreateTime><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[{content}]]></Content></xml>"
         
         # 根据消息模式决定是否加密
         if self.message_mode == 'plaintext':
@@ -137,13 +131,8 @@ class WeChatHandler:
             try:
                 success, encrypt_msg, signature, error = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
                 if success:
-                    # 创建加密回复XML
-                    encrypted_xml = f'''<xml>
-<Encrypt><![CDATA[{encrypt_msg}]]></Encrypt>
-<MsgSignature><![CDATA[{signature}]]></MsgSignature>
-<TimeStamp>{timestamp}</TimeStamp>
-<Nonce><![CDATA[{nonce}]]></Nonce>
-</xml>'''
+                    # 创建加密回复XML（紧凑格式）
+                    encrypted_xml = f"<xml><Encrypt><![CDATA[{encrypt_msg}]]></Encrypt><MsgSignature><![CDATA[{signature}]]></MsgSignature><TimeStamp>{timestamp}</TimeStamp><Nonce><![CDATA[{nonce}]]></Nonce></xml>"
                     return encrypted_xml
                 else:
                     raise ValueError(f"消息加密失败: {error}")
@@ -155,13 +144,8 @@ class WeChatHandler:
                 try:
                     success, encrypt_msg, signature, error = self.crypto.encrypt_message(reply_xml, timestamp, nonce)
                     if success:
-                        # 创建加密回复XML
-                        encrypted_xml = f'''<xml>
-<Encrypt><![CDATA[{encrypt_msg}]]></Encrypt>
-<MsgSignature><![CDATA[{signature}]]></MsgSignature>
-<TimeStamp>{timestamp}</TimeStamp>
-<Nonce><![CDATA[{nonce}]]></Nonce>
-</xml>'''
+                        # 创建加密回复XML（紧凑格式）
+                        encrypted_xml = f"<xml><Encrypt><![CDATA[{encrypt_msg}]]></Encrypt><MsgSignature><![CDATA[{signature}]]></MsgSignature><TimeStamp>{timestamp}</TimeStamp><Nonce><![CDATA[{nonce}]]></Nonce></xml>"
                         return encrypted_xml
                     else:
                         # 加密失败，返回明文
