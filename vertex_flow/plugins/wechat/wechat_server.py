@@ -12,9 +12,9 @@ from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from wechat_plugin.config import config
-from wechat_plugin.message_processor import MessageProcessor
-from wechat_plugin.wechat_handler import WeChatHandler
+from config import config
+from message_processor import MessageProcessor
+from wechat_handler import WeChatHandler
 
 # 配置日志
 logging.basicConfig(
@@ -30,7 +30,8 @@ app = FastAPI(title="WeChat Plugin for Vertex Flow", version="1.0.0")
 wechat_handler = WeChatHandler(
     token=config.wechat_token,
     encoding_aes_key=config.wechat_encoding_aes_key,
-    app_id=config.wechat_app_id
+    app_id=config.wechat_app_id,
+    message_mode=config.wechat_message_mode
 )
 message_processor = MessageProcessor(
     api_base_url=config.vertex_flow_api_url,
@@ -76,7 +77,7 @@ async def wechat_verify(request: Request):
         raise HTTPException(status_code=500, detail="验证过程中发生错误")
 
 
-@app.post("/wechat")
+@app.post("/")
 async def wechat_message(request: Request):
     """处理微信消息"""
     try:
@@ -160,7 +161,7 @@ async def wechat_message(request: Request):
             message_processor.update_user_session(from_user, content, ai_response)
             
             # 创建回复
-            reply_xml = wechat_handler.create_text_reply(from_user, to_user, ai_response, timestamp, nonce)
+            reply_xml = wechat_handler.create_text_reply(to_user, from_user, ai_response, timestamp, nonce)
             
             logger.info(f"回复用户 {from_user}: {ai_response[:100]}...")
             
@@ -228,6 +229,8 @@ async def health_check():
             "message": "微信公众号插件运行正常",
             "config": {
                 "wechat_token_set": bool(config.wechat_token),
+                "wechat_message_mode": config.wechat_message_mode,
+                "wechat_encryption_enabled": bool(wechat_handler.crypto),
                 "vertex_flow_api_url": config.vertex_flow_api_url,
                 "webhook_url": config.get_webhook_url(),
                 "features": {

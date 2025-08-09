@@ -6,6 +6,10 @@
 
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+# 加载.env文件
+load_dotenv()
 
 
 class WeChatConfig:
@@ -17,6 +21,11 @@ class WeChatConfig:
         self.wechat_app_id = os.getenv('WECHAT_APP_ID', '')
         self.wechat_app_secret = os.getenv('WECHAT_APP_SECRET', '')
         self.wechat_encoding_aes_key = os.getenv('WECHAT_ENCODING_AES_KEY', '')
+        
+        # 微信消息处理模式
+        self.wechat_message_mode = os.getenv('WECHAT_MESSAGE_MODE', 'compatible').lower()
+        if self.wechat_message_mode not in ['plaintext', 'compatible', 'secure']:
+            self.wechat_message_mode = 'compatible'
         
         # Vertex Flow API配置
         self.vertex_flow_api_url = os.getenv('VERTEX_FLOW_API_URL', 'http://localhost:8000')
@@ -52,6 +61,13 @@ class WeChatConfig:
         if not self.vertex_flow_api_url:
             return False, "VERTEX_FLOW_API_URL 未设置"
         
+        # 验证安全模式配置
+        if self.wechat_message_mode == 'secure':
+            if not self.wechat_encoding_aes_key:
+                return False, "安全模式需要设置 WECHAT_ENCODING_AES_KEY"
+            if not self.wechat_app_id:
+                return False, "安全模式需要设置 WECHAT_APP_ID"
+        
         return True, None
     
     def get_webhook_url(self) -> str:
@@ -68,6 +84,8 @@ class WeChatConfig:
 WeChatConfig:
   - WECHAT_TOKEN: {'已设置' if self.wechat_token else '未设置'}
   - WECHAT_APP_ID: {'已设置' if self.wechat_app_id else '未设置'}
+  - WECHAT_MESSAGE_MODE: {self.wechat_message_mode}
+  - WECHAT_ENCODING_AES_KEY: {'已设置' if self.wechat_encoding_aes_key else '未设置'}
   - VERTEX_FLOW_API_URL: {self.vertex_flow_api_url}
   - DEFAULT_WORKFLOW: {self.default_workflow}
   - SERVER: {self.server_host}:{self.server_port}

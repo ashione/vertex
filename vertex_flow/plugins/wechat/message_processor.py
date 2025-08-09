@@ -51,7 +51,13 @@ class MessageProcessor:
                 output = response.get('output', '')
                 if isinstance(output, dict):
                     # 如果输出是字典，尝试提取文本内容
-                    return output.get('content', str(output))
+                    # 优先提取llm字段，然后是content字段
+                    if 'llm' in output:
+                        return str(output['llm'])
+                    elif 'content' in output:
+                        return str(output['content'])
+                    else:
+                        return str(output)
                 return str(output)
             else:
                 error_msg = response.get('message', '处理失败') if response else '服务暂时不可用'
