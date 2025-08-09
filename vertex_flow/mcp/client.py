@@ -345,24 +345,42 @@ class MCPClient:
             return []
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> MCPToolResult:
-        """Call a tool"""
+        """Call a tool with enhanced error handling to prevent process termination"""
         if not self._initialized:
-            raise RuntimeError("Client not initialized")
+            # 返回错误结果而不是抛出异常
+            return MCPToolResult(content=[{"type": "text", "text": "MCP client not initialized"}], isError=True)
 
-        request = MCPRequest(
-            method=MCPMethod.TOOLS_CALL.value,
-            id=self._get_next_request_id(),
-            params={"name": name, "arguments": arguments},
-        )
+        try:
+            request = MCPRequest(
+                method=MCPMethod.TOOLS_CALL.value,
+                id=self._get_next_request_id(),
+                params={"name": name, "arguments": arguments},
+            )
 
-        # 增加超时时间到30秒，给工具足够的执行时间
-        response = await self._send_request(request, timeout=30.0)
+            # 使用适中的超时时间，避免长时间阻塞
+            response = await self._send_request(request, timeout=25.0)
 
-        if response.error:
-            raise RuntimeError(f"Failed to call tool {name}: {response.error}")
+            if response.error:
+                # 将错误信息包装成MCPToolResult而不是抛出异常
+                error_msg = str(response.error)
+                logger.error(f"Tool {name} execution failed: {error_msg}")
+                return MCPToolResult(
+                    content=[{"type": "text", "text": f"Tool execution failed: {error_msg}"}], isError=True
+                )
 
-        result_data = response.result or {}
-        return MCPToolResult(content=result_data.get("content", []), isError=result_data.get("isError", False))
+            result_data = response.result or {}
+            return MCPToolResult(content=result_data.get("content", []), isError=result_data.get("isError", False))
+
+        except asyncio.TimeoutError:
+            # 超时错误不应该导致进程终止
+            error_msg = f"Tool {name} timed out after 25 seconds"
+            logger.error(error_msg)
+            return MCPToolResult(content=[{"type": "text", "text": error_msg}], isError=True)
+        except Exception as e:
+            # 捕获所有其他异常，避免进程终止
+            error_msg = f"Unexpected error calling tool {name}: {str(e)}"
+            logger.error(error_msg)
+            return MCPToolResult(content=[{"type": "text", "text": error_msg}], isError=True)
 
     # Prompt management
     async def list_prompts(self) -> List[MCPPrompt]:
@@ -514,5 +532,25 @@ class MCPClient:
 
     @property
     def is_connected(self) -> bool:
-        """Check if client is connected and initialized"""
-        return self._initialized and self._running
+        """Check if the client is connected and initialized with enhanced status checking"""
+        if not self._initialized or self.transport is None:
+            return False
+
+        # 检查transport是否仍然有效
+        if hasattr(self.transport, "_closed") and self.transport._closed:
+            return False
+
+        # 对于StdioTransport，检查进程状态
+        if hasattr(self.transport, "process") and self.transport.process:
+            try:
+                # 检查进程是否仍在运行（asyncio进程使用returncode属性）
+                returncode = self.transport.process.returncode
+                if returncode is not None:
+                    # 进程已终止
+                    logger.warning(f"MCP server process terminated with code: {returncode}")
+                    return False
+            except Exception as e:
+                logger.debug(f"Error checking process status: {e}")
+                return False
+
+        return True

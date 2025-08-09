@@ -1022,6 +1022,16 @@ class VertexFlowService:
         )
 
     # MCP related methods
+    @property
+    def mcp_clients(self):
+        """Get MCP clients dictionary"""
+        try:
+            mcp_manager = self.get_mcp_manager()
+            return mcp_manager.clients if mcp_manager else {}
+        except Exception as e:
+            logging.error(f"Error getting MCP clients: {e}")
+            return {}
+
     def get_mcp_manager(self):
         """Get MCP manager instance"""
         if not MCP_AVAILABLE:
@@ -1047,7 +1057,8 @@ class VertexFlowService:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(mcp_manager.initialize(mcp_config))
+                        # mcp_manager.initialize 是同步方法，直接调用
+                        mcp_manager.initialize(mcp_config)
                         logging.info("MCP Manager initialized successfully in sync mode")
                         return True
                     except Exception as e:
