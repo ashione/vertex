@@ -54,6 +54,9 @@ async def wechat_verify(request: Request):
             logger.warning("微信签名验证失败")
             raise HTTPException(status_code=403, detail="签名验证失败")
             
+    except HTTPException:
+        # 重新抛出HTTPException，不要转换为500错误
+        raise
     except Exception as e:
         logger.error(f"微信验证过程中发生错误: {str(e)}")
         raise HTTPException(status_code=500, detail="验证过程中发生错误")
