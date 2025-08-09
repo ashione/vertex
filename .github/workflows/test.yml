@@ -1,11 +1,11 @@
-name: Docker Build and Push to Aliyun ACR
+name: Test and Build
 
 on:
-  push:
-    branches: [ main, develop, master, dockerize, release* ]
-    tags: [ 'v*' ]
   pull_request:
-    branches: [ main, develop, master, dockerize, release* ]
+    # 运行所有分支的PR单元测试
+  push:
+    branches: [ main, develop, master, release* ]
+    tags: [ 'v*' ]
   workflow_dispatch:
     inputs:
       registry:
@@ -37,8 +37,64 @@ env:
   PUSH_TO_REGISTRY: ${{ github.event.inputs.push_to_registry != 'false' }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.12]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # 安装项目依赖
+        pip install -r requirements.txt
+        pip install -e .
+        # 安装测试依赖
+        pip install pytest pytest-cov pytest-asyncio
+    
+    - name: Run Unit Tests
+      run: |
+        echo "🧪 运行单元测试..."
+        
+        # 检查测试脚本是否存在
+        if [ -f "scripts/run_tests.sh" ]; then
+          chmod +x scripts/run_tests.sh
+          ./scripts/run_tests.sh
+        else
+          echo "⚠️ 测试脚本不存在，使用默认测试命令"
+          if [ -d "vertex_flow/tests" ]; then
+            python -m pytest vertex_flow/tests/ -v --tb=short --cov=vertex_flow --cov-report=term-missing
+          else
+            echo "💡 未找到测试目录，跳过单元测试"
+          fi
+        fi
+    
+    - name: Upload coverage reports
+      if: matrix.python-version == '3.12'
+      uses: codecov/codecov-action@v3
+      with:
+        fail_ci_if_error: false
+
   docker-build:
     runs-on: ubuntu-latest
+    needs: test
+    # 只在release分支或tag时构建镜像
+    if: >
+      (github.event_name == 'push' && 
+       (contains(github.ref, 'refs/heads/release') || 
+        contains(github.ref, 'refs/tags/'))) ||
+      github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -58,6 +114,9 @@ jobs:
         echo "PUSH_TO_REGISTRY: ${{ env.PUSH_TO_REGISTRY }}"
         echo ""
         echo "=== GitHub Context ==="
+        echo "Event name: ${{ github.event_name }}"
+        echo "Ref: ${{ github.ref }}"
+        echo "Base ref: ${{ github.base_ref }}"
         echo "Manual input registry: ${{ github.event.inputs.registry }}"
         echo "Manual input image_name: ${{ github.event.inputs.image_name }}"
         echo "Manual input push_to_registry: ${{ github.event.inputs.push_to_registry }}"
@@ -97,9 +156,15 @@ jobs:
           TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$CLEAN_TAG")
           TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
         else
-          # 其他情况（包括PR、分支推送等）都使用commit id
+          # release分支使用分支名和commit id
+          CLEAN_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$CLEAN_BRANCH")
           TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:$COMMIT_ID")
-          TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
+          
+          # 如果是主release分支，也标记为latest
+          if [[ "$BRANCH_NAME" == "release" || "$BRANCH_NAME" =~ ^release/main$ ]]; then
+            TAGS_ARRAY+=("$REGISTRY/$IMAGE_NAME:latest")
+          fi
         fi
         
         # 将数组转换为逗号分隔的字符串（docker/build-push-action期望的格式）
@@ -172,29 +237,35 @@ jobs:
           echo "🔍 Build completed (no push)" >> $GITHUB_STEP_SUMMARY
         fi
 
-  # 可选：镜像安全扫描
-  security-scan:
+  test-summary:
     runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.event_name != 'pull_request'
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
+    needs: [test, docker-build]
+    if: always()
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.commit }}
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif' 
+    - name: Test Results Summary
+      run: |
+        echo "## Test and Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.test.result }}" == "success" ]; then
+          echo "✅ **Unit Tests:** Passed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Unit Tests:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ needs.docker-build.result }}" == "success" ]; then
+          echo "✅ **Docker Build:** Completed" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.docker-build.result }}" == "skipped" ]; then
+          echo "⏭️ **Docker Build:** Skipped (not release branch/tag)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Docker Build:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.test.result }}" == "success" ] && 
+           ([ "${{ needs.docker-build.result }}" == "success" ] || [ "${{ needs.docker-build.result }}" == "skipped" ]); then
+          echo "🎉 **Overall Status:** Success" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "💥 **Overall Status:** Failed" >> $GITHUB_STEP_SUMMARY
+        fi
