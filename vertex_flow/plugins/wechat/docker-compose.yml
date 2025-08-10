@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  wechat-plugin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wechat-plugin:latest
+    container_name: wechat-plugin
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      # 挂载日志目录用于持久化日志
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - wechat-network
+
+networks:
+  wechat-network:
+    driver: bridge
+
+volumes:
+  wechat-logs:
+    driver: local

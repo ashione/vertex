@@ -1,0 +1,37 @@
+# 微信公众号插件依赖
+
+# Web框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP客户端
+aiohttp>=3.9.0
+
+# 数据处理
+pydantic>=2.5.0
+
+# 日志
+loguru>=0.7.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
+
+# 加密库（用于微信消息加解密）
+pycryptodome>=3.19.0
+
+# XML处理（Python内置，但列出以明确依赖）
+# xml.etree.ElementTree - 内置模块
+
+# 加密和哈希
+# hashlib - 内置模块
+
+# 时间处理
+# time - 内置模块
+
+# 类型提示
+typing-extensions>=4.8.0
+
+# 开发和测试依赖（可选）
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0
+# httpx>=0.25.0  # 用于测试HTTP请求

@@ -47,8 +47,8 @@ def test_config():
                 "models": [],
             },
             "other": {"enabled": "false", "models": []},
-            "mcp": {"enabled": True, "clients": {}},
         },
+        "mcp": {"enabled": True, "clients": {}},
     }
 
     # 创建临时配置文件
