@@ -125,11 +125,13 @@ class LLMVertex(Vertex[T]):
 
     def execute(self, inputs: Dict[str, T] = None, context: WorkflowContext[T] = None):
         if callable(self._task):
-            dependencies_outputs = {dep_id: context.get_output(dep_id) for dep_id in self._dependencies}
-            all_inputs = {**dependencies_outputs, **(inputs or {})}
+            resolved_inputs = self.resolve_dependencies(inputs=inputs)
+            all_inputs = {**(inputs or {}), **(resolved_inputs or {})}
+
+            logging.debug(f"LLM {self.id} all_inputs: {all_inputs}, resolved_inputs: {resolved_inputs}")
 
             # 更精确的清空策略：只在没有conversation_history时清空，避免影响多轮对话
-            if not (inputs and CONVERSATION_HISTORY in inputs):
+            if not (all_inputs and CONVERSATION_HISTORY in all_inputs):
                 self.messages = []
 
             # 获取 task 函数的签名
