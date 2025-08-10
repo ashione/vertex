@@ -18,15 +18,19 @@ from vertex_flow.utils.logger import LoggerUtil
 from vertex_flow.workflow.app.finance_message_workflow import create_finance_message_workflow
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
+    CONVERSATION_HISTORY,
     ENABLE_REASONING_KEY,
     ENABLE_STREAM,
     ERROR_KEY,
+    LOCAL_VAR,
     MESSAGE_KEY,
     MESSAGE_TYPE_END,
     MESSAGE_TYPE_ERROR,
     MESSAGE_TYPE_REGULAR,
     OUTPUT_KEY,
     SHOW_REASONING_KEY,
+    SOURCE_SCOPE,
+    SOURCE_VAR,
     SYSTEM,
     TYPE_KEY,
     USER,
@@ -70,6 +74,7 @@ class WorkflowInput(BaseModel):
     image_url: Optional[str] = None  # 图片URL，支持多模态输入
     stream: bool = False  # 是否启用流式输出
     enable_mcp: bool = True  # 是否启用MCP功能
+    history: List[Dict[str, Any]] = []  # 对话历史记录
 
     # LLM配置参数（与user_vars分离）
     system_prompt: Optional[str] = None  # 系统提示词
@@ -222,6 +227,10 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
         SHOW_REASONING_KEY: input_data.show_reasoning,
     }
 
+    # 如果有历史记录，通过 params 传递给 LLMVertex
+    if input_data.history:
+        llm_params[CONVERSATION_HISTORY] = input_data.history
+
     # 添加可选的LLM参数
     if input_data.temperature is not None:
         llm_params["temperature"] = input_data.temperature
@@ -277,6 +286,7 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
 
     # 创建标准LLM Vertex（默认或fallback）
     logger.info("Creating standard LLM Vertex")
+
     llm_vertex = LLMVertex(
         id="llm",
         params=llm_params,
@@ -424,14 +434,25 @@ def get_default_workflow(input_data):
             "image_url": input_data.image_url,
             **data.get("user_vars", {}),
         }
+
+        # 添加历史记录到输入数据中，确保通过inputs传递给LLMVertex
+        if input_data.history:
+            input_data_dict[CONVERSATION_HISTORY] = input_data.history
+
         # 过滤掉None值
         return {k: v for k, v in input_data_dict.items() if v is not None}
 
-    source = SourceVertex(id="source", task=source_task)
+    source_name = "source"
+    source = SourceVertex(id=source_name, task=source_task)
 
     # 🆕 使用新的LLM Vertex创建函数，支持MCP开关
     llm_vertex, mcp_status = create_llm_vertex(input_data, vertex_service.get_chatmodel(), function_tools)
     logger.info(f"LLM Vertex status: {mcp_status}")
+    # 创建variables来传递conversation_history
+    variables = []
+    if input_data.history:
+        variables.append({SOURCE_SCOPE: source_name, SOURCE_VAR: CONVERSATION_HISTORY, LOCAL_VAR: CONVERSATION_HISTORY})
+    llm_vertex.add_variables(variables)
 
     sink = SinkVertex(id="sink", task=lambda inputs, context: f"Received: {inputs['llm']}")
 

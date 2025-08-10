@@ -24,6 +24,7 @@ def test_no_duplicate_assistant_messages():
                 self.name = "mock-model"
                 self.provider = "mock"
                 self._usage = {}
+                self.tool_manager = None  # 添加tool_manager属性
 
             def _create_completion(self, messages, option=None, stream=False, tools=None):
                 # 模拟返回包含工具调用的completion
@@ -111,6 +112,7 @@ def test_existing_assistant_message():
                 self.name = "mock-model"
                 self.provider = "mock"
                 self._usage = {}
+                self.tool_manager = None  # 添加tool_manager属性
 
             def _create_completion(self, messages, option=None, stream=False, tools=None):
                 if stream:
