@@ -1,7 +1,7 @@
 """Memory interface definition."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, List, Optional
 
 
 class Memory(ABC):
@@ -43,7 +43,7 @@ class Memory(ABC):
         pass
 
     @abstractmethod
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
         """Get recent history messages.
 
         Args:
@@ -56,7 +56,7 @@ class Memory(ABC):
         pass
 
     @abstractmethod
-    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: int | None = None) -> None:
+    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
         """Set context value.
 
         Args:
@@ -68,7 +68,7 @@ class Memory(ABC):
         pass
 
     @abstractmethod
-    def ctx_get(self, user_id: str, key: str) -> Any | None:
+    def ctx_get(self, user_id: str, key: str) -> Optional[Any]:
         """Get context value.
 
         Args:
@@ -103,7 +103,7 @@ class Memory(ABC):
         pass
 
     @abstractmethod
-    def get_ephemeral(self, user_id: str, key: str) -> Any | None:
+    def get_ephemeral(self, user_id: str, key: str) -> Optional[Any]:
         """Get ephemeral value.
 
         Args:

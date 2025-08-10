@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from collections import defaultdict, deque
-from typing import Any
+from typing import Any, Optional
 
 from .memory import Memory
 
@@ -132,13 +132,13 @@ class InnerMemory(Memory):
             # Deserialize messages
             return [self._deserialize_value(msg) for msg in recent]
 
-    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: int | None = None) -> None:
+    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
         """Set context value."""
         with self._lock:
             expires_at = time.time() + ttl_sec if ttl_sec is not None and ttl_sec > 0 else None
             self._ctx[user_id][key] = {"value": self._serialize_value(value), "expires_at": expires_at}
 
-    def ctx_get(self, user_id: str, key: str) -> Any | None:
+    def ctx_get(self, user_id: str, key: str) -> Optional[Any]:
         """Get context value."""
         with self._lock:
             if user_id not in self._ctx or key not in self._ctx[user_id]:
@@ -163,7 +163,7 @@ class InnerMemory(Memory):
             expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
             self._ephemeral[user_id][key] = {"value": self._serialize_value(value), "expires_at": expires_at}
 
-    def get_ephemeral(self, user_id: str, key: str) -> Any | None:
+    def get_ephemeral(self, user_id: str, key: str) -> Optional[Any]:
         """Get ephemeral value."""
         with self._lock:
             if user_id not in self._ephemeral or key not in self._ephemeral[user_id]:

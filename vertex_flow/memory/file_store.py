@@ -6,7 +6,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from .memory import Memory
 
@@ -56,7 +56,7 @@ class FileMemory(Memory):
         else:
             return base_dir / f"{user_id}.jsonl"
 
-    def _read_json_file(self, file_path: Path) -> dict | None:
+    def _read_json_file(self, file_path: Path) -> Optional[dict]:
         """Read JSON file safely."""
         try:
             if file_path.exists():
@@ -154,7 +154,7 @@ class FileMemory(Memory):
 
             return recent
 
-    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: int | None = None) -> None:
+    def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
         """Set context value."""
         with self._lock:
             file_path = self._get_file_path(self._ctx_dir, user_id, key)
@@ -163,7 +163,7 @@ class FileMemory(Memory):
             data = {"value": value, "expires_at": expires_at}
             self._write_json_file(file_path, data)
 
-    def ctx_get(self, user_id: str, key: str) -> Any | None:
+    def ctx_get(self, user_id: str, key: str) -> Optional[Any]:
         """Get context value."""
         with self._lock:
             file_path = self._get_file_path(self._ctx_dir, user_id, key)
@@ -200,7 +200,7 @@ class FileMemory(Memory):
             data = {"value": value, "expires_at": expires_at}
             self._write_json_file(file_path, data)
 
-    def get_ephemeral(self, user_id: str, key: str) -> Any | None:
+    def get_ephemeral(self, user_id: str, key: str) -> Optional[Any]:
         """Get ephemeral value."""
         with self._lock:
             file_path = self._get_file_path(self._ephemeral_dir, user_id, key)

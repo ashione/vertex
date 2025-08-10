@@ -99,8 +99,8 @@ class TestWorkflowHistory:
         call_args = mock_llm_vertex.call_args
         params = call_args[1]["params"]  # 获取params参数
 
-        # 验证历史记录不再在params中（现在通过workflow inputs传递）
-        assert CONVERSATION_HISTORY not in params
+        # 验证历史记录现在在params中（历史记录功能已修复）
+        assert CONVERSATION_HISTORY in params
         # 验证其他必要的参数仍然存在
         assert "enable_reasoning" in params
         assert "enable_search" in params
