@@ -23,9 +23,4 @@ from .message_processor import MessageProcessor
 from .wechat_handler import WeChatHandler
 from .wechat_server import app
 
-__all__ = [
-    "config",
-    "MessageProcessor", 
-    "WeChatHandler",
-    "app"
-]
+__all__ = ["config", "MessageProcessor", "WeChatHandler", "app"]

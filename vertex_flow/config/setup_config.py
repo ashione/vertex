@@ -102,7 +102,7 @@ class ConfigManager:
         print("配置LLM服务:")
         llm_config = config.get("llm", {})
 
-        services = {"deepseek": "DeepSeek", "tongyi": "通义千问", "openrouter": "OpenRouter"}
+        services = {"deepseek": "DeepSeek", "tongyi": "通义千问", "openrouter": "OpenRouter", "openai": "OpenAI"}
 
         for service_key, service_name in services.items():
             if service_key in llm_config:

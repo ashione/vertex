@@ -2,7 +2,7 @@
 
 ## 概述
 
-为了简化配置管理和提升用户体验，我们将原本分离的MCP配置模板合并到主配置文件 `vertex_flow/config/llm.yml.template` 中，实现了配置的统一化管理。
+最初为了简化配置管理，我们曾将分离的MCP配置模板合并到主配置文件 `vertex_flow/config/llm.yml.template` 中，但现在MCP相关配置已重新拆分到独立文件 `vertex_flow/config/mcp.yml.template`，以便更灵活地管理。
 
 ## 统一化成果
 
