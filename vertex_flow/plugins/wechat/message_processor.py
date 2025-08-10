@@ -16,9 +16,10 @@ import aiohttp
 class MessageProcessor:
     """消息处理器，与Vertex Flow Chat API集成"""
 
-    def __init__(self, api_base_url: str, default_workflow: str = "default_chat"):
+    def __init__(self, api_base_url: str, default_workflow: str = "default_chat", config=None):
         self.api_base_url = api_base_url.rstrip("/")
         self.default_workflow = default_workflow
+        self.config = config
         self.logger = logging.getLogger(__name__)
 
         # 用户会话管理
@@ -34,10 +35,11 @@ class MessageProcessor:
                 "workflow_name": workflow_name or self.default_workflow,
                 "content": content,
                 "stream": False,
-                "enable_mcp": True,
-                "enable_search": True,
-                "enable_reasoning": False,
+                "enable_mcp": self.config.enable_mcp if self.config else True,
+                "enable_search": self.config.enable_search if self.config else True,
+                "enable_reasoning": self.config.enable_reasoning if self.config else False,
                 "show_reasoning": False,
+                "enable_tools": self.config.enable_tools if self.config else True,
             }
 
             # 如果有图片URL，添加多模态支持

@@ -42,7 +42,9 @@ wechat_handler = WeChatHandler(
     app_id=config.wechat_app_id,
     message_mode=config.wechat_message_mode,
 )
-message_processor = MessageProcessor(api_base_url=config.vertex_flow_api_url, default_workflow=config.default_workflow)
+message_processor = MessageProcessor(
+    api_base_url=config.vertex_flow_api_url, default_workflow=config.default_workflow, config=config
+)
 
 # 异步处理模式开关
 ENABLE_ASYNC_PROCESSING = config.wechat_app_id and config.wechat_app_secret
@@ -398,6 +400,7 @@ async def health_check():
                     "search": config.enable_search,
                     "multimodal": config.enable_multimodal,
                     "reasoning": config.enable_reasoning,
+                    "tools": config.enable_tools,
                 },
                 "async_processing_enabled": ENABLE_ASYNC_PROCESSING,
             },

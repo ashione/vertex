@@ -75,3 +75,4 @@ vector_db
 config/llm.yml.backup*
 reports/*
 docker/.env
+vertex_flow/plugins/wechat/.env
