@@ -78,6 +78,7 @@ class WorkflowInput(BaseModel):
     temperature: Optional[float] = None  # 温度参数
     max_tokens: Optional[int] = None  # 最大token数
     enable_search: bool = True  # 新增：通义千问联网搜索增强，默认为True
+    enable_tools: bool = True  # 是否启用工具调用，默认为True
 
 
 class WorkflowOutput(BaseModel):
@@ -228,6 +229,9 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
         llm_params["max_tokens"] = input_data.max_tokens
     llm_params["enable_search"] = input_data.enable_search
 
+    # 根据enable_tools参数决定是否使用工具
+    tools_to_use = function_tools if input_data.enable_tools else []
+
     # 检查是否启用MCP
     if input_data.enable_mcp:
         mcp_available, mcp_message = check_mcp_availability()
@@ -251,7 +255,7 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
                 llm_vertex = MCPLLMVertex(
                     id="llm",
                     params=mcp_params,
-                    tools=function_tools,
+                    tools=tools_to_use,
                 )
 
                 # 添加MCP状态信息到日志
@@ -276,7 +280,7 @@ def create_llm_vertex(input_data: WorkflowInput, chatmodel, function_tools: List
     llm_vertex = LLMVertex(
         id="llm",
         params=llm_params,
-        tools=function_tools,
+        tools=tools_to_use,
     )
 
     mcp_status = "MCP not requested" if not input_data.enable_mcp else "MCP fallback to standard vertex"

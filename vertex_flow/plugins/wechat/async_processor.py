@@ -43,7 +43,7 @@ class AsyncMessageProcessor:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.message_processor = MessageProcessor(
-            api_base_url=config.vertex_flow_api_url, default_workflow=config.default_workflow
+            api_base_url=config.vertex_flow_api_url, default_workflow=config.default_workflow, config=config
         )
         self.wechat_api = get_wechat_api()
 

@@ -42,6 +42,7 @@ class WeChatConfig:
         self.enable_search = os.getenv("ENABLE_SEARCH", "true").lower() == "true"
         self.enable_multimodal = os.getenv("ENABLE_MULTIMODAL", "true").lower() == "true"
         self.enable_reasoning = os.getenv("ENABLE_REASONING", "false").lower() == "true"
+        self.enable_tools = os.getenv("ENABLE_TOOLS", "true").lower() == "true"
 
         # 消息处理配置
         self.max_message_length = int(os.getenv("MAX_MESSAGE_LENGTH", "2000"))
@@ -97,6 +98,7 @@ WeChatConfig:
   - ENABLE_MCP: {self.enable_mcp}
   - ENABLE_SEARCH: {self.enable_search}
   - ENABLE_MULTIMODAL: {self.enable_multimodal}
+  - ENABLE_TOOLS: {self.enable_tools}
   - WEBHOOK_URL: {self.get_webhook_url()}
 """
 

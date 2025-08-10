@@ -51,8 +51,8 @@ llm:
         enabled: ${llm.openrouter.models.claude_3_5_sonnet.enabled:false}
       - name: openai/gpt-4o
         enabled: ${llm.openrouter.models.gpt_4o.enabled:false}
-      - name: openai/gpt-oss
-        enabled: ${llm.openrouter.models.gpt_oss.enabled:false}
+      - name: openai/gpt-oss-20b:free
+        enabled: ${llm.openrouter.models.gpt_oss_20b.enabled:false}
   openai:
     sk: ${llm.openai.sk:-YOUR_OPENAI_API_KEY}
     enabled: ${llm.openai.enabled:false}

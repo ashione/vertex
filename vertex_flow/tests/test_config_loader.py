@@ -21,6 +21,6 @@ def test_load_default_config_includes_openai_and_mcp(monkeypatch):
     assert "openai" in config.get("llm", {})
     # gpt-oss model is present under openrouter provider
     openrouter_models = config["llm"].get("openrouter", {}).get("models", [])
-    assert any(m.get("name") == "openai/gpt-oss" for m in openrouter_models)
+    assert any(m.get("name") == "openai/gpt-oss-20b:free" for m in openrouter_models)
     # MCP configuration is merged from separate file
     assert config.get("mcp", {}).get("enabled") is True
