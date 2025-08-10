@@ -134,7 +134,6 @@ class LLMVertex(Vertex[T]):
             if not (all_inputs and CONVERSATION_HISTORY in all_inputs):
                 self.messages = []
 
-            # 添加调试日志
 
             # 获取 task 函数的签名
             sig = inspect.signature(self._task)
