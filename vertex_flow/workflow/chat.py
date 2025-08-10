@@ -3,7 +3,7 @@ import base64
 from typing import Any, Dict, List, Optional, Union
 
 import requests
-from openai import OpenAI
+from openai import OpenAI as OpenAIClient
 from openai.types.chat.chat_completion import Choice
 
 from vertex_flow.utils.logger import LoggerUtil
@@ -33,7 +33,7 @@ class ChatModel(abc.ABC):
         logging.info(f"Chat model : {self.name}, sk {self.sk}, provider = {self.provider}, base url {base_url}.")
         # 为序列化保存.
         self._base_url = base_url
-        self.client = OpenAI(
+        self.client = OpenAIClient(
             base_url=self._base_url,
             api_key=sk,
         )
@@ -455,6 +455,16 @@ class Tongyi(ChatModel):
         except Exception as e:
             logging.error(f"Error creating completion: {e}")
             raise
+
+
+class OpenAI(ChatModel):
+    def __init__(self, name="gpt-4o-mini", sk="", base_url="https://api.openai.com/v1"):
+        super().__init__(
+            name=name,
+            sk=sk,
+            base_url=base_url,
+            provider="openai",
+        )
 
 
 class OpenRouter(ChatModel):
