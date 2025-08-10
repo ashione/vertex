@@ -27,7 +27,7 @@ Vertex Flow can act as both an MCP client (consuming external MCP servers) and a
 
 ### Basic Configuration
 
-Create or modify `vertex_flow/config/llm.yml`:
+Create or modify `vertex_flow/config/mcp.yml`:
 
 ```yaml
 mcp:

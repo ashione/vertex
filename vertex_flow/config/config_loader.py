@@ -28,6 +28,7 @@ class ConfigLoader:
         # 优先使用统一配置文件，如果不存在则使用LLM配置文件
         self.unified_config_file = self.user_config_dir / "unified.yml"
         self.user_config_file = self.user_config_dir / "llm.yml"
+        self.user_mcp_file = self.user_config_dir / "mcp.yml"
 
     def load_config(self) -> Dict[str, Any]:
         """加载配置文件"""
@@ -37,12 +38,67 @@ class ConfigLoader:
                 with open(self.user_config_file, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f) or {}
                 print(f"使用用户配置: {self.user_config_file}")
-                return config
             except Exception as e:
                 print(f"加载用户配置失败: {e}")
+                config = {}
+        else:
+            # 如果用户配置不存在，尝试加载默认配置
+            config = self._load_default_config()
 
-        # 如果用户配置不存在，尝试加载默认配置
-        return self._load_default_config()
+        # 合并MCP配置（如果存在）
+        mcp_config = self._load_mcp_config()
+        if mcp_config:
+            config.update(mcp_config)
+
+        return config
+
+    def _load_mcp_config(self) -> Dict[str, Any]:
+        """加载MCP配置文件"""
+        # 优先从用户目录加载
+        if self.user_mcp_file.exists():
+            try:
+                with open(self.user_mcp_file, "r", encoding="utf-8") as f:
+                    mcp_cfg = yaml.safe_load(f) or {}
+                print(f"使用用户MCP配置: {self.user_mcp_file}")
+                return mcp_cfg
+            except Exception as e:
+                print(f"加载用户MCP配置失败: {e}")
+
+        # 尝试从包内加载模板配置
+        if resources:
+            try:
+                if hasattr(resources, "files"):
+                    pkg_files = resources.files("vertex_flow.config")
+                    template_path = pkg_files / "mcp.yml.template"
+                    if template_path.is_file():
+                        content = template_path.read_text(encoding="utf-8")
+                        mcp_cfg = yaml.safe_load(content) or {}
+                        print("使用包内MCP模板配置")
+                        return mcp_cfg
+                else:
+                    with resources.path("vertex_flow.config", "mcp.yml.template") as template_path:
+                        if template_path.exists():
+                            with open(template_path, "r", encoding="utf-8") as f:
+                                mcp_cfg = yaml.safe_load(f) or {}
+                            print("使用包内MCP模板配置")
+                            return mcp_cfg
+            except (ImportError, FileNotFoundError, ModuleNotFoundError):
+                pass
+
+        # 开发环境加载
+        current_dir = Path(__file__).parent
+        for cfg_name in ["mcp.yml.template", "mcp.yml"]:
+            cfg_file = current_dir / cfg_name
+            if cfg_file.exists():
+                try:
+                    with open(cfg_file, "r", encoding="utf-8") as f:
+                        mcp_cfg = yaml.safe_load(f) or {}
+                    print(f"使用开发环境MCP配置: {cfg_file}")
+                    return mcp_cfg
+                except Exception as e:
+                    print(f"加载MCP配置失败 {cfg_file}: {e}")
+
+        return {}
 
     def _load_default_config(self) -> Dict[str, Any]:
         """加载默认配置"""

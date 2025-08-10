@@ -184,6 +184,7 @@ def main():
         config_files = [
             # 新的配置文件位置（优先级高）
             project_root / "vertex_flow" / "config" / "llm.yml.template",
+            project_root / "vertex_flow" / "config" / "mcp.yml.template",
             # 可以添加其他需要脱敏的配置文件
         ]
 

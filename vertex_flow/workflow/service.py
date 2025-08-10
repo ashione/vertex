@@ -149,6 +149,17 @@ class VertexFlowService:
         try:
             config = read_yaml_config_env_placeholder(config_file)
 
+            # 额外加载MCP配置（如果存在）
+            mcp_path = os.path.join(os.path.dirname(config_file), "mcp.yml")
+            if os.path.exists(mcp_path):
+                try:
+                    mcp_cfg = read_yaml_config_env_placeholder(mcp_path)
+                    if isinstance(mcp_cfg, dict):
+                        config.update(mcp_cfg)
+                        logging.info(f"合并MCP配置: {mcp_path}")
+                except Exception as e:
+                    logging.warning(f"加载MCP配置失败 {mcp_path}: {e}")
+
             # 缓存配置
             self._config_cache[cache_key] = config
 

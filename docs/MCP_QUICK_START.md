@@ -17,7 +17,7 @@ Vertex Flow 现在完全支持 MCP (Model Context Protocol)，可以连接到外
 
 ### 1. 在配置文件中启用MCP
 
-在你的 `config/llm.yml` 文件中添加MCP配置：
+在你的 `config/mcp.yml` 文件中添加MCP配置：
 
 ```yaml
 # MCP (Model Context Protocol) 配置

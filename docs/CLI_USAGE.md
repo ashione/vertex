@@ -273,9 +273,9 @@ vertex mcp client 'vertex mcp server'
 vertex mcp info
 ```
 
-#### 6.4 MCP配置集成
+#### 6.4 MCP配置
 
-MCP配置已集成到主配置文件 `vertex_flow/config/llm.yml.template` 中：
+MCP配置位于独立的配置文件 `vertex_flow/config/mcp.yml.template` 中：
 
 ```yaml
 # MCP (Model Context Protocol) 配置

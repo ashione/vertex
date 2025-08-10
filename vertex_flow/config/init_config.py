@@ -20,42 +20,38 @@ except ImportError:
         resources = None
 
 
-def find_template() -> Optional[Path]:
+def find_template(template_name: str = "llm.yml.template") -> Optional[Path]:
     """查找模板文件"""
     # 尝试从已安装的包中获取模板
     if resources:
         try:
-            # Python 3.9+ 使用 importlib.resources
             if hasattr(resources, "files"):
                 pkg_files = resources.files("vertex_flow.config")
-                template_path = pkg_files / "llm.yml.template"
+                template_path = pkg_files / template_name
                 if template_path.is_file():
-                    # 读取模板内容并写入临时文件
                     content = template_path.read_text(encoding="utf-8")
-                    temp_file = Path.home() / ".vertex" / "temp_template.yml"
+                    temp_file = Path.home() / ".vertex" / f"temp_{template_name}"
                     temp_file.parent.mkdir(parents=True, exist_ok=True)
                     temp_file.write_text(content, encoding="utf-8")
                     return temp_file
             else:
-                # Python 3.8 使用 importlib_resources
-                with resources.path("vertex_flow.config", "llm.yml.template") as template_path:
+                with resources.path("vertex_flow.config", template_name) as template_path:
                     if template_path.exists():
                         return Path(template_path)
         except (ImportError, FileNotFoundError, ModuleNotFoundError):
             pass
 
-    # 如果包不存在，尝试从当前目录查找（开发模式）
+    # 开发模式
     current_dir = Path(__file__).parent
-    template_file = current_dir / "llm.yml.template"
+    template_file = current_dir / template_name
     if template_file.exists():
         return template_file
 
-    # 最后尝试使用当前的配置文件作为模板
-    config_file = current_dir / "llm.yml"
+    # 最后尝试使用当前配置文件作为模板
+    config_file = current_dir / template_name.replace(".template", "")
     if config_file.exists():
         return config_file
 
-    # 如果都找不到，返回None
     return None
 
 
@@ -68,7 +64,7 @@ def init_config():
     user_config_dir.mkdir(parents=True, exist_ok=True)
 
     # 查找模板文件
-    template_file = find_template()
+    template_file = find_template("llm.yml.template")
     if not template_file or not template_file.exists():
         print("错误: 找不到配置模板文件")
         print("请确保vertex包正确安装，或在开发环境中运行")
@@ -89,6 +85,17 @@ def init_config():
     # 复制模板到配置文件
     shutil.copy2(template_file, config_file)
     print(f"配置文件已创建: {config_file}")
+
+    # 复制MCP模板
+    mcp_template = find_template("mcp.yml.template")
+    if mcp_template and mcp_template.exists():
+        mcp_config_file = user_config_dir / "mcp.yml"
+        if mcp_config_file.exists():
+            backup_mcp = mcp_config_file.with_suffix(".yml.backup")
+            shutil.copy2(mcp_config_file, backup_mcp)
+            print(f"原MCP配置已备份到: {backup_mcp}")
+        shutil.copy2(mcp_template, mcp_config_file)
+        print(f"MCP配置文件已创建: {mcp_config_file}")
 
     # 清理临时文件
     if template_file.name == "temp_template.yml":
