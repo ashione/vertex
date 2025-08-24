@@ -25,6 +25,7 @@ A powerful local AI workflow system with multi-model support and visual workflow
 ### Requirements
 - Python 3.9+
 - Ollama (for local models) - [Download here](https://ollama.com/download)
+- (Optional) SQL dependencies for RDS memory: `sqlalchemy` and `pymysql` for MySQL support
 
 ### Installation
 ```bash
@@ -35,6 +36,11 @@ pip install vertex
 git clone https://github.com/ashione/vertex.git
 cd vertex
 pip install -e .
+```
+
+```bash
+# Optional SQL dependencies for RDS memory
+pip install sqlalchemy pymysql
 ```
 
 ### Configuration

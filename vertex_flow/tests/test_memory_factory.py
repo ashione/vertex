@@ -4,9 +4,22 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import importlib
 import pytest
 
-from vertex_flow.memory import FileMemory, InnerMemory, Memory, MemoryFactory, create_memory, create_memory_from_config
+from vertex_flow.memory import (
+    FileMemory,
+    HybridMemory,
+    InnerMemory,
+    RDSMemory,
+    RedisMemory,
+    Memory,
+    MemoryFactory,
+    create_memory,
+    create_memory_from_config,
+)
+
+has_sqlalchemy = importlib.util.find_spec("sqlalchemy") is not None
 
 
 class TestMemoryFactory:
@@ -35,6 +48,30 @@ class TestMemoryFactory:
             memory = MemoryFactory.create_memory("file", storage_dir=temp_dir)
             assert isinstance(memory, FileMemory)
             assert memory._storage_dir == Path(temp_dir)
+
+    def test_create_redis_memory(self):
+        """Test creating RedisMemory through factory."""
+        class DummyRedis:
+            pass
+
+        memory = MemoryFactory.create_memory("redis", client=DummyRedis())
+        assert isinstance(memory, RedisMemory)
+
+    @pytest.mark.skipif(not has_sqlalchemy, reason="sqlalchemy required")
+    def test_create_rds_memory(self):
+        """Test creating RDSMemory through factory."""
+        memory = MemoryFactory.create_memory("rds", db_url="sqlite:///:memory:")
+        assert isinstance(memory, RDSMemory)
+
+    @pytest.mark.skipif(not has_sqlalchemy, reason="sqlalchemy required")
+    def test_create_hybrid_memory(self):
+        class DummyRedis:
+            pass
+
+        memory = MemoryFactory.create_memory(
+            "hybrid", redis_client=DummyRedis(), db_url="sqlite:///:memory:"
+        )
+        assert isinstance(memory, HybridMemory)
 
     def test_create_memory_invalid_type(self):
         """Test creating memory with invalid type."""
@@ -97,6 +134,9 @@ class TestMemoryFactory:
         assert "memory" in types
         assert "inmem" in types
         assert "file" in types
+        assert "redis" in types
+        assert "rds" in types
+        assert "hybrid" in types
         assert isinstance(types, list)
 
     def test_get_default_config_inner(self):
@@ -109,6 +149,30 @@ class TestMemoryFactory:
         """Test getting default config for file memory."""
         config = MemoryFactory.get_default_config("file")
         expected = {"type": "file", "storage_dir": "./memory_data", "hist_maxlen": 200}
+        assert config == expected
+
+    def test_get_default_config_redis(self):
+        """Test getting default config for redis memory."""
+        config = MemoryFactory.get_default_config("redis")
+        expected = {"type": "redis", "url": "redis://localhost:6379/0", "hist_maxlen": 200}
+        assert config == expected
+
+    @pytest.mark.skipif(not has_sqlalchemy, reason="sqlalchemy required")
+    def test_get_default_config_rds(self):
+        """Test getting default config for rds memory."""
+        config = MemoryFactory.get_default_config("rds")
+        expected = {"type": "rds", "db_url": "sqlite:///:memory:", "hist_maxlen": 200}
+        assert config == expected
+
+    @pytest.mark.skipif(not has_sqlalchemy, reason="sqlalchemy required")
+    def test_get_default_config_hybrid(self):
+        config = MemoryFactory.get_default_config("hybrid")
+        expected = {
+            "type": "hybrid",
+            "redis_url": "redis://localhost:6379/0",
+            "db_url": "sqlite:///:memory:",
+            "hist_maxlen": 200,
+        }
         assert config == expected
 
     def test_get_default_config_invalid_type(self):
@@ -138,6 +202,21 @@ class TestMemoryFactory:
         with tempfile.TemporaryDirectory() as temp_dir:
             file_memory = MemoryFactory.create_memory("file", storage_dir=temp_dir)
             assert isinstance(file_memory, Memory)
+
+        class DummyRedis:
+            pass
+
+        redis_memory = MemoryFactory.create_memory("redis", client=DummyRedis())
+        assert isinstance(redis_memory, Memory)
+
+        if has_sqlalchemy:
+            rds_memory = MemoryFactory.create_memory("rds", db_url="sqlite:///:memory:")
+            assert isinstance(rds_memory, Memory)
+
+            hybrid_memory = MemoryFactory.create_memory(
+                "hybrid", redis_client=DummyRedis(), db_url="sqlite:///:memory:"
+            )
+            assert isinstance(hybrid_memory, Memory)
 
     def test_factory_integration(self):
         """Test end-to-end factory usage."""
