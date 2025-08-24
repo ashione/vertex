@@ -73,6 +73,12 @@ setup(
         "desktop": [
             "pywebview>=5.4",
         ],
+        # 缓存和持久化存储
+        "memory": [
+            "redis>=5.0.0",
+            "sqlalchemy>=2.0.0",
+            "pymysql>=1.1.0",
+        ],
         # 完整功能（包含所有可选依赖）
         "all": [
             "sentence-transformers>=2.2.0",
@@ -84,6 +90,9 @@ setup(
             "dashvector>=1.0.19",
             "pywebview>=5.4",
             "requests>=2.28.2",
+            "redis>=5.0.0",
+            "sqlalchemy>=2.0.0",
+            "pymysql>=1.1.0",
         ],
     },
     entry_points={
