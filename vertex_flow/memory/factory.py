@@ -3,8 +3,11 @@
 from typing import Any, Dict, Optional
 
 from .file_store import FileMemory
+from .hybrid_store import HybridMemory
 from .inmem_store import InnerMemory
 from .memory import Memory
+from .redis_store import RedisMemory
+from .rds_store import RDSMemory
 
 
 class MemoryFactory:
@@ -16,6 +19,9 @@ class MemoryFactory:
         "memory": InnerMemory,  # alias for backward compatibility
         "inmem": InnerMemory,  # alias for backward compatibility
         "file": FileMemory,
+        "redis": RedisMemory,
+        "rds": RDSMemory,
+        "hybrid": HybridMemory,
     }
 
     @classmethod
@@ -122,6 +128,17 @@ class MemoryFactory:
             return {"type": "inner", "hist_maxlen": 200, "cleanup_interval_sec": 300}
         elif memory_type == "file":
             return {"type": "file", "storage_dir": "./memory_data", "hist_maxlen": 200}
+        elif memory_type == "redis":
+            return {"type": "redis", "url": "redis://localhost:6379/0", "hist_maxlen": 200}
+        elif memory_type == "rds":
+            return {"type": "rds", "db_url": "sqlite:///:memory:", "hist_maxlen": 200}
+        elif memory_type == "hybrid":
+            return {
+                "type": "hybrid",
+                "redis_url": "redis://localhost:6379/0",
+                "db_url": "sqlite:///:memory:",
+                "hist_maxlen": 200,
+            }
         else:
             available_types = ", ".join(cls._memory_types.keys())
             raise ValueError(f"Unsupported memory type: {memory_type}. " f"Available types: {available_types}")

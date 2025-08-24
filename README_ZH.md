@@ -25,6 +25,7 @@
 ### 环境要求
 - Python 3.9+
 - Ollama（本地模型）- [下载地址](https://ollama.com/download)
+- （可选）RDS 内存后端需要的 SQL 依赖：`sqlalchemy`，若使用 MySQL 还需 `pymysql`
 
 ### 安装方式
 
@@ -56,6 +57,11 @@ pip install vertex
 git clone https://github.com/ashione/vertex.git
 cd vertex
 pip install -e .
+```
+
+```bash
+# 可选：安装 RDS 内存后端所需依赖
+pip install sqlalchemy pymysql
 ```
 
 ### 配置
