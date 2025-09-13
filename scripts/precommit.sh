@@ -298,6 +298,7 @@ SENSITIVE_PATTERNS=(
     "private[_-]?key"
     "sk-[a-zA-Z0-9]{32,}"
     "[a-zA-Z0-9]{32,}"
+    "redis(s)?://[^[:space:]]*@"
 )
 
 SENSITIVE_FOUND=false

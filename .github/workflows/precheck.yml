@@ -130,7 +130,7 @@ jobs:
           "mongodb://[^\s]+"
           "mysql://[^\s]+"
           "postgres://[^\s]+"
-          "redis://[^\s]+"
+          "redis(s)?://[^[:space:]]*@"
         )
         
         FOUND_SENSITIVE=false
