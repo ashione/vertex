@@ -127,9 +127,9 @@ jobs:
           "access[_-]?token[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
           "password[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]?"
           "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}.*password"
-          "mongodb://[^\s]+"
+          "mongodb(\+srv)?://[^[:space:]]*@"
           "mysql(\+[a-z0-9_]+)?://[^[:space:]]*@"
-          "postgres://[^\s]+"
+          "postgres(ql)?://[^[:space:]]*@"
           "redis(s)?://[^[:space:]]*@"
         )
         

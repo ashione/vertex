@@ -300,6 +300,8 @@ SENSITIVE_PATTERNS=(
     "[a-zA-Z0-9]{32,}"
     "redis(s)?://[^[:space:]]*@"
     "mysql(\+[a-z0-9_]+)?://[^[:space:]]*@"
+    "postgres(ql)?://[^[:space:]]*@"
+    "mongodb(\+srv)?://[^[:space:]]*@"
 )
 
 SENSITIVE_FOUND=false
