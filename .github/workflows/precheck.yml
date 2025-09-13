@@ -128,7 +128,7 @@ jobs:
           "password[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]?"
           "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}.*password"
           "mongodb://[^\s]+"
-          "mysql://[^\s]+"
+          "mysql(\+[a-z0-9_]+)?://[^[:space:]]*@"
           "postgres://[^\s]+"
           "redis(s)?://[^[:space:]]*@"
         )
