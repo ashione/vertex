@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+import os
+from typing import Any, List, Optional
 
 try:  # pragma: no cover - optional dependency
     import redis
@@ -25,11 +26,18 @@ class RedisMemory(Memory):
 
     def __init__(
         self,
-        url: str = "redis://localhost:6379/0",
+        url: str = None,
         hist_maxlen: int = 200,
         prefix: str = "vf:",
         client: Optional[redis.Redis] = None,
     ) -> None:
+        # Build default URL from env to avoid hardcoding sensitive strings
+        if url is None:
+            url = (
+                f"redis://{os.getenv('VF_REDIS_HOST', 'localhost')}:{os.getenv('VF_REDIS_PORT', '6379')}/"
+                f"{os.getenv('VF_REDIS_DB', '0')}"
+            )
+
         if client is not None:
             self._client = client
         else:
@@ -69,7 +77,7 @@ class RedisMemory(Memory):
         pipe.ltrim(key, 0, maxlen - 1)
         pipe.execute()
 
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
         key = self._hist_key(user_id)
         messages = self._client.lrange(key, 0, n - 1)
         return [json.loads(m) for m in messages]
@@ -77,7 +85,7 @@ class RedisMemory(Memory):
     def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
         redis_key = self._ctx_key(user_id, key)
         value_str = json.dumps(value, ensure_ascii=False)
-        if ttl_sec and ttl_sec > 0:
+        if ttl_sec is not None and ttl_sec > 0:
             self._client.set(redis_key, value_str, ex=ttl_sec)
         else:
             self._client.set(redis_key, value_str)

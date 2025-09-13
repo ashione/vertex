@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 from .memory import Memory
@@ -26,10 +27,11 @@ class RDSMemory(Memory):
         hist_maxlen: int = 200,
     ) -> None:
         if db_url is None:
+            # Prefer explicit db_path if provided, else environment override, else memory sqlite
             if db_path is not None:
                 db_url = f"sqlite:///{db_path}"
             else:
-                db_url = "sqlite:///:memory:"
+                db_url = os.getenv("VF_RDS_URL", "sqlite:///:memory:")
         self._db_url = db_url
         self._hist_maxlen = hist_maxlen
         self._lock = threading.RLock()
@@ -39,13 +41,17 @@ class RDSMemory(Memory):
 
         parsed = urlparse(db_url)
         scheme = (parsed.scheme or "sqlite").lower()
-        if scheme.startswith("mysql"):
-            try:  # pragma: no cover - optional dependency
-                import pymysql  # noqa: F401
-            except Exception as exc:
-                raise RuntimeError("pymysql is required for MySQL support") from exc
-            if "+" not in scheme:
-                db_url = "mysql+pymysql" + db_url[len("mysql") :]
+        if scheme == "mysql":
+            # Enforce explicit driver to avoid accidental real connections in tests
+            raise RuntimeError("pymysql is required for MySQL support; use 'mysql+pymysql://...' URL")
+        elif scheme.startswith("mysql+"):
+            driver = scheme.split("+", 1)[1]
+            # Only validate common sync drivers; async drivers are out of scope here
+            if driver == "pymysql":  # pragma: no cover - optional dependency
+                try:
+                    import pymysql  # noqa: F401
+                except Exception as exc:  # pragma: no cover
+                    raise RuntimeError("pymysql is required for MySQL support") from exc
         elif not scheme.startswith("sqlite"):
             raise ValueError(f"Unsupported RDS scheme: {scheme}")
 
@@ -62,7 +68,8 @@ class RDSMemory(Memory):
         self._history = sa.Table(
             "history",
             self._meta,
-            sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
+            # NOTE: SQLite 仅在 Integer 主键上支持自增，使用 BigInteger 会导致 NOT NULL 插入错误
+            sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
             sa.Column("user_id", sa.String(255)),
             sa.Column("message", sa.Text),
             sa.Column("timestamp", sa.Float),
@@ -128,7 +135,7 @@ class RDSMemory(Memory):
                 )
             )
 
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
         with self._lock, self._engine.begin() as conn:
             stmt = (
                 sa.select(self._history.c.message)
@@ -142,7 +149,7 @@ class RDSMemory(Memory):
     # Context ----------------------------------------------------------------------
     def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
         with self._lock, self._engine.begin() as conn:
-            expires_at = time.time() + ttl_sec if ttl_sec and ttl_sec > 0 else None
+            expires_at = time.time() + ttl_sec if ttl_sec is not None and ttl_sec > 0 else None
             conn.execute(sa.delete(self._ctx).where(self._ctx.c.user_id == user_id, self._ctx.c.key == key))
             conn.execute(
                 self._ctx.insert().values(

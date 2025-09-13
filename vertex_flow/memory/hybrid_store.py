@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import os
+from typing import Any, List, Optional
 
 from .memory import Memory
 from .rds_store import RDSMemory
@@ -14,12 +15,20 @@ class HybridMemory(Memory):
 
     def __init__(
         self,
-        redis_url: str = "redis://localhost:6379/0",
-        db_url: str = "sqlite:///:memory:",
+        redis_url: Optional[str] = None,
+        db_url: Optional[str] = None,
         hist_maxlen: int = 200,
         prefix: str = "vf:",
         redis_client=None,
     ) -> None:
+        if redis_url is None:
+            redis_url = (
+                f"redis://{os.getenv('VF_REDIS_HOST', 'localhost')}:{os.getenv('VF_REDIS_PORT', '6379')}/"
+                f"{os.getenv('VF_REDIS_DB', '0')}"
+            )
+        if db_url is None:
+            db_url = os.getenv("VF_RDS_URL", "sqlite:///:memory:")
+
         self._redis = RedisMemory(url=redis_url, hist_maxlen=hist_maxlen, prefix=prefix, client=redis_client)
         self._rds = RDSMemory(db_url=db_url, hist_maxlen=hist_maxlen)
         self._hist_maxlen = hist_maxlen
@@ -35,7 +44,7 @@ class HybridMemory(Memory):
         self._rds.append_history(user_id, role, mtype, content, maxlen)
         self._redis.append_history(user_id, role, mtype, content, maxlen)
 
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
         history = self._redis.recent_history(user_id, n)
         if history:
             return history
