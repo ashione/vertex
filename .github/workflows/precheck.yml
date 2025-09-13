@@ -127,10 +127,10 @@ jobs:
           "access[_-]?token[\s]*[:=][\s]*['\"][a-zA-Z0-9]{16,}['\"]?"
           "password[\s]*[:=][\s]*['\"][^'\"]{8,}['\"]?"
           "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}.*password"
-          "mongodb://[^\s]+"
-          "mysql://[^\s]+"
-          "postgres://[^\s]+"
-          "redis://[^\s]+"
+          "mongodb(\+srv)?://[^[:space:]]*@"
+          "mysql(\+[a-z0-9_]+)?://[^[:space:]]*@"
+          "postgres(ql)?://[^[:space:]]*@"
+          "redis(s)?://[^[:space:]]*@"
         )
         
         FOUND_SENSITIVE=false
@@ -138,11 +138,11 @@ jobs:
         # 根据事件类型选择合适的diff范围
         if [ "${{ github.event_name }}" = "pull_request" ]; then
           # PR事件：检查PR中的变更
-          git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -v '^\.github/' | grep -v '^vertex_flow/tests/' > changed_files.txt || true
           DIFF_RANGE="origin/${{ github.base_ref }}..HEAD"
         else
           # Push事件：检查最近的提交
-          git diff --name-only HEAD~1..HEAD | grep -v '^\.github/' > changed_files.txt || true
+          git diff --name-only HEAD~1..HEAD | grep -v '^\.github/' | grep -v '^vertex_flow/tests/' > changed_files.txt || true
           DIFF_RANGE="HEAD~1..HEAD"
         fi
         

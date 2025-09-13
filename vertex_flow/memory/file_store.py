@@ -6,7 +6,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from .memory import Memory
 
@@ -59,203 +59,123 @@ class FileMemory(Memory):
     def _read_json_file(self, file_path: Path) -> Optional[dict]:
         """Read JSON file safely."""
         try:
-            if file_path.exists():
-                with open(file_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-        return None
+            with file_path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+        except json.JSONDecodeError:
+            return None
 
     def _write_json_file(self, file_path: Path, data: dict) -> None:
         """Write JSON file safely."""
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with file_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+    def _append_jsonl_file(self, file_path: Path, data: dict) -> None:
+        """Append a JSON line to a file."""
+        with file_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False) + "\n")
 
-    def _is_expired(self, item: dict) -> bool:
-        """Check if an item is expired."""
-        expires_at = item.get("expires_at")
-        if expires_at is None:
-            return False
-        return time.time() > expires_at
+    def _read_jsonl_file(self, file_path: Path, n: int) -> list[dict]:
+        """Read last n lines from a JSONL file."""
+        if not file_path.exists():
+            return []
+        with file_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+            return [json.loads(line) for line in lines[-n:]][::-1]
 
-    def _read_history_file(self, user_id: str) -> list[dict]:
-        """Read history from JSONL file."""
-        file_path = self._get_file_path(self._histories_dir, user_id)
-        history = []
-
-        try:
-            if file_path.exists():
-                with open(file_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            history.append(json.loads(line))
-        except (json.JSONDecodeError, IOError):
-            pass
-
-        return history
-
-    def _write_history_file(self, user_id: str, history: list[dict]) -> None:
-        """Write history to JSONL file."""
-        file_path = self._get_file_path(self._histories_dir, user_id)
-
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            for message in history:
-                json.dump(message, f, ensure_ascii=False)
-                f.write("\n")
-
+    # Deduplication -----------------------------------------------------------------
     def seen(self, user_id: str, key: str, ttl_sec: int = 3600) -> bool:
-        """Check if a key has been seen before for deduplication."""
-        with self._lock:
-            file_path = self._get_file_path(self._dedup_dir, user_id, key)
-
-            # Check if file exists and not expired
-            data = self._read_json_file(file_path)
-            if data and not self._is_expired(data):
+        file_path = self._get_file_path(self._dedup_dir, user_id, key)
+        expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
+        data = {"expires_at": expires_at}
+        if file_path.exists():
+            existing = self._read_json_file(file_path)
+            if existing and existing.get("expires_at") and time.time() < existing.get("expires_at"):
                 return True
+        self._write_json_file(file_path, data)
+        return False
 
-            # First time seeing this key, store it
-            expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-            new_data = {"value": True, "expires_at": expires_at}
-            self._write_json_file(file_path, new_data)
-            return False
-
+    # History ----------------------------------------------------------------------
     def append_history(self, user_id: str, role: str, mtype: str, content: dict, maxlen: int = 200) -> None:
-        """Append a message to user's history."""
-        with self._lock:
-            # Create message dict
-            message = {"role": role, "type": mtype, "content": content, "timestamp": time.time()}
+        file_path = self._get_file_path(self._histories_dir, user_id)
+        self._append_jsonl_file(file_path, {"role": role, "type": mtype, "content": content, "timestamp": time.time()})
+        # Trim file to last maxlen lines
+        if file_path.exists():
+            with file_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) > maxlen:
+                with file_path.open("w", encoding="utf-8") as f:
+                    f.writelines(lines[-maxlen:])
 
-            # Read existing history
-            history = self._read_history_file(user_id)
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
+        file_path = self._get_file_path(self._histories_dir, user_id)
+        return self._read_jsonl_file(file_path, n)
 
-            # Add new message and maintain maxlen
-            history.append(message)
-            if len(history) > maxlen:
-                history = history[-maxlen:]
-
-            # Write back to file
-            self._write_history_file(user_id, history)
-
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
-        """Get recent history messages."""
-        with self._lock:
-            history = self._read_history_file(user_id)
-
-            # Get last n messages and reverse to have newest first
-            recent = history[-n:] if history else []
-            recent.reverse()
-
-            return recent
-
+    # Context ----------------------------------------------------------------------
     def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
-        """Set context value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ctx_dir, user_id, key)
-            expires_at = time.time() + ttl_sec if ttl_sec is not None and ttl_sec > 0 else None
-
-            data = {"value": value, "expires_at": expires_at}
-            self._write_json_file(file_path, data)
+        file_path = self._get_file_path(self._ctx_dir, user_id, key)
+        expires_at = time.time() + ttl_sec if ttl_sec is not None and ttl_sec > 0 else None
+        data = {"value": value, "expires_at": expires_at}
+        self._write_json_file(file_path, data)
 
     def ctx_get(self, user_id: str, key: str) -> Optional[Any]:
-        """Get context value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ctx_dir, user_id, key)
-            data = self._read_json_file(file_path)
-
-            if not data:
-                return None
-
-            if self._is_expired(data):
-                # Remove expired file
-                try:
-                    file_path.unlink()
-                except OSError:
-                    pass
-                return None
-
-            return data["value"]
+        file_path = self._get_file_path(self._ctx_dir, user_id, key)
+        data = self._read_json_file(file_path)
+        if not data:
+            return None
+        expires_at = data.get("expires_at")
+        if expires_at is not None and time.time() > expires_at:
+            try:
+                os.remove(file_path)
+            except FileNotFoundError:
+                pass
+            return None
+        return data.get("value")
 
     def ctx_del(self, user_id: str, key: str) -> None:
-        """Delete context value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ctx_dir, user_id, key)
-            try:
-                file_path.unlink()
-            except OSError:
-                pass
+        file_path = self._get_file_path(self._ctx_dir, user_id, key)
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
 
+    # Ephemeral --------------------------------------------------------------------
     def set_ephemeral(self, user_id: str, key: str, value: Any, ttl_sec: int = 1800) -> None:
-        """Set ephemeral (temporary) value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
-            expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-
-            data = {"value": value, "expires_at": expires_at}
-            self._write_json_file(file_path, data)
+        file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
+        expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
+        data = {"value": value, "expires_at": expires_at}
+        self._write_json_file(file_path, data)
 
     def get_ephemeral(self, user_id: str, key: str) -> Optional[Any]:
-        """Get ephemeral value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
-            data = self._read_json_file(file_path)
-
-            if not data:
-                return None
-
-            if self._is_expired(data):
-                # Remove expired file
-                try:
-                    file_path.unlink()
-                except OSError:
-                    pass
-                return None
-
-            return data["value"]
+        file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
+        data = self._read_json_file(file_path)
+        if not data:
+            return None
+        expires_at = data.get("expires_at")
+        if expires_at is not None and time.time() > expires_at:
+            try:
+                os.remove(file_path)
+            except FileNotFoundError:
+                pass
+            return None
+        return data.get("value")
 
     def del_ephemeral(self, user_id: str, key: str) -> None:
-        """Delete ephemeral value."""
-        with self._lock:
-            file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
-            try:
-                file_path.unlink()
-            except OSError:
-                pass
+        file_path = self._get_file_path(self._ephemeral_dir, user_id, key)
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
 
+    # Rate limiting ----------------------------------------------------------------
     def incr_rate(self, user_id: str, bucket: str, ttl_sec: int = 60) -> int:
-        """Increment rate counter."""
-        with self._lock:
-            file_path = self._get_file_path(self._rate_dir, user_id, bucket)
-            data = self._read_json_file(file_path)
-
-            # Check if file exists and not expired
-            if data and not self._is_expired(data):
-                # Increment existing counter
-                new_count = data["value"] + 1
-                data["value"] = new_count
-                self._write_json_file(file_path, data)
-                return new_count
-
-            # First increment or after expiration
-            expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-            new_data = {"value": 1, "expires_at": expires_at}
-            self._write_json_file(file_path, new_data)
-            return 1
-
-    def cleanup_expired(self) -> None:
-        """Manually cleanup expired files."""
-        with self._lock:
-            for dir_path in [self._ctx_dir, self._ephemeral_dir, self._dedup_dir, self._rate_dir]:
-                for file_path in dir_path.glob("*.json"):
-                    data = self._read_json_file(file_path)
-                    if data and self._is_expired(data):
-                        try:
-                            file_path.unlink()
-                        except OSError:
-                            pass
+        file_path = self._get_file_path(self._rate_dir, user_id, bucket)
+        expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
+        value = 1
+        if file_path.exists():
+            data = self._read_json_file(file_path) or {}
+            if data.get("expires_at") is None or time.time() <= data.get("expires_at"):
+                value = int(data.get("value", 0)) + 1
+        self._write_json_file(file_path, {"value": value, "expires_at": expires_at})
+        return value

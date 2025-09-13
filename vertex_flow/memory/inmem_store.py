@@ -4,7 +4,7 @@ import json
 import threading
 import time
 from collections import defaultdict, deque
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from .memory import Memory
 
@@ -33,7 +33,8 @@ class InnerMemory(Memory):
         self._lock = threading.RLock()
 
         # Storage structures
-        self._histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=hist_maxlen))
+        # 历史记录不使用固定 maxlen 的 deque，避免实例级别强裁剪影响按调用传入的 maxlen 行为
+        self._histories: dict[str, deque] = defaultdict(lambda: deque())
         self._ctx: dict[str, dict[str, dict]] = defaultdict(dict)
         self._ephemeral: dict[str, dict[str, dict]] = defaultdict(dict)
         self._dedup: dict[str, dict[str, dict]] = defaultdict(dict)
@@ -58,149 +59,118 @@ class InnerMemory(Memory):
             return False
         return time.time() > expires_at
 
-    def _cleanup_expired(self, storage: dict[str, dict[str, dict]]) -> None:
-        """Remove expired items from storage."""
-        for user_id in list(storage.keys()):
-            user_data = storage[user_id]
-            for key in list(user_data.keys()):
-                if self._is_expired(user_data[key]):
-                    del user_data[key]
-            # Remove empty user data
-            if not user_data:
-                del storage[user_id]
-
-    def _cleanup_loop(self) -> None:
-        """Background cleanup loop."""
-        while True:
-            time.sleep(self._cleanup_interval)
-            with self._lock:
-                self._cleanup_expired(self._ctx)
-                self._cleanup_expired(self._ephemeral)
-                self._cleanup_expired(self._dedup)
-                self._cleanup_expired(self._rate)
-
+    # Deduplication -----------------------------------------------------------------
     def seen(self, user_id: str, key: str, ttl_sec: int = 3600) -> bool:
-        """Check if a key has been seen before for deduplication."""
         with self._lock:
-            user_dedup = self._dedup[user_id]
-
-            # Check if key exists and not expired
-            if key in user_dedup:
-                if not self._is_expired(user_dedup[key]):
-                    return True
-                else:
-                    # Remove expired entry
-                    del user_dedup[key]
-
-            # First time seeing this key, store it
+            dedup = self._dedup[user_id]
+            item = dedup.get(key)
+            if item and not self._is_expired(item):
+                return True
             expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-            user_dedup[key] = {"value": True, "expires_at": expires_at}
+            dedup[key] = {"expires_at": expires_at}
             return False
 
+    # History ----------------------------------------------------------------------
     def append_history(self, user_id: str, role: str, mtype: str, content: dict, maxlen: int = 200) -> None:
-        """Append a message to user's history."""
         with self._lock:
-            # Create message dict
-            message = {"role": role, "type": mtype, "content": content, "timestamp": time.time()}
+            hist = self._histories[user_id]
+            hist.appendleft({"role": role, "type": mtype, "content": content})
+            # 仅在此按调用传入的 maxlen 进行裁剪，避免实例初始化时就限制为固定长度
+            while len(hist) > maxlen:
+                hist.pop()
 
-            # Serialize message
-            serialized_message = self._serialize_value(message)
-
-            # Get or create history deque with specified maxlen
-            if user_id not in self._histories:
-                self._histories[user_id] = deque(maxlen=maxlen)
-            elif self._histories[user_id].maxlen != maxlen:
-                # Update maxlen if different
-                old_deque = self._histories[user_id]
-                new_deque = deque(old_deque, maxlen=maxlen)
-                self._histories[user_id] = new_deque
-
-            # Append to history
-            self._histories[user_id].append(serialized_message)
-
-    def recent_history(self, user_id: str, n: int = 20) -> list[dict]:
-        """Get recent history messages."""
+    def recent_history(self, user_id: str, n: int = 20) -> List[dict]:
         with self._lock:
-            if user_id not in self._histories:
-                return []
+            hist = self._histories[user_id]
+            return list(list(hist)[:n])
 
-            history = self._histories[user_id]
-            # Get last n messages and reverse to have newest first
-            recent = list(history)[-n:]
-            recent.reverse()
-
-            # Deserialize messages
-            return [self._deserialize_value(msg) for msg in recent]
-
+    # Context ----------------------------------------------------------------------
     def ctx_set(self, user_id: str, key: str, value: Any, ttl_sec: Optional[int] = None) -> None:
-        """Set context value."""
         with self._lock:
+            store = self._ctx[user_id]
             expires_at = time.time() + ttl_sec if ttl_sec is not None and ttl_sec > 0 else None
-            self._ctx[user_id][key] = {"value": self._serialize_value(value), "expires_at": expires_at}
+            store[key] = {"value": self._serialize_value(value), "expires_at": expires_at}
 
     def ctx_get(self, user_id: str, key: str) -> Optional[Any]:
-        """Get context value."""
         with self._lock:
-            if user_id not in self._ctx or key not in self._ctx[user_id]:
+            store = self._ctx[user_id]
+            item = store.get(key)
+            if not item or self._is_expired(item):
+                if key in store:
+                    del store[key]
                 return None
-
-            item = self._ctx[user_id][key]
-            if self._is_expired(item):
-                del self._ctx[user_id][key]
-                return None
-
             return self._deserialize_value(item["value"])
 
     def ctx_del(self, user_id: str, key: str) -> None:
-        """Delete context value."""
         with self._lock:
-            if user_id in self._ctx and key in self._ctx[user_id]:
-                del self._ctx[user_id][key]
+            store = self._ctx[user_id]
+            if key in store:
+                del store[key]
 
+    # Ephemeral --------------------------------------------------------------------
     def set_ephemeral(self, user_id: str, key: str, value: Any, ttl_sec: int = 1800) -> None:
-        """Set ephemeral (temporary) value."""
         with self._lock:
+            store = self._ephemeral[user_id]
             expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-            self._ephemeral[user_id][key] = {"value": self._serialize_value(value), "expires_at": expires_at}
+            store[key] = {"value": self._serialize_value(value), "expires_at": expires_at}
 
     def get_ephemeral(self, user_id: str, key: str) -> Optional[Any]:
-        """Get ephemeral value."""
         with self._lock:
-            if user_id not in self._ephemeral or key not in self._ephemeral[user_id]:
+            store = self._ephemeral[user_id]
+            item = store.get(key)
+            if not item or self._is_expired(item):
+                if key in store:
+                    del store[key]
                 return None
-
-            item = self._ephemeral[user_id][key]
-            if self._is_expired(item):
-                del self._ephemeral[user_id][key]
-                return None
-
             return self._deserialize_value(item["value"])
 
     def del_ephemeral(self, user_id: str, key: str) -> None:
-        """Delete ephemeral value."""
         with self._lock:
-            if user_id in self._ephemeral and key in self._ephemeral[user_id]:
-                del self._ephemeral[user_id][key]
+            store = self._ephemeral[user_id]
+            if key in store:
+                del store[key]
 
+    # Rate limiting ----------------------------------------------------------------
     def incr_rate(self, user_id: str, bucket: str, ttl_sec: int = 60) -> int:
-        """Increment rate counter."""
         with self._lock:
-            user_rate = self._rate[user_id]
-
-            # Check if bucket exists and not expired
-            if bucket in user_rate:
-                item = user_rate[bucket]
-                if self._is_expired(item):
-                    # Reset counter if expired
-                    del user_rate[bucket]
-                else:
-                    # Increment existing counter
-                    current_count = self._deserialize_value(item["value"])
-                    new_count = current_count + 1
-                    item["value"] = self._serialize_value(new_count)
-                    return new_count
-
-            # First increment or after expiration
+            store = self._rate[user_id]
+            item = store.get(bucket)
+            now = time.time()
             expires_at = time.time() + ttl_sec if ttl_sec > 0 else None
-            user_rate[bucket] = {"value": self._serialize_value(1), "expires_at": expires_at}
+            if item and not self._is_expired(item):
+                item["value"] += 1
+                if ttl_sec > 0:
+                    item["expires_at"] = now + ttl_sec
+                return item["value"]
+            store[bucket] = {"value": 1, "expires_at": expires_at}
             return 1
+
+    # Cleanup ----------------------------------------------------------------------
+    def _cleanup_loop(self) -> None:
+        while True:
+            time.sleep(self._cleanup_interval)
+            self._cleanup()
+
+    def _cleanup(self) -> None:
+        with self._lock:
+            now = time.time()
+            # Clean ctx
+            for user_id, store in list(self._ctx.items()):
+                for key, item in list(store.items()):
+                    if item.get("expires_at") is not None and now > item.get("expires_at"):
+                        del store[key]
+            # Clean ephemeral
+            for user_id, store in list(self._ephemeral.items()):
+                for key, item in list(store.items()):
+                    if item.get("expires_at") is not None and now > item.get("expires_at"):
+                        del store[key]
+            # Clean dedup
+            for user_id, store in list(self._dedup.items()):
+                for key, item in list(store.items()):
+                    if item.get("expires_at") is not None and now > item.get("expires_at"):
+                        del store[key]
+            # Clean rate
+            for user_id, store in list(self._rate.items()):
+                for bucket, item in list(store.items()):
+                    if item.get("expires_at") is not None and now > item.get("expires_at"):
+                        del store[bucket]

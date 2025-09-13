@@ -11,7 +11,20 @@ Provides unified interface for managing:
 
 from .factory import MemoryFactory, create_memory, create_memory_from_config
 from .file_store import FileMemory
+from .hybrid_store import HybridMemory
 from .inmem_store import InnerMemory
 from .memory import Memory
+from .rds_store import RDSMemory
+from .redis_store import RedisMemory
 
-__all__ = ["Memory", "InnerMemory", "FileMemory", "MemoryFactory", "create_memory", "create_memory_from_config"]
+__all__ = [
+    "Memory",
+    "InnerMemory",
+    "FileMemory",
+    "HybridMemory",
+    "RedisMemory",
+    "RDSMemory",
+    "MemoryFactory",
+    "create_memory",
+    "create_memory_from_config",
+]
