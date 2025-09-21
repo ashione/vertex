@@ -16,6 +16,10 @@
   - 动态模型切换，现代化界面
   - 工具调用支持，完善的错误处理
   - AI思考过程显示（Reasoning功能）
+- **[Workflow Chat Memory](WORKFLOW_MEMORY.md)** - 会话记忆启用及存储配置指南
+  - CLI 和 Web UI 开关说明
+  - 内存/Redis/文件等存储选择
+  - 系统提示增强与摘要扩展
 - **[多模态功能](MULTIMODAL_FEATURES.md)** - 图片分析和多模态对话
   - 智能图片分析，支持多种输入方式
   - 文本+图片混合对话，丰富交互体验

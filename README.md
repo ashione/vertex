@@ -17,6 +17,7 @@ A powerful local AI workflow system with multi-model support and visual workflow
 | | Desktop Application | Native desktop app with PyWebView integration |
 | **Workflow** | VertexFlow Engine | Visual workflow orchestration with drag-and-drop nodes |
 | | RAG System | Local Retrieval-Augmented Generation with document processing |
+| | 🧠 Conversation Memory | Optional persistent chat memory for workflow app ([docs](docs/WORKFLOW_MEMORY.md)) |
 | **Configuration** | Smart Configuration | Simplified configuration system with automatic setup |
 | | Document Processing | Support for TXT, MD, PDF, DOCX formats |
 
@@ -162,6 +163,11 @@ finance_tool = service.get_finance_tool()       # Financial data retrieval
 
 # Tools integrate seamlessly with AI workflows, supporting streaming and reasoning
 ```
+
+### Workflow Chat Memory
+- Enable via CLI: `python -m vertex_flow.src.workflow_app --enable-memory --memory-type inner`
+- Toggle in the web UI under **配置 → 💬 对话历史 → 启用会话记忆**
+- Customize storage backends, summary rules, and retention as described in [docs/WORKFLOW_MEMORY.md](docs/WORKFLOW_MEMORY.md)
 
 ### Basic Workflow
 ```python
