@@ -110,8 +110,8 @@ class OKXClient(BaseExchange):
         """Make authenticated request to OKX API"""
         # 使用服务器时间确保时间戳准确
         timestamp = self._get_server_time()
-        # endpoint已经包含完整路径，不需要额外处理
-        request_path = endpoint
+        # 签名需要完整的API路径，包含/api/v5前缀
+        request_path = "/api/v5" + endpoint
         
         if params:
             request_path += "?" + urlencode(params)
@@ -127,7 +127,7 @@ class OKXClient(BaseExchange):
             "Content-Type": "application/json"
         }
         
-        url = self.base_url + endpoint
+        url = self.api_url + endpoint
         
         try:
             if method.upper() == "GET":
@@ -222,7 +222,7 @@ class OKXClient(BaseExchange):
         if price and order_type.lower() == "limit":
             order_data["px"] = str(price)
         
-        return self._make_request("POST", "/api/v5/trade/order", data=order_data)
+        return self._make_request("POST", "/trade/order", data=order_data)
     
     def get_order_status(self, order_id: str, symbol: str) -> Dict[str, Any]:
         """查询订单状态"""
@@ -232,7 +232,7 @@ class OKXClient(BaseExchange):
                 "instId": symbol
             }
             
-            response = self._make_request("GET", "/api/v5/trade/order", params)
+            response = self._make_request("GET", "/trade/order", params)
             
             if response.get("code") == "0" and response.get("data"):
                 order_info = response["data"][0]
@@ -249,7 +249,7 @@ class OKXClient(BaseExchange):
     def get_spot_positions(self) -> Dict[str, Any]:
         """Get spot account balance"""
         try:
-            response = self._make_request("GET", "/api/v5/account/balance")
+            response = self._make_request("GET", "/account/balance")
             if response.get("code") == "0" and response.get("data"):
                 positions = []
                 for account in response["data"]:
@@ -273,7 +273,7 @@ class OKXClient(BaseExchange):
     def get_futures_positions(self) -> Dict[str, Any]:
         """Get futures positions"""
         try:
-            response = self._make_request("GET", "/api/v5/account/positions")
+            response = self._make_request("GET", "/account/positions")
             if response.get("code") == "0" and response.get("data"):
                 positions = []
                 for position in response["data"]:
