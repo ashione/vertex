@@ -6,7 +6,7 @@ supporting OKX and Binance APIs for account management, trading, and technical a
 """
 
 from .client import CryptoTradingClient
-from .exchanges import OKXClient, BinanceClient
+from .exchanges import BinanceClient, OKXClient
 from .indicators import TechnicalIndicators
 from .trading import TradingEngine
 

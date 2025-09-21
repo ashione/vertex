@@ -2,32 +2,33 @@
 Technical indicators calculation module for crypto trading
 """
 
-import pandas as pd
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
+import pandas as pd
 
 
 class TechnicalIndicators:
     """Technical indicators calculator"""
-    
+
     @staticmethod
     def prepare_dataframe(klines: List[List]) -> pd.DataFrame:
         """
         Convert klines data to pandas DataFrame
-        
+
         Args:
             klines: List of kline data from exchange API
-            
+
         Returns:
             DataFrame with OHLCV data
         """
         if not klines:
             return pd.DataFrame()
-        
+
         # Handle different exchange formats
         # OKX: [timestamp, open, high, low, close, volume, volCcy, volCcyQuote, confirm]
         # Binance: [timestamp, open, high, low, close, volume, ...]
-        
+
         # Extract only the first 6 columns we need: timestamp, open, high, low, close, volume
         processed_klines = []
         for kline in klines:
@@ -36,30 +37,30 @@ class TechnicalIndicators:
             else:
                 # Skip incomplete data
                 continue
-        
+
         if not processed_klines:
             return pd.DataFrame()
-        
-        df = pd.DataFrame(processed_klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('timestamp', inplace=True)
-        
+
+        df = pd.DataFrame(processed_klines, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("timestamp", inplace=True)
+
         # Convert to numeric
-        for col in ['open', 'high', 'low', 'close', 'volume']:
+        for col in ["open", "high", "low", "close", "volume"]:
             df[col] = pd.to_numeric(df[col])
-        
+
         return df.sort_index()
-    
+
     @staticmethod
     def sma(data: pd.Series, period: int) -> pd.Series:
         """Simple Moving Average"""
         return data.rolling(window=period).mean()
-    
+
     @staticmethod
     def ema(data: pd.Series, period: int) -> pd.Series:
         """Exponential Moving Average"""
         return data.ewm(span=period).mean()
-    
+
     @staticmethod
     def rsi(data: pd.Series, period: int = 14) -> pd.Series:
         """Relative Strength Index"""
@@ -69,7 +70,7 @@ class TechnicalIndicators:
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs))
         return rsi
-    
+
     @staticmethod
     def macd(data: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, pd.Series]:
         """MACD (Moving Average Convergence Divergence)"""
@@ -78,255 +79,279 @@ class TechnicalIndicators:
         macd_line = ema_fast - ema_slow
         signal_line = TechnicalIndicators.ema(macd_line, signal)
         histogram = macd_line - signal_line
-        
-        return {
-            'macd': macd_line,
-            'signal': signal_line,
-            'histogram': histogram
-        }
-    
+
+        return {"macd": macd_line, "signal": signal_line, "histogram": histogram}
+
     @staticmethod
     def bollinger_bands(data: pd.Series, period: int = 20, std_dev: float = 2) -> Dict[str, pd.Series]:
         """Bollinger Bands"""
         sma = TechnicalIndicators.sma(data, period)
         std = data.rolling(window=period).std()
-        
-        return {
-            'upper': sma + (std * std_dev),
-            'middle': sma,
-            'lower': sma - (std * std_dev)
-        }
-    
+
+        return {"upper": sma + (std * std_dev), "middle": sma, "lower": sma - (std * std_dev)}
+
     @staticmethod
-    def stochastic(high: pd.Series, low: pd.Series, close: pd.Series, 
-                   k_period: int = 14, d_period: int = 3) -> Dict[str, pd.Series]:
+    def stochastic(
+        high: pd.Series, low: pd.Series, close: pd.Series, k_period: int = 14, d_period: int = 3
+    ) -> Dict[str, pd.Series]:
         """Stochastic Oscillator"""
         lowest_low = low.rolling(window=k_period).min()
         highest_high = high.rolling(window=k_period).max()
-        
+
         k_percent = 100 * ((close - lowest_low) / (highest_high - lowest_low))
         d_percent = k_percent.rolling(window=d_period).mean()
-        
-        return {
-            'k': k_percent,
-            'd': d_percent
-        }
-    
+
+        return {"k": k_percent, "d": d_percent}
+
     @staticmethod
     def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
         """Average True Range"""
         high_low = high - low
         high_close = np.abs(high - close.shift())
         low_close = np.abs(low - close.shift())
-        
+
         true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         return true_range.rolling(window=period).mean()
-    
+
     @staticmethod
     def williams_r(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
         """Williams %R"""
         highest_high = high.rolling(window=period).max()
         lowest_low = low.rolling(window=period).min()
-        
+
         return -100 * ((highest_high - close) / (highest_high - lowest_low))
-    
+
     @staticmethod
     def cci(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 20) -> pd.Series:
         """Commodity Channel Index"""
         typical_price = (high + low + close) / 3
         sma_tp = typical_price.rolling(window=period).mean()
-        mean_deviation = typical_price.rolling(window=period).apply(
-            lambda x: np.abs(x - x.mean()).mean()
-        )
-        
+        mean_deviation = typical_price.rolling(window=period).apply(lambda x: np.abs(x - x.mean()).mean())
+
         return (typical_price - sma_tp) / (0.015 * mean_deviation)
-    
+
     @staticmethod
     def obv(close: pd.Series, volume: pd.Series) -> pd.Series:
         """On-Balance Volume"""
         obv = pd.Series(index=close.index, dtype=float)
         obv.iloc[0] = volume.iloc[0]
-        
+
         for i in range(1, len(close)):
-            if close.iloc[i] > close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
-            elif close.iloc[i] < close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+            if close.iloc[i] > close.iloc[i - 1]:
+                obv.iloc[i] = obv.iloc[i - 1] + volume.iloc[i]
+            elif close.iloc[i] < close.iloc[i - 1]:
+                obv.iloc[i] = obv.iloc[i - 1] - volume.iloc[i]
             else:
-                obv.iloc[i] = obv.iloc[i-1]
-        
+                obv.iloc[i] = obv.iloc[i - 1]
+
         return obv
-    
+
     @staticmethod
     def support_resistance(data: pd.Series, window: int = 20) -> Dict[str, List[float]]:
         """Find support and resistance levels"""
         highs = data.rolling(window=window, center=True).max()
         lows = data.rolling(window=window, center=True).min()
-        
+
         resistance_levels = []
         support_levels = []
-        
+
         for i in range(window, len(data) - window):
             if data.iloc[i] == highs.iloc[i]:
                 resistance_levels.append(data.iloc[i])
             if data.iloc[i] == lows.iloc[i]:
                 support_levels.append(data.iloc[i])
-        
+
         return {
-            'resistance': sorted(list(set(resistance_levels)), reverse=True)[:5],
-            'support': sorted(list(set(support_levels)))[:5]
+            "resistance": sorted(list(set(resistance_levels)), reverse=True)[:5],
+            "support": sorted(list(set(support_levels)))[:5],
         }
-    
+
     @classmethod
     def calculate_all_indicators(cls, klines: List[List]) -> Dict[str, Any]:
         """
         Calculate all technical indicators for given klines data
-        
+
         Args:
             klines: List of kline data
-            
+
         Returns:
             Dictionary containing all calculated indicators
         """
         if not klines:
             return {}
-        
+
         df = cls.prepare_dataframe(klines)
         if df.empty:
             return {}
-        
+
         indicators = {}
-        
+
         try:
+            # Helper function to safely get last value
+            def safe_get_last(series_or_value):
+                if hasattr(series_or_value, "iloc"):
+                    return series_or_value.iloc[-1]
+                return series_or_value
+
             # Moving Averages
-            indicators['sma_20'] = cls.sma(df['close'], 20).iloc[-1] if len(df) >= 20 else None
-            indicators['sma_50'] = cls.sma(df['close'], 50).iloc[-1] if len(df) >= 50 else None
-            indicators['ema_12'] = cls.ema(df['close'], 12).iloc[-1] if len(df) >= 12 else None
-            indicators['ema_26'] = cls.ema(df['close'], 26).iloc[-1] if len(df) >= 26 else None
-            
+            if len(df) >= 20:
+                sma_20 = cls.sma(df["close"], 20)
+                indicators["sma_20"] = safe_get_last(sma_20)
+            else:
+                indicators["sma_20"] = None
+
+            if len(df) >= 50:
+                sma_50 = cls.sma(df["close"], 50)
+                indicators["sma_50"] = safe_get_last(sma_50)
+            else:
+                indicators["sma_50"] = None
+
+            if len(df) >= 12:
+                ema_12 = cls.ema(df["close"], 12)
+                indicators["ema_12"] = safe_get_last(ema_12)
+            else:
+                indicators["ema_12"] = None
+
+            if len(df) >= 26:
+                ema_26 = cls.ema(df["close"], 26)
+                indicators["ema_26"] = safe_get_last(ema_26)
+            else:
+                indicators["ema_26"] = None
+
             # RSI
             if len(df) >= 14:
-                rsi_values = cls.rsi(df['close'], 14)
-                indicators['rsi'] = rsi_values.iloc[-1]
-            
+                rsi_values = cls.rsi(df["close"], 14)
+                indicators["rsi"] = safe_get_last(rsi_values)
+            else:
+                indicators["rsi"] = None
+
             # MACD
             if len(df) >= 26:
-                macd_data = cls.macd(df['close'])
-                indicators['macd'] = {
-                    'macd': macd_data['macd'].iloc[-1],
-                    'signal': macd_data['signal'].iloc[-1],
-                    'histogram': macd_data['histogram'].iloc[-1]
+                macd_data = cls.macd(df["close"])
+                indicators["macd"] = {
+                    "macd": safe_get_last(macd_data["macd"]),
+                    "signal": safe_get_last(macd_data["signal"]),
+                    "histogram": safe_get_last(macd_data["histogram"]),
                 }
-            
+            else:
+                indicators["macd"] = None
+
             # Bollinger Bands
             if len(df) >= 20:
-                bb_data = cls.bollinger_bands(df['close'])
-                indicators['bollinger_bands'] = {
-                    'upper': bb_data['upper'].iloc[-1],
-                    'middle': bb_data['middle'].iloc[-1],
-                    'lower': bb_data['lower'].iloc[-1]
+                bb_data = cls.bollinger_bands(df["close"])
+                indicators["bollinger_bands"] = {
+                    "upper": safe_get_last(bb_data["upper"]),
+                    "middle": safe_get_last(bb_data["middle"]),
+                    "lower": safe_get_last(bb_data["lower"]),
                 }
-            
+            else:
+                indicators["bollinger_bands"] = None
+
             # Stochastic
             if len(df) >= 14:
-                stoch_data = cls.stochastic(df['high'], df['low'], df['close'])
-                indicators['stochastic'] = {
-                    'k': stoch_data['k'].iloc[-1],
-                    'd': stoch_data['d'].iloc[-1]
-                }
-            
+                stoch_data = cls.stochastic(df["high"], df["low"], df["close"])
+                indicators["stochastic"] = {"k": safe_get_last(stoch_data["k"]), "d": safe_get_last(stoch_data["d"])}
+            else:
+                indicators["stochastic"] = None
+
             # ATR
             if len(df) >= 14:
-                atr_values = cls.atr(df['high'], df['low'], df['close'])
-                indicators['atr'] = atr_values.iloc[-1]
-            
+                atr_values = cls.atr(df["high"], df["low"], df["close"])
+                indicators["atr"] = safe_get_last(atr_values)
+            else:
+                indicators["atr"] = None
+
             # Williams %R
             if len(df) >= 14:
-                williams_r_values = cls.williams_r(df['high'], df['low'], df['close'])
-                indicators['williams_r'] = williams_r_values.iloc[-1]
-            
+                williams_r_values = cls.williams_r(df["high"], df["low"], df["close"])
+                indicators["williams_r"] = safe_get_last(williams_r_values)
+            else:
+                indicators["williams_r"] = None
+
             # Support and Resistance
             if len(df) >= 40:
-                sr_levels = cls.support_resistance(df['close'])
-                indicators['support_resistance'] = sr_levels
-            
+                sr_levels = cls.support_resistance(df["close"])
+                indicators["support_resistance"] = sr_levels
+            else:
+                indicators["support_resistance"] = None
+
             # Current price info
-            indicators['current_price'] = df['close'].iloc[-1]
-            indicators['volume'] = df['volume'].iloc[-1]
-            indicators['high_24h'] = df['high'].max()
-            indicators['low_24h'] = df['low'].min()
-            
+            indicators["current_price"] = safe_get_last(df["close"])
+            indicators["volume"] = safe_get_last(df["volume"])
+            indicators["high_24h"] = df["high"].max()
+            indicators["low_24h"] = df["low"].min()
+
         except Exception as e:
-            indicators['error'] = f"Error calculating indicators: {str(e)}"
-        
+            indicators["error"] = f"Error calculating indicators: {str(e)}"
+
         return indicators
-    
+
     @classmethod
     def get_trading_signals(cls, indicators: Dict[str, Any]) -> Dict[str, str]:
         """
         Generate trading signals based on technical indicators
-        
+
         Args:
             indicators: Dictionary of calculated indicators
-            
+
         Returns:
             Dictionary of trading signals
         """
         signals = {}
-        
+
         try:
             # RSI signals
-            if 'rsi' in indicators and indicators['rsi'] is not None:
-                rsi = indicators['rsi']
+            if "rsi" in indicators and indicators["rsi"] is not None:
+                rsi = indicators["rsi"]
                 if rsi > 70:
-                    signals['rsi'] = 'SELL'
+                    signals["rsi"] = "SELL"
                 elif rsi < 30:
-                    signals['rsi'] = 'BUY'
+                    signals["rsi"] = "BUY"
                 else:
-                    signals['rsi'] = 'HOLD'
-            
+                    signals["rsi"] = "HOLD"
+
             # MACD signals
-            if 'macd' in indicators and indicators['macd'] is not None:
-                macd_data = indicators['macd']
-                if macd_data['macd'] > macd_data['signal']:
-                    signals['macd'] = 'BUY'
+            if "macd" in indicators and indicators["macd"] is not None:
+                macd_data = indicators["macd"]
+                if macd_data["macd"] > macd_data["signal"]:
+                    signals["macd"] = "BUY"
                 else:
-                    signals['macd'] = 'SELL'
-            
+                    signals["macd"] = "SELL"
+
             # Bollinger Bands signals
-            if 'bollinger_bands' in indicators and 'current_price' in indicators:
-                bb = indicators['bollinger_bands']
-                price = indicators['current_price']
-                
-                if price > bb['upper']:
-                    signals['bollinger_bands'] = 'SELL'
-                elif price < bb['lower']:
-                    signals['bollinger_bands'] = 'BUY'
+            if "bollinger_bands" in indicators and "current_price" in indicators:
+                bb = indicators["bollinger_bands"]
+                price = indicators["current_price"]
+
+                if price > bb["upper"]:
+                    signals["bollinger_bands"] = "SELL"
+                elif price < bb["lower"]:
+                    signals["bollinger_bands"] = "BUY"
                 else:
-                    signals['bollinger_bands'] = 'HOLD'
-            
+                    signals["bollinger_bands"] = "HOLD"
+
             # Stochastic signals
-            if 'stochastic' in indicators:
-                stoch = indicators['stochastic']
-                if stoch['k'] > 80:
-                    signals['stochastic'] = 'SELL'
-                elif stoch['k'] < 20:
-                    signals['stochastic'] = 'BUY'
+            if "stochastic" in indicators:
+                stoch = indicators["stochastic"]
+                if stoch["k"] > 80:
+                    signals["stochastic"] = "SELL"
+                elif stoch["k"] < 20:
+                    signals["stochastic"] = "BUY"
                 else:
-                    signals['stochastic'] = 'HOLD'
-            
+                    signals["stochastic"] = "HOLD"
+
             # Overall signal (simple majority vote)
-            buy_signals = sum(1 for signal in signals.values() if signal == 'BUY')
-            sell_signals = sum(1 for signal in signals.values() if signal == 'SELL')
-            
+            buy_signals = sum(1 for signal in signals.values() if signal == "BUY")
+            sell_signals = sum(1 for signal in signals.values() if signal == "SELL")
+
             if buy_signals > sell_signals:
-                signals['overall'] = 'BUY'
+                signals["overall"] = "BUY"
             elif sell_signals > buy_signals:
-                signals['overall'] = 'SELL'
+                signals["overall"] = "SELL"
             else:
-                signals['overall'] = 'HOLD'
-                
+                signals["overall"] = "HOLD"
+
         except Exception as e:
-            signals['error'] = f"Error generating signals: {str(e)}"
-        
+            signals["error"] = f"Error generating signals: {str(e)}"
+
         return signals
