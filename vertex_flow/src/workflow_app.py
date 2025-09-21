@@ -8,10 +8,11 @@ import argparse
 import asyncio
 import threading
 import time
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gradio as gr
 
+from vertex_flow.memory import MemoryFactory
 from vertex_flow.utils.logger import setup_logger
 from vertex_flow.workflow.constants import (
     CONTENT_KEY,
@@ -37,6 +38,8 @@ from vertex_flow.workflow.constants import (
 from vertex_flow.workflow.context import WorkflowContext
 from vertex_flow.workflow.service import VertexFlowService
 from vertex_flow.workflow.vertex.llm_vertex import LLMVertex
+from vertex_flow.workflow.vertex.mem_vertex import MemVertex
+from vertex_flow.workflow.vertex.memory_reader_vertex import MemoryReaderVertex
 
 # MCP support imports
 try:
@@ -54,7 +57,14 @@ logger = setup_logger(__name__)
 class WorkflowChatApp:
     """基于 Workflow LLM Vertex 的聊天应用"""
 
-    def __init__(self, config_path: str = None):
+    def __init__(
+        self,
+        config_path: str = None,
+        memory_enabled: bool = False,
+        memory_type: str = "inner",
+        memory_user_id: str = "workflow-user",
+        memory_history_maxlen: int = 200,
+    ):
         """初始化应用"""
         logger.info(f" workflow chat app {config_path}")
         self.service = VertexFlowService(config_file=config_path) if config_path else VertexFlowService()
@@ -65,11 +75,22 @@ class WorkflowChatApp:
         self.mcp_enabled = False
         self.mcp_manager = None
         self.enable_stream = True  # 默认启用流模式
+        self.memory_enabled = bool(memory_enabled)
+        self.memory_type = memory_type
+        self.memory_user_id = memory_user_id or "workflow-user"
+        self.memory_history_maxlen = max(1, int(memory_history_maxlen))
+        self.memory = None
+        self.memory_reader: Optional[MemoryReaderVertex] = None
+        self.memory_writer: Optional[MemVertex] = None
+        self.memory_context_keys: List[str] = []
 
         # 初始化各个组件
         self._initialize_llm()
         self._initialize_tools()
         self._initialize_mcp()
+
+        if self.memory_enabled:
+            self._ensure_memory_components()
 
     def _initialize_llm(self):
         """初始化 LLM 模型和 Vertex"""
@@ -199,6 +220,155 @@ class WorkflowChatApp:
         except Exception as e:
             logger.error(f"启动MCP工具检查失败: {e}")
 
+    def _ensure_memory_components(self) -> None:
+        """Ensure memory read/write helpers are ready."""
+        if self.memory is None:
+            try:
+                self.memory = MemoryFactory.create_memory(self.memory_type)
+                logger.info(f"记忆存储已初始化，类型: {self.memory_type}")
+            except Exception as exc:
+                logger.error(f"初始化记忆存储失败: {exc}")
+                self.memory_enabled = False
+                return
+
+        if self.memory_reader is None:
+            self.memory_reader = MemoryReaderVertex(
+                id="workflow_app_memory_reader",
+                memory=self.memory,
+                history_len=self.memory_history_maxlen,
+                ctx_keys=self.memory_context_keys,
+            )
+
+        if self.memory_writer is None:
+            self.memory_writer = MemVertex(
+                id="workflow_app_memory_writer",
+                memory=self.memory,
+                history_maxlen=self.memory_history_maxlen,
+            )
+
+    def set_memory_enabled(self, enabled: bool) -> None:
+        """Toggle memory feature."""
+        enabled = bool(enabled)
+        if enabled and not self.memory_enabled:
+            self.memory_enabled = True
+            self._ensure_memory_components()
+        elif not enabled and self.memory_enabled:
+            self.memory_enabled = False
+
+    def _get_memory_user_id(self) -> str:
+        user_id = self.memory_user_id or "workflow-user"
+        if isinstance(self.context.user_parameters, dict):
+            self.context.user_parameters["user_id"] = user_id
+        return user_id
+
+    def _load_memory_context(self, history_rounds: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        if not (self.memory_enabled and self.memory_reader):
+            return [], {}
+
+        history_len = max(1, history_rounds * 2)
+        history_len = min(history_len, self.memory_history_maxlen)
+        self.memory_reader.history_len = history_len
+        try:
+            output = self.memory_reader.execute(
+                inputs={"user_id": self._get_memory_user_id()},
+                context=self.context,
+            )
+            return output.get(CONVERSATION_HISTORY, []) or [], output.get("context_values", {}) or {}
+        except Exception as exc:
+            logger.error(f"读取会话记忆失败: {exc}")
+            return [], {}
+
+    def _prepare_user_content(self, message: Any) -> Any:
+        if isinstance(message, dict):
+            content: Dict[str, Any] = {}
+            if message.get("text"):
+                content["text"] = message["text"]
+            if message.get("image_url"):
+                content["image_url"] = message["image_url"]
+            return content if content else ""
+        return str(message) if message is not None else ""
+
+    def _extract_text_from_memory(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            if "summary" in value:
+                return str(value.get("summary", ""))
+            if "text" in value:
+                return str(value.get("text", ""))
+            if "content" in value:
+                return self._extract_text_from_memory(value.get("content"))
+            return ""
+        if isinstance(value, list):
+            parts = [self._extract_text_from_memory(item) for item in value]
+            return "\n".join(part for part in parts if part)
+        return str(value) if value is not None else ""
+
+    def _augment_system_prompt(self, system_prompt: str, context_values: Dict[str, Any]) -> str:
+        if not context_values:
+            return system_prompt
+        memory_lines = []
+        for key, value in context_values.items():
+            text = self._extract_text_from_memory(value)
+            if text:
+                memory_lines.append(f"{key}: {text}")
+        if not memory_lines:
+            return system_prompt
+        return f"{system_prompt.rstrip()}\n\n[记忆提示]\n" + "\n".join(memory_lines)
+
+    def _store_memory_records(self, message: Any, assistant_response: str, inputs: Dict[str, Any]) -> None:
+        if not (self.memory_enabled and self.memory_writer):
+            return
+
+        user_content = self._prepare_user_content(message)
+        assistant_content = assistant_response.strip() if assistant_response else ""
+
+        if not user_content and not assistant_content:
+            return
+
+        user_id = inputs.get("user_id") or self._get_memory_user_id()
+        payload = {
+            "user_id": user_id,
+            "records": [],
+            CONVERSATION_HISTORY: inputs.get(CONVERSATION_HISTORY, []),
+        }
+
+        if user_content:
+            payload["records"].append({"role": "user", "content": user_content})
+        if assistant_content:
+            payload["records"].append({"role": "assistant", "content": assistant_content})
+
+        if not payload["records"]:
+            return
+
+        try:
+            self.memory_writer.history_maxlen = self.memory_history_maxlen
+            self.memory_writer.execute(payload, self.context)
+        except Exception as exc:
+            logger.error(f"写入会话记忆失败: {exc}")
+
+    def _convert_memory_messages_to_history(self, messages: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+        history_pairs: List[Tuple[str, str]] = []
+        pending_user: Optional[str] = None
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            text = self._extract_text_from_memory(msg.get("content"))
+            if role == "user":
+                if pending_user is not None:
+                    history_pairs.append((pending_user, ""))
+                pending_user = text
+            elif role == "assistant":
+                if pending_user is None:
+                    history_pairs.append(("", text))
+                else:
+                    history_pairs.append((pending_user, text))
+                    pending_user = None
+        if pending_user is not None:
+            history_pairs.append((pending_user, ""))
+        return history_pairs
+
     def check_mcp_availability(self) -> bool:
         """检查MCP功能是否可用"""
         return self.mcp_enabled
@@ -298,6 +468,28 @@ class WorkflowChatApp:
             history = history[-history_rounds * 2 :]
             logger.info(f"对话历史过长，已截取最近{history_rounds}轮对话")
 
+        # 处理记忆上下文
+        memory_context_values: Dict[str, Any] = {}
+        conversation_history_input: Any = history
+        user_id: Optional[str] = None
+
+        if self.memory_enabled:
+            self._ensure_memory_components()
+            if self.memory_reader:
+                memory_context_history, memory_context_values = self._load_memory_context(history_rounds)
+                if memory_context_history:
+                    conversation_history_input = memory_context_history
+                else:
+                    conversation_history_input = history
+                user_id = self._get_memory_user_id()
+                system_prompt = self._augment_system_prompt(system_prompt, memory_context_values)
+            else:
+                logger.warning("记忆功能已启用但读写组件未初始化")
+
+        display_history = list(history) if history else []
+        if self.memory_enabled and not display_history and isinstance(conversation_history_input, list):
+            display_history = self._convert_memory_messages_to_history(conversation_history_input)
+
         # 支持多模态输入：message可以是str或dict
         if isinstance(message, dict):
             # 多模态输入
@@ -307,7 +499,7 @@ class WorkflowChatApp:
                 yield "", history
                 return
             inputs = {
-                CONVERSATION_HISTORY: history,
+                CONVERSATION_HISTORY: conversation_history_input,
                 "current_message": text,
             }
             if image_url:
@@ -318,9 +510,13 @@ class WorkflowChatApp:
                 yield "", history
                 return
             inputs = {
-                CONVERSATION_HISTORY: history,
+                CONVERSATION_HISTORY: conversation_history_input,
                 "current_message": message,
             }
+        if user_id:
+            inputs["user_id"] = user_id
+        if memory_context_values:
+            inputs["memory_context"] = memory_context_values
         try:
             # 创建新的 LLM Vertex 实例（每次对话使用新实例避免状态污染）
             llm_vertex = self._create_llm_vertex(
@@ -330,7 +526,7 @@ class WorkflowChatApp:
             llm_vertex.messages_redirect(inputs, self.context)
             # 使用流式聊天方法
             for chunk in self._stream_chat_with_gradio_format(
-                llm_vertex, inputs, self.context, message, history, history_rounds
+                llm_vertex, inputs, self.context, message, display_history, history_rounds
             ):
                 yield chunk
         except Exception as e:
@@ -339,7 +535,7 @@ class WorkflowChatApp:
             import traceback
 
             logger.error(f"错误详情: {traceback.format_exc()}")
-            new_history = history + [(str(message), error_msg)]
+            new_history = display_history + [(str(message), error_msg)]
             yield "", new_history
 
     def _stream_chat_with_gradio_format(self, llm_vertex, inputs, context, message, history, history_rounds=3):
@@ -416,6 +612,9 @@ class WorkflowChatApp:
 
         final_response = "".join(response_parts) if response_parts else new_history[-1][1]
         logger.info(f"用户: {display_message[:150]}... | 助手: {final_response[:150]}...")
+
+        if self.memory_enabled:
+            self._store_memory_records(message, final_response, inputs)
 
         # 获取并记录token使用情况
         try:
@@ -563,6 +762,10 @@ def parse_args():
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Web UI 主机地址")
     parser.add_argument("--share", action="store_true", help="启用 Gradio 分享链接")
     parser.add_argument("--config", "-c", help="指定配置文件路径")
+    parser.add_argument("--enable-memory", action="store_true", help="启用会话记忆存储功能")
+    parser.add_argument("--memory-type", type=str, default="inner", help="记忆存储类型(inner/file/redis等)")
+    parser.add_argument("--memory-user", type=str, default="workflow-user", help="记忆使用的用户标识")
+    parser.add_argument("--memory-maxlen", type=int, default=200, help="记忆历史最大保留条数")
     return parser.parse_args()
 
 
@@ -1336,6 +1539,12 @@ def create_gradio_interface(app: WorkflowChatApp):
                     info="控制保留多少轮对话历史，减少token消耗（1-10轮）",
                 )
 
+                enable_memory = gr.Checkbox(
+                    label="启用会话记忆",
+                    value=app.memory_enabled,
+                    info="启用后将自动读取并写入会话记忆（实验功能）",
+                )
+
                 # 思考过程管理
                 gr.Markdown("### 🤔 思考过程")
 
@@ -1371,8 +1580,16 @@ def create_gradio_interface(app: WorkflowChatApp):
 
         # 事件绑定
         def respond(
-            message, history, sys_prompt, image_url, enable_reasoning_val, history_rounds_val, enable_stream_val
+            message,
+            history,
+            sys_prompt,
+            image_url,
+            enable_reasoning_val,
+            history_rounds_val,
+            enable_stream_val,
+            enable_memory_val,
         ):
+            app.set_memory_enabled(enable_memory_val)
             multimodal_inputs = {}
             # 文本
             if message:
@@ -1501,6 +1718,12 @@ def create_gradio_interface(app: WorkflowChatApp):
             logger.info(f"流模式状态已更改: {status}")
             return f"流模式状态: {status}"
 
+        def toggle_memory(enabled):
+            """切换会话记忆功能。"""
+            app.set_memory_enabled(enabled)
+            status = "✅ 会话记忆已启用" if enabled else "❌ 会话记忆已关闭"
+            logger.info(status)
+
         def execute_command_test(command):
             """测试执行命令"""
             if not command.strip():
@@ -1543,13 +1766,31 @@ def create_gradio_interface(app: WorkflowChatApp):
         # 绑定发送消息事件（支持流式输出）
         msg.submit(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds, enable_stream],
+            inputs=[
+                msg,
+                chatbot,
+                system_prompt,
+                image_url_input,
+                enable_reasoning,
+                history_rounds,
+                enable_stream,
+                enable_memory,
+            ],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )
         send_btn.click(
             respond,
-            inputs=[msg, chatbot, system_prompt, image_url_input, enable_reasoning, history_rounds, enable_stream],
+            inputs=[
+                msg,
+                chatbot,
+                system_prompt,
+                image_url_input,
+                enable_reasoning,
+                history_rounds,
+                enable_stream,
+                enable_memory,
+            ],
             outputs=[msg, chatbot],
             show_progress="minimal",
         )
@@ -1654,6 +1895,8 @@ def create_gradio_interface(app: WorkflowChatApp):
         # 绑定流模式切换事件
         enable_stream.change(toggle_stream, inputs=[enable_stream], outputs=[])
 
+        enable_memory.change(toggle_memory, inputs=[enable_memory], outputs=[])
+
         # 绑定命令执行事件
         cmd_execute_btn.click(execute_command_test, inputs=[cmd_input], outputs=[cmd_result])
 
@@ -1667,7 +1910,13 @@ def main():
     try:
         # 初始化应用
         logger.info("正在初始化 Vertex Chat 应用...")
-        app = WorkflowChatApp(config_path=args.config)
+        app = WorkflowChatApp(
+            config_path=args.config,
+            memory_enabled=args.enable_memory,
+            memory_type=args.memory_type,
+            memory_user_id=args.memory_user,
+            memory_history_maxlen=args.memory_maxlen,
+        )
 
         # 创建 Gradio 界面
         demo = create_gradio_interface(app)
