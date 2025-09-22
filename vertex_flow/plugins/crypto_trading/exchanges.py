@@ -64,6 +64,32 @@ class BaseExchange(ABC):
         """Get futures positions"""
         pass
 
+    @abstractmethod
+    def get_futures_order(
+        self, symbol: str, order_id: Optional[str] = None, client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get futures order details"""
+        pass
+
+    @abstractmethod
+    def close_futures_position(
+        self,
+        symbol: str,
+        position_side: str,
+        margin_mode: str = "cross",
+        size: Optional[float] = None,
+        currency: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Close a futures position"""
+        pass
+
+    @abstractmethod
+    def list_futures_orders(
+        self, symbol: Optional[str] = None, state: str = "open", limit: int = 100
+    ) -> Dict[str, Any]:
+        """List futures orders for the exchange"""
+        pass
+
 
 class OKXClient(BaseExchange):
     """OKX exchange API client"""
@@ -178,10 +204,15 @@ class OKXClient(BaseExchange):
             return {
                 "symbol": ticker["instId"],
                 "price": float(ticker["last"]),
+                "price_str": ticker.get("last"),
                 "bid": float(ticker["bidPx"]),
+                "bid_str": ticker.get("bidPx"),
                 "ask": float(ticker["askPx"]),
+                "ask_str": ticker.get("askPx"),
                 "volume": float(ticker["vol24h"]),
+                "volume_str": ticker.get("vol24h"),
                 "change": float(ticker["sodUtc8"]),
+                "change_str": ticker.get("sodUtc8"),
             }
         # 如果没有数据或请求失败，返回错误信息
         if "error" in response:
@@ -229,6 +260,74 @@ class OKXClient(BaseExchange):
             order_data["px"] = str(price)
 
         return self._make_request("POST", "/trade/order", data=order_data)
+
+    def get_futures_order(
+        self, symbol: str, order_id: Optional[str] = None, client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get OKX futures order details"""
+        if not order_id and not client_order_id:
+            return {"error": "At least one of order_id or client_order_id is required"}
+
+        params: Dict[str, Any] = {"instId": symbol}
+        if order_id:
+            params["ordId"] = order_id
+        if client_order_id:
+            params["clOrdId"] = client_order_id
+
+        response = self._make_request("GET", "/trade/order", params)
+
+        if response.get("code") == "0" and response.get("data"):
+            return {"success": True, "data": response["data"][0]}
+
+        return {"error": response.get("msg", "Failed to fetch order"), "raw": response}
+
+    def close_futures_position(
+        self,
+        symbol: str,
+        position_side: str,
+        margin_mode: str = "cross",
+        size: Optional[float] = None,
+        currency: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Close an OKX futures position"""
+        payload: Dict[str, Any] = {
+            "instId": symbol,
+            "mgnMode": margin_mode,
+            "posSide": position_side,
+        }
+
+        if size is not None:
+            payload["sz"] = str(size)
+        if currency:
+            payload["ccy"] = currency
+
+        response = self._make_request("POST", "/trade/close-position", data=payload)
+
+        if response.get("code") == "0":
+            return {"success": True, "data": response.get("data")}
+
+        return {"error": response.get("msg", "Failed to close position"), "raw": response}
+
+    def list_futures_orders(
+        self, symbol: Optional[str] = None, state: str = "open", limit: int = 100
+    ) -> Dict[str, Any]:
+        """List OKX futures orders"""
+        params: Dict[str, Any] = {"instType": "SWAP", "limit": str(limit)}
+        if symbol:
+            params["instId"] = symbol
+
+        if state == "open":
+            endpoint = "/trade/orders-pending"
+        else:
+            endpoint = "/trade/orders-history"
+            params["state"] = state
+
+        response = self._make_request("GET", endpoint, params)
+
+        if response.get("code") == "0":
+            return {"success": True, "data": response.get("data", [])}
+
+        return {"error": response.get("msg", "Failed to list orders"), "raw": response}
 
     def get_order_status(self, order_id: str, symbol: str) -> Dict[str, Any]:
         """查询订单状态"""
@@ -283,9 +382,17 @@ class OKXClient(BaseExchange):
                                 "symbol": position["instId"],
                                 "side": position["posSide"],
                                 "size": float(pos_size),
+                                "size_str": pos_size,
+                                "avg_price": float(position.get("avgPx", 0) or 0),
+                                "avg_price_str": position.get("avgPx"),
+                                "mark_price": float(position.get("markPx", 0) or 0),
+                                "mark_price_str": position.get("markPx"),
                                 "notional": float(position.get("notionalUsd", 0) or 0),
+                                "notional_str": position.get("notionalUsd"),
                                 "unrealized_pnl": float(position.get("upl", 0) or 0),
+                                "unrealized_pnl_str": position.get("upl"),
                                 "margin": float(position.get("margin", 0) or 0),
+                                "margin_str": position.get("margin"),
                             }
                         )
                 return {"success": True, "data": positions}
@@ -368,10 +475,15 @@ class BinanceClient(BaseExchange):
             return {
                 "symbol": response["symbol"],
                 "price": float(response["lastPrice"]),
+                "price_str": response.get("lastPrice"),
                 "bid": float(response["bidPrice"]),
+                "bid_str": response.get("bidPrice"),
                 "ask": float(response["askPrice"]),
+                "ask_str": response.get("askPrice"),
                 "volume": float(response["volume"]),
+                "volume_str": response.get("volume"),
                 "change": float(response["priceChangePercent"]),
+                "change_str": response.get("priceChangePercent"),
             }
         except Exception as e:
             return {"error": f"Failed to get ticker: {str(e)}"}
@@ -408,6 +520,29 @@ class BinanceClient(BaseExchange):
             order_params["timeInForce"] = "GTC"
 
         return self._make_request("POST", "/order", order_params, signed=True)
+
+    def get_futures_order(
+        self, symbol: str, order_id: Optional[str] = None, client_order_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Binance futures order lookup placeholder"""
+        return {"error": "Binance futures order lookup not implemented"}
+
+    def close_futures_position(
+        self,
+        symbol: str,
+        position_side: str,
+        margin_mode: str = "cross",
+        size: Optional[float] = None,
+        currency: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Binance futures close position placeholder"""
+        return {"error": "Binance futures close position not implemented"}
+
+    def list_futures_orders(
+        self, symbol: Optional[str] = None, state: str = "open", limit: int = 100
+    ) -> Dict[str, Any]:
+        """Binance futures order list placeholder"""
+        return {"error": "Binance futures order listing not implemented"}
 
     def get_spot_positions(self) -> Dict[str, Any]:
         """Get spot positions/balances from Binance"""

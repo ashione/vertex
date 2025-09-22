@@ -6,8 +6,9 @@
 import traceback
 
 from client import CryptoTradingClient
-from config import CryptoTradingConfig
 from indicators import TechnicalIndicators
+
+from config import CryptoTradingConfig
 
 
 def format_number(value):
@@ -15,10 +16,14 @@ def format_number(value):
     if value is None:
         return "N/A"
     if isinstance(value, (int, float)):
-        if abs(value) >= 1000:
+        magnitude = abs(value)
+        if magnitude >= 1000:
             return f"{value:,.2f}"
-        else:
+        if magnitude >= 1:
             return f"{value:.4f}"
+        if magnitude >= 0.01:
+            return f"{value:.6f}"
+        return f"{value:.8f}"
     return str(value)
 
 

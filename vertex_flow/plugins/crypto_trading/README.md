@@ -213,6 +213,19 @@ python example.py
 - 交易操作示例
 - 风险管理示例
 
+合约订单辅助脚本：
+
+```bash
+# 查看当前合约持仓并关联订单ID
+python manage_futures_orders.py --show-positions --symbol BTC-USDT-SWAP
+
+# 列出指定合约的未完成订单（可用 state=filled 等历史状态）
+python manage_futures_orders.py --list --symbol BTC-USDT-SWAP --state open
+
+# 查询单个订单（ordId或clOrdId）并按需平仓，终端会二次确认
+python manage_futures_orders.py --symbol BTC-USDT-SWAP --order-id <ordId> --close --position-side long
+```
+
 ## 故障排除
 
 ### 常见问题

@@ -9,8 +9,9 @@ try:
     from .config import CryptoTradingConfig
     from .exchanges import BaseExchange, BinanceClient, OKXClient
 except ImportError:
-    from config import CryptoTradingConfig
     from exchanges import BaseExchange, BinanceClient, OKXClient
+
+    from config import CryptoTradingConfig
 
 
 class CryptoTradingClient:
@@ -229,6 +230,59 @@ class CryptoTradingClient:
             return self.exchanges[exchange].get_futures_positions()
         except Exception as e:
             return {"error": f"Failed to get futures positions: {str(e)}"}
+
+    def get_futures_order(
+        self,
+        exchange: str,
+        symbol: str,
+        order_id: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch a single futures order from the specified exchange"""
+        if exchange not in self.exchanges:
+            return {"error": f"Exchange '{exchange}' not configured or not supported"}
+
+        if not order_id and not client_order_id:
+            return {"error": "order_id or client_order_id is required"}
+
+        try:
+            return self.exchanges[exchange].get_futures_order(symbol, order_id, client_order_id)
+        except Exception as e:
+            return {"error": f"Failed to get futures order: {str(e)}"}
+
+    def close_futures_position(
+        self,
+        exchange: str,
+        symbol: str,
+        position_side: str,
+        margin_mode: str = "cross",
+        size: Optional[float] = None,
+        currency: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Request a futures position close on the specified exchange"""
+        if exchange not in self.exchanges:
+            return {"error": f"Exchange '{exchange}' not configured or not supported"}
+
+        try:
+            return self.exchanges[exchange].close_futures_position(symbol, position_side, margin_mode, size, currency)
+        except Exception as e:
+            return {"error": f"Failed to close futures position: {str(e)}"}
+
+    def list_futures_orders(
+        self,
+        exchange: str,
+        symbol: Optional[str] = None,
+        state: str = "open",
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        """List futures orders for the specified exchange"""
+        if exchange not in self.exchanges:
+            return {"error": f"Exchange '{exchange}' not configured or not supported"}
+
+        try:
+            return self.exchanges[exchange].list_futures_orders(symbol, state, limit)
+        except Exception as e:
+            return {"error": f"Failed to list futures orders: {str(e)}"}
 
     def get_all_positions(self, exchange: str = None) -> Dict[str, Any]:
         """

@@ -26,10 +26,11 @@ except Exception as e:
     print(f"⚠️  Could not load .env file: {e}")
 
 from client import CryptoTradingClient
-from config import CryptoTradingConfig
 from indicators import TechnicalIndicators
 from position_metrics import PositionMetrics
 from trading import TradingEngine
+
+from config import CryptoTradingConfig
 
 
 def setup_config_example():
