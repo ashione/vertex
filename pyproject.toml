@@ -57,6 +57,10 @@ dependencies = [
     "socksio>=1.0.0",
     "pywebview>=5.4",
     "nest-asyncio>=1.6.0",
+    "websocket-client>=1.8.0",
+    "pandas>=2.3.2",
+    "numpy>=2.0.2",
+    "ta-lib>=0.6.7",
 ]
 
 [project.urls]
