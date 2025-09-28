@@ -35,6 +35,8 @@ models/
 
 # 配置文件（包含敏感信息）
 config/llm.yml
+.env
+.env.*
 
 # 虚拟环境
 venv/
@@ -76,3 +78,4 @@ config/llm.yml.backup*
 reports/*
 docker/.env
 vertex_flow/plugins/wechat/.env
+vertex_flow/plugins/crypto_trading/.env
