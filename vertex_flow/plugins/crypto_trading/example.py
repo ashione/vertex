@@ -25,6 +25,7 @@ except ImportError:
 except Exception as e:
     print(f"⚠️  Could not load .env file: {e}")
 
+from backtester import MovingAverageCrossStrategy
 from client import CryptoTradingClient
 from indicators import TechnicalIndicators
 from position_metrics import PositionMetrics
@@ -510,6 +511,43 @@ def futures_metrics_example():
         print("\n📭 未找到任何合约持仓，无法计算指标")
 
 
+def automation_example():
+    """Demonstrate backtesting and scheduler integrations."""
+    print("\n=== Automation & Backtest Example ===\n")
+
+    config = CryptoTradingConfig()
+    client = CryptoTradingClient(config)
+    engine = TradingEngine(client)
+
+    exchanges = client.get_available_exchanges()
+    if not exchanges:
+        print("No exchanges configured.")
+        return
+
+    exchange = exchanges[0]
+    symbol = get_symbol_for_exchange(config, exchange)
+
+    strategy = MovingAverageCrossStrategy(fast=5, slow=20)
+    backtest = engine.run_backtest(exchange, symbol, strategy=strategy, interval="1h", limit=120)
+
+    if "error" in backtest:
+        print(f"Backtest failed: {backtest['error']}")
+    else:
+        print(f"Strategy: {backtest['strategy']}")
+        print(f"Trades executed: {backtest['trade_count']}")
+        print(f"Total return: {backtest['total_return']:.2%}")
+        print(f"Max drawdown: {backtest['max_drawdown']:.2%}")
+
+    # Schedule an equity snapshot task and run it once
+    engine.schedule_strategy(
+        "equity_snapshot",
+        interval=0.1,
+        callback=lambda: engine.capture_equity_snapshot(exchange),
+    )
+    engine.scheduler.run_pending()
+    print("Equity snapshot task executed via scheduler.")
+
+
 def main():
     """Main function to run all examples"""
     print("🚀 Crypto Trading Plugin Examples")
@@ -533,6 +571,9 @@ def main():
 
         # Futures metrics calculation
         futures_metrics_example()
+
+        # Automation helpers
+        automation_example()
 
     except Exception as e:
         print(f"Error running examples: {e}")

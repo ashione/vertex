@@ -3,6 +3,7 @@
 展示持仓技术指标数据
 """
 
+import argparse
 import traceback
 
 from client import CryptoTradingClient
@@ -27,6 +28,17 @@ def format_number(value):
     return str(value)
 
 
+def safe_float(value):
+    """尝试将任意值转换为浮点数"""
+    try:
+        if value in (None, ""):
+            return None
+        number = float(value)
+        return number
+    except (TypeError, ValueError):
+        return None
+
+
 def get_signal_emoji(rsi, macd_histogram):
     """根据RSI和MACD获取信号表情"""
     if rsi is None or macd_histogram is None:
@@ -42,11 +54,39 @@ def get_signal_emoji(rsi, macd_histogram):
         return "⚪"  # 中性
 
 
-def display_indicators(symbol, indicators, position_info=""):
+def format_price(value):
+    """格式化价格，若无数据返回N/A"""
+    if value is None:
+        return "N/A"
+    return f"${format_number(value)}"
+
+
+def display_indicators(symbol, indicators, position_info="", position_metrics=None):
     """显示单个币种的技术指标"""
     print(f"\n📊 {symbol}")
     if position_info:
         print(f"   {position_info}")
+
+    if position_metrics:
+        entry_price = position_metrics.get("entry_price")
+        leverage = position_metrics.get("leverage")
+        support_level = position_metrics.get("support_level")
+        resistance_level = position_metrics.get("resistance_level")
+        pivot_level = position_metrics.get("pivot")
+        volume_node = position_metrics.get("volume_node")
+
+        leverage_display = "N/A"
+        if leverage is not None:
+            leverage_display = f"{format_number(leverage)}x"
+
+        print(f"   💰 买入成本: {format_price(entry_price)}")
+        print(f"   🎯 杠杆倍数: {leverage_display}")
+        print(f"   🛡 支撑位: {format_price(support_level)}")
+        print(f"   🧱 阻力位: {format_price(resistance_level)}")
+        if pivot_level is not None:
+            print(f"   📍 枢轴点: {format_price(pivot_level)}")
+        if volume_node is not None:
+            print(f"   📦 成交量峰值: {format_price(volume_node)}")
 
     if "error" in indicators:
         print(f"   ❌ 计算指标出错: {indicators['error']}")
@@ -99,80 +139,172 @@ def display_indicators(symbol, indicators, position_info=""):
     print(f"   {signal_emoji} 综合信号")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="展示现货或合约的技术指标")
+    parser.add_argument(
+        "-m",
+        "--market",
+        choices=["spot", "futures", "both"],
+        default="both",
+        help="选择展示现货、合约或全部 (默认: both)",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    show_spot = args.market in {"spot", "both"}
+    show_futures = args.market in {"futures", "both"}
+
     try:
         # 初始化客户端
         config = CryptoTradingConfig()
         client = CryptoTradingClient(config)
 
-        print("🔸 现货持仓技术指标")
-        print("=" * 40)
+        if show_spot:
+            print("🔸 现货持仓技术指标")
+            print("=" * 40)
 
-        # 获取现货持仓
-        spot_positions = client.get_spot_positions("okx")
+            # 获取现货持仓
+            spot_positions = client.get_spot_positions("okx")
 
-        if spot_positions.get("success") and spot_positions.get("data"):
-            for position in spot_positions["data"]:
-                currency = position["currency"]
-                balance = position["balance"]
+            if spot_positions.get("success") and spot_positions.get("data"):
+                for position in spot_positions["data"]:
+                    currency = position["currency"]
+                    balance = position["balance"]
 
-                # 跳过USDT和余额为0的币种
-                if currency != "USDT" and float(balance) > 0:
-                    symbol = f"{currency}-USDT"
-                    position_info = f"持仓量: {format_number(float(balance))} {currency}"
+                    # 跳过USDT和余额为0的币种
+                    if currency != "USDT" and float(balance) > 0:
+                        symbol = f"{currency}-USDT"
+                        position_info = f"持仓量: {format_number(float(balance))} {currency}"
 
-                    try:
-                        # 获取K线数据
-                        klines = client.get_klines("okx", symbol, "1h", 100)
-                        if klines and len(klines) > 26:  # 确保有足够数据计算MACD
-                            indicators = TechnicalIndicators.calculate_all_indicators(klines)
-                            display_indicators(symbol, indicators, position_info)
-                        else:
+                        try:
+                            # 获取K线数据
+                            klines = client.get_klines("okx", symbol, "1h", 100)
+                            if klines and len(klines) > 26:  # 确保有足够数据计算MACD
+                                indicators = TechnicalIndicators.calculate_all_indicators(klines)
+
+                                support_level = None
+                                resistance_level = None
+                                pivot_level = None
+                                volume_node = None
+                                support_data = indicators.get("support_resistance")
+                                if support_data:
+                                    support_levels = support_data.get("support") or []
+                                    if support_levels:
+                                        support_level = support_levels[-1]
+                                    resistance_levels = support_data.get("resistance") or []
+                                    if resistance_levels:
+                                        resistance_level = resistance_levels[0]
+                                    pivot_level = support_data.get("pivot")
+                                    volume_nodes = support_data.get("volume_nodes") or []
+                                    if volume_nodes:
+                                        volume_node = volume_nodes[0]
+
+                                entry_price = None
+                                for key in ("avg_price", "avgPrice", "avg_px", "average_price"):
+                                    candidate = safe_float(position.get(key))
+                                    if candidate:
+                                        entry_price = candidate
+                                        break
+
+                                metrics = {
+                                    "entry_price": entry_price,
+                                    "leverage": 1,
+                                    "support_level": support_level,
+                                    "resistance_level": resistance_level,
+                                    "pivot": pivot_level,
+                                    "volume_node": volume_node,
+                                }
+
+                                display_indicators(symbol, indicators, position_info, metrics)
+                            else:
+                                print(f"\n📊 {symbol}")
+                                print(f"   {position_info}")
+                                print(f"   ❌ K线数据不足 (需要至少26条)")
+                        except Exception as e:
                             print(f"\n📊 {symbol}")
                             print(f"   {position_info}")
-                            print(f"   ❌ K线数据不足 (需要至少26条)")
-                    except Exception as e:
-                        print(f"\n📊 {symbol}")
-                        print(f"   {position_info}")
-                        print(f"   ❌ 获取数据失败: {str(e)}")
-        else:
-            print("   ❌ 无法获取现货持仓数据")
+                            print(f"   ❌ 获取数据失败: {str(e)}")
+            else:
+                print("   ❌ 无法获取现货持仓数据")
 
-        print("\n\n🔸 合约持仓技术指标")
-        print("=" * 40)
+        if show_futures:
+            if show_spot:
+                print()
+            print("🔸 合约持仓技术指标")
+            print("=" * 40)
 
-        # 获取合约持仓
-        futures_positions = client.get_futures_positions("okx")
+            # 获取合约持仓
+            futures_positions = client.get_futures_positions("okx")
 
-        if futures_positions.get("success") and futures_positions.get("data"):
-            for position in futures_positions["data"]:
-                symbol = position["symbol"]
-                size = position["size"]
-                side = position["side"]
-                unrealized_pnl = position.get("unrealized_pnl", 0)
+            if futures_positions.get("success") and futures_positions.get("data"):
+                for position in futures_positions["data"]:
+                    symbol = position["symbol"]
+                    size = position["size"]
+                    side = position["side"]
+                    unrealized_pnl = position.get("unrealized_pnl", 0)
 
-                if float(size) != 0:
-                    position_info = f"方向: {side}, 数量: {format_number(float(size))}"
-                    if unrealized_pnl:
-                        pnl_str = f"${format_number(float(unrealized_pnl))}"
-                        position_info += f"\n   未实现盈亏: {pnl_str}"
+                    if float(size) != 0:
+                        position_info = f"方向: {side}, 数量: {format_number(float(size))}"
+                        if unrealized_pnl:
+                            pnl_str = f"${format_number(float(unrealized_pnl))}"
+                            position_info += f"\n   未实现盈亏: {pnl_str}"
 
-                    try:
-                        # 获取K线数据
-                        klines = client.get_klines("okx", symbol, "1h", 100)
-                        if klines and len(klines) > 26:
-                            indicators = TechnicalIndicators.calculate_all_indicators(klines)
-                            display_indicators(symbol, indicators, position_info)
-                        else:
+                        try:
+                            # 获取K线数据
+                            klines = client.get_klines("okx", symbol, "1h", 100)
+                            if klines and len(klines) > 26:
+                                indicators = TechnicalIndicators.calculate_all_indicators(klines)
+
+                                support_level = None
+                                resistance_level = None
+                                pivot_level = None
+                                volume_node = None
+                                support_data = indicators.get("support_resistance")
+                                if support_data:
+                                    support_levels = support_data.get("support") or []
+                                    if support_levels:
+                                        support_level = support_levels[-1]
+                                    resistance_levels = support_data.get("resistance") or []
+                                    if resistance_levels:
+                                        resistance_level = resistance_levels[0]
+                                    pivot_level = support_data.get("pivot")
+                                    volume_nodes = support_data.get("volume_nodes") or []
+                                    if volume_nodes:
+                                        volume_node = volume_nodes[0]
+
+                                entry_price = safe_float(position.get("avg_price"))
+                                if entry_price is None:
+                                    entry_price = safe_float(position.get("avg_price_str"))
+
+                                leverage = safe_float(position.get("leverage"))
+                                if not leverage:
+                                    notional = abs(position.get("notional", 0))
+                                    margin = position.get("margin", 0)
+                                    if margin:
+                                        leverage = notional / margin
+
+                                metrics = {
+                                    "entry_price": entry_price,
+                                    "leverage": leverage,
+                                    "support_level": support_level,
+                                    "resistance_level": resistance_level,
+                                    "pivot": pivot_level,
+                                    "volume_node": volume_node,
+                                }
+
+                                display_indicators(symbol, indicators, position_info, metrics)
+                            else:
+                                print(f"\n📊 {symbol}")
+                                print(f"   {position_info}")
+                                print(f"   ❌ K线数据不足 (需要至少26条)")
+                        except Exception as e:
                             print(f"\n📊 {symbol}")
                             print(f"   {position_info}")
-                            print(f"   ❌ K线数据不足 (需要至少26条)")
-                    except Exception as e:
-                        print(f"\n📊 {symbol}")
-                        print(f"   {position_info}")
-                        print(f"   ❌ 获取数据失败: {str(e)}")
-        else:
-            print("   ❌ 无法获取合约持仓数据")
+                            print(f"   ❌ 获取数据失败: {str(e)}")
+            else:
+                print("   ❌ 无法获取合约持仓数据")
 
         print("\n" + "=" * 60)
         print("报告生成完成 ✅")

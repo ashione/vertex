@@ -4,14 +4,29 @@ Trading engine for crypto trading operations
 
 import time
 from decimal import ROUND_DOWN, Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 try:
     from .client import CryptoTradingClient
     from .indicators import TechnicalIndicators
+    from .execution_controls import ExecutionControls, ExecutionParameters
+    from .monitoring import AlertManager, EventLogger
+    from .persistence import ConfigHistory, DataStore
+    from .risk_manager import RiskMonitor
+    from .scheduler import StrategyScheduler
 except ImportError:
     from client import CryptoTradingClient
     from indicators import TechnicalIndicators
+    from execution_controls import ExecutionControls, ExecutionParameters
+    from monitoring import AlertManager, EventLogger
+    from persistence import ConfigHistory, DataStore
+    from risk_manager import RiskMonitor
+    from scheduler import StrategyScheduler
+
+try:
+    from .backtester import Backtester, MovingAverageCrossStrategy, Strategy
+except ImportError:
+    from backtester import Backtester, MovingAverageCrossStrategy, Strategy
 
 
 class TradingEngine:
@@ -20,6 +35,29 @@ class TradingEngine:
     def __init__(self, client: CryptoTradingClient):
         self.client = client
         self.config = client.config
+        trading_cfg = self.config.trading_config
+
+        self.datastore = DataStore()
+        self.logger = EventLogger(self.datastore)
+        self.alerts = AlertManager(self.datastore)
+        self.scheduler = StrategyScheduler(self.logger)
+        self.config_history = ConfigHistory(self.datastore)
+        self.config_history.snapshot("runtime", self.config.get_sanitised_config())
+
+        execution_params = ExecutionParameters(
+            slippage_buffer=trading_cfg.slippage_buffer,
+            max_order_notional=trading_cfg.max_order_notional,
+        )
+        self.execution_controls = ExecutionControls(execution_params)
+
+        self.risk_monitor = RiskMonitor(
+            max_drawdown=trading_cfg.max_drawdown,
+            max_daily_loss=trading_cfg.max_daily_loss,
+            max_order_notional=trading_cfg.max_order_notional,
+            logger=self.logger,
+            alerts=self.alerts,
+            datastore=self.datastore,
+        )
 
     def calculate_position_size(self, exchange: str, symbol: str, risk_percentage: float = None) -> float:
         """
@@ -106,9 +144,22 @@ class TradingEngine:
             if "error" in ticker:
                 return {"error": f"Failed to get ticker: {ticker['error']}"}
 
-            current_price = ticker["price"]
-            quantity = amount_usdt / current_price
-            quantity = self.format_quantity(exchange, symbol, quantity)
+            current_price = float(ticker["price"])
+            raw_quantity = amount_usdt / current_price
+            quantity = self.format_quantity(exchange, symbol, raw_quantity)
+
+            prepared = self.execution_controls.prepare_order("buy", quantity, current_price)
+            quantity = self.format_quantity(exchange, symbol, prepared["quantity"])
+            proposed_notional = quantity * current_price
+
+            if not self.risk_monitor.allow_order(proposed_notional):
+                return {
+                    "error": "Order blocked by risk controls",
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "side": "buy",
+                    "notional": proposed_notional,
+                }
 
             # Place market buy order
             if exchange not in self.client.exchanges:
@@ -121,6 +172,17 @@ class TradingEngine:
             # Calculate stop loss and take profit
             sl_tp = self.calculate_stop_loss_take_profit(current_price, "buy")
 
+            self.logger.log(
+                "order",
+                "Executed market buy",
+                {
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "notional": proposed_notional,
+                    "slippage_price": prepared["price"],
+                },
+            )
+
             result = {
                 "status": "success",
                 "exchange": exchange,
@@ -128,12 +190,13 @@ class TradingEngine:
                 "side": "buy",
                 "type": "market",
                 "quantity": quantity,
-                "amount_usdt": amount_usdt,
+                "amount_usdt": proposed_notional,
                 "estimated_price": current_price,
                 "stop_loss": sl_tp["stop_loss"],
                 "take_profit": sl_tp["take_profit"],
                 "order_result": order_result,
                 "timestamp": time.time(),
+                "risk": {"notional": proposed_notional, "slippage_price": prepared["price"]},
             }
 
             return result
@@ -159,8 +222,21 @@ class TradingEngine:
             if "error" in ticker:
                 return {"error": f"Failed to get ticker: {ticker['error']}"}
 
-            current_price = ticker["price"]
+            current_price = float(ticker["price"])
             quantity = self.format_quantity(exchange, symbol, quantity)
+
+            prepared = self.execution_controls.prepare_order("sell", quantity, current_price)
+            quantity = self.format_quantity(exchange, symbol, prepared["quantity"])
+            proposed_notional = quantity * current_price
+
+            if not self.risk_monitor.allow_order(proposed_notional):
+                return {
+                    "error": "Order blocked by risk controls",
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "side": "sell",
+                    "notional": proposed_notional,
+                }
 
             # Place market sell order
             if exchange not in self.client.exchanges:
@@ -173,6 +249,17 @@ class TradingEngine:
             # Calculate stop loss and take profit
             sl_tp = self.calculate_stop_loss_take_profit(current_price, "sell")
 
+            self.logger.log(
+                "order",
+                "Executed market sell",
+                {
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "notional": proposed_notional,
+                    "slippage_price": prepared["price"],
+                },
+            )
+
             result = {
                 "status": "success",
                 "exchange": exchange,
@@ -181,11 +268,12 @@ class TradingEngine:
                 "type": "market",
                 "quantity": quantity,
                 "estimated_price": current_price,
-                "estimated_amount_usdt": quantity * current_price,
+                "estimated_amount_usdt": proposed_notional,
                 "stop_loss": sl_tp["stop_loss"],
                 "take_profit": sl_tp["take_profit"],
                 "order_result": order_result,
                 "timestamp": time.time(),
+                "risk": {"notional": proposed_notional, "slippage_price": prepared["price"]},
             }
 
             return result
@@ -208,6 +296,18 @@ class TradingEngine:
         """
         try:
             quantity = self.format_quantity(exchange, symbol, quantity)
+            capped_quantity, capped_notional = self.execution_controls.cap_notional(quantity, price)
+            quantity = self.format_quantity(exchange, symbol, capped_quantity)
+            proposed_notional = quantity * price
+
+            if not self.risk_monitor.allow_order(proposed_notional):
+                return {
+                    "error": "Order blocked by risk controls",
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "side": "buy",
+                    "notional": proposed_notional,
+                }
 
             if exchange not in self.client.exchanges:
                 return {"error": f"Exchange {exchange} not configured"}
@@ -219,6 +319,17 @@ class TradingEngine:
             # Calculate stop loss and take profit
             sl_tp = self.calculate_stop_loss_take_profit(price, "buy")
 
+            self.logger.log(
+                "order",
+                "Placed limit buy",
+                {
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "notional": proposed_notional,
+                    "price": price,
+                },
+            )
+
             result = {
                 "status": "success",
                 "exchange": exchange,
@@ -227,11 +338,12 @@ class TradingEngine:
                 "type": "limit",
                 "quantity": quantity,
                 "price": price,
-                "amount_usdt": quantity * price,
+                "amount_usdt": proposed_notional,
                 "stop_loss": sl_tp["stop_loss"],
                 "take_profit": sl_tp["take_profit"],
                 "order_result": order_result,
                 "timestamp": time.time(),
+                "risk": {"notional": proposed_notional},
             }
 
             return result
@@ -254,6 +366,18 @@ class TradingEngine:
         """
         try:
             quantity = self.format_quantity(exchange, symbol, quantity)
+            capped_quantity, capped_notional = self.execution_controls.cap_notional(quantity, price)
+            quantity = self.format_quantity(exchange, symbol, capped_quantity)
+            proposed_notional = quantity * price
+
+            if not self.risk_monitor.allow_order(proposed_notional):
+                return {
+                    "error": "Order blocked by risk controls",
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "side": "sell",
+                    "notional": proposed_notional,
+                }
 
             if exchange not in self.client.exchanges:
                 return {"error": f"Exchange {exchange} not configured"}
@@ -265,6 +389,17 @@ class TradingEngine:
             # Calculate stop loss and take profit
             sl_tp = self.calculate_stop_loss_take_profit(price, "sell")
 
+            self.logger.log(
+                "order",
+                "Placed limit sell",
+                {
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "notional": proposed_notional,
+                    "price": price,
+                },
+            )
+
             result = {
                 "status": "success",
                 "exchange": exchange,
@@ -273,17 +408,89 @@ class TradingEngine:
                 "type": "limit",
                 "quantity": quantity,
                 "price": price,
-                "amount_usdt": quantity * price,
+                "amount_usdt": proposed_notional,
                 "stop_loss": sl_tp["stop_loss"],
                 "take_profit": sl_tp["take_profit"],
                 "order_result": order_result,
                 "timestamp": time.time(),
+                "risk": {"notional": proposed_notional},
             }
 
             return result
 
         except Exception as e:
             return {"error": f"Failed to execute limit sell order: {str(e)}", "exchange": exchange, "symbol": symbol}
+
+    def schedule_strategy(self, name: str, interval: float, callback: Callable[[], Any]) -> None:
+        """Register a named strategy callback with the cooperative scheduler."""
+        self.scheduler.add_task(name, interval, callback)
+
+    def run_scheduler(self, duration: float, poll_interval: float = 1.0) -> None:
+        """Run the scheduler loop for a bounded amount of time."""
+        self.scheduler.run_for(duration, poll_interval)
+
+    def run_backtest(
+        self,
+        exchange: str,
+        symbol: str,
+        strategy: Optional[Strategy] = None,
+        interval: str = "1h",
+        limit: int = 200,
+        initial_equity: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Fetch historical data and execute a simple backtest."""
+        candles = self.client.get_klines(exchange, symbol, interval, limit)
+        if not candles:
+            return {"error": "No historical data available"}
+
+        runner = strategy or MovingAverageCrossStrategy()
+        backtester = Backtester(
+            strategy=runner,
+            initial_equity=initial_equity or self.calculate_position_size(exchange, symbol),
+        )
+        result = backtester.run(candles)
+        payload = {
+            "strategy": result.strategy,
+            "starting_equity": result.starting_equity,
+            "ending_equity": result.ending_equity,
+            "total_return": result.total_return,
+            "max_drawdown": result.max_drawdown,
+            "trade_count": len(result.trades),
+            "trades": [trade.__dict__ for trade in result.trades],
+        }
+        self.logger.log(
+            "backtest",
+            f"Backtest finished for {symbol}",
+            {
+                "strategy": result.strategy,
+                "return": payload["total_return"],
+                "max_drawdown": result.max_drawdown,
+            },
+        )
+        return payload
+
+    def capture_equity_snapshot(self, exchange: str) -> Dict[str, Any]:
+        """Update the risk monitor with the latest balance-derived equity."""
+        account = self.client.get_account_info(exchange)
+        if "error" in account:
+            return {"error": account["error"], "exchange": exchange}
+
+        balances = account.get("balances", {})
+        usdt = balances.get("USDT")
+        equity = 0.0
+        if isinstance(usdt, dict):
+            equity = float(usdt.get("total", usdt.get("available", 0.0)))
+        elif isinstance(usdt, (int, float)):
+            equity = float(usdt)
+
+        self.risk_monitor.update_equity(equity)
+        snapshot = {
+            "exchange": exchange,
+            "equity": equity,
+            "timestamp": time.time(),
+        }
+        self.logger.log("equity", f"Equity snapshot for {exchange}", {"equity": equity})
+        return snapshot
 
     def auto_trade_by_signals(self, exchange: str, symbol: str, amount_usdt: float = None) -> Dict[str, Any]:
         """
@@ -333,7 +540,7 @@ class TradingEngine:
                 # This is simplified - in practice, you'd track your positions
                 ticker = self.client.get_ticker(exchange, symbol)
                 if "error" not in ticker:
-                    quantity = amount_usdt / ticker["price"]
+                    quantity = amount_usdt / float(ticker["price"])
                     result = self.sell_market(exchange, symbol, quantity)
                 else:
                     result = {"error": "Failed to get current price for sell order"}

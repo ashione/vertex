@@ -65,6 +65,25 @@ config.set_binance_config(
 )
 ```
 
+### 3. 风控与执行参数
+
+`config.py` 支持通过环境变量覆盖交易风控阈值：
+
+```env
+# 交易参数
+DEFAULT_SYMBOL=BTC-USDT
+MAX_POSITION_SIZE=1000.0
+RISK_PERCENTAGE=0.02
+STOP_LOSS_PERCENTAGE=0.05
+TAKE_PROFIT_PERCENTAGE=0.10
+
+# 执行与风控开关
+SLIPPAGE_BUFFER=0.0005     # 买卖滑点缓冲（5bps）
+MAX_ORDER_NOTIONAL=5000.0  # 单笔委托最大名义金额
+MAX_DRAWDOWN=0.2           # 账户最大回撤（20%）
+MAX_DAILY_LOSS=200.0       # 当日最大亏损（USDT）
+```
+
 ## 基本使用
 
 ### 1. 初始化客户端
@@ -161,6 +180,18 @@ print(f"推荐信号: {summary['technical_analysis']['overall_signal']}")
 print(f"推荐仓位: ${summary['risk_management']['recommended_position_size_usdt']}")
 ```
 
+## 回测与策略调度
+
+- 使用 `TradingEngine.run_backtest(exchange, symbol, strategy)` 快速评估策略，默认提供 `MovingAverageCrossStrategy` 示例。
+- `TradingEngine.schedule_strategy(name, interval, callback)` 可注册定时任务，结合 `run_scheduler`/`run_pending` 实现多策略轮询。
+- 运行 `python example.py` 可查看回测结果和调度任务在控制台输出的示例。
+
+## 风控监控与告警
+
+- 核心风控由 `RiskMonitor` 驱动，自动跟踪账户权益、回撤与当日亏损，触发 `kill switch` 时会拒绝新订单。
+- `ExecutionControls` 为每笔委托应用滑点缓冲与名义金额上限，避免过量下单。
+- `EventLogger` 与 `AlertManager` 会将订单、风控、告警记录写入 `data/` 目录下的 JSONL 文件，便于后续审计。
+
 ## 技术指标说明
 
 插件支持以下技术指标：
@@ -179,7 +210,7 @@ print(f"推荐仓位: ${summary['risk_management']['recommended_position_size_us
 
 - **仓位管理**: 基于账户余额和风险比例计算仓位
 - **止损止盈**: 自动计算止损止盈价位
-- **风险控制**: 限制单笔交易最大金额
+- **风险控制**: 限制单笔交易、监控回撤并触发Kill Switch
 
 ```python
 # 风险管理配置

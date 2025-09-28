@@ -393,6 +393,7 @@ class OKXClient(BaseExchange):
                                 "unrealized_pnl_str": position.get("upl"),
                                 "margin": float(position.get("margin", 0) or 0),
                                 "margin_str": position.get("margin"),
+                                "leverage": float(position.get("lever", 0) or 0),
                             }
                         )
                 return {"success": True, "data": positions}

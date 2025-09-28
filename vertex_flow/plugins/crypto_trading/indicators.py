@@ -147,27 +147,112 @@ class TechnicalIndicators:
         return obv
 
     @staticmethod
-    def support_resistance(data: pd.Series, window: int = 20) -> Dict[str, List[float]]:
-        """Find support and resistance levels"""
-        highs = data.rolling(window=window, center=True).max()
-        lows = data.rolling(window=window, center=True).min()
+    def pivot_levels(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, float]:
+        """Calculate classic pivot point levels from the latest session"""
+        if len(high) == 0:
+            return {}
 
-        resistance_levels = []
-        support_levels = []
+        recent_high = high.iloc[-1]
+        recent_low = low.iloc[-1]
+        recent_close = close.iloc[-1]
 
-        for i in range(window, len(data) - window):
-            if data.iloc[i] == highs.iloc[i]:
-                resistance_levels.append(data.iloc[i])
-            if data.iloc[i] == lows.iloc[i]:
-                support_levels.append(data.iloc[i])
+        pivot = (recent_high + recent_low + recent_close) / 3
+        r1 = 2 * pivot - recent_low
+        s1 = 2 * pivot - recent_high
+        r2 = pivot + (recent_high - recent_low)
+        s2 = pivot - (recent_high - recent_low)
+
+        return {"pivot": pivot, "r1": r1, "r2": r2, "s1": s1, "s2": s2}
+
+    @staticmethod
+    def volume_profile_levels(df: pd.DataFrame, bins: int = 24) -> List[float]:
+        """Approximate high-volume price levels using volume profile"""
+        if df.empty or df["high"].max() == df["low"].min():
+            return []
+
+        price_min = df["low"].min()
+        price_max = df["high"].max()
+        bin_edges = np.linspace(price_min, price_max, bins + 1)
+        volume_distribution = np.zeros(bins)
+
+        for _, row in df.iterrows():
+            typical_price = (row["high"] + row["low"] + row["close"]) / 3
+            idx = np.searchsorted(bin_edges, typical_price, side="right") - 1
+            idx = max(0, min(idx, bins - 1))
+            volume_distribution[idx] += row["volume"]
+
+        top_indices = volume_distribution.argsort()[::-1][:5]
+        levels = []
+        for idx in top_indices:
+            level = (bin_edges[idx] + bin_edges[idx + 1]) / 2
+            levels.append(level)
+
+        return levels
+
+    @classmethod
+    def support_resistance(cls, df: pd.DataFrame, window: int = 20, bins: int = 24) -> Dict[str, List[float]]:
+        """Combine multiple methods to find support and resistance levels"""
+        if df.empty:
+            return {"support": [], "resistance": []}
+
+        closes = df["close"]
+        highs = df["high"]
+        lows = df["low"]
+
+        rolling_resistance = []
+        rolling_support = []
+        if len(closes) >= window * 2:
+            highs_roll = closes.rolling(window=window, center=True).max()
+            lows_roll = closes.rolling(window=window, center=True).min()
+
+            for i in range(window, len(closes) - window):
+                if closes.iloc[i] == highs_roll.iloc[i]:
+                    rolling_resistance.append(closes.iloc[i])
+                if closes.iloc[i] == lows_roll.iloc[i]:
+                    rolling_support.append(closes.iloc[i])
+
+        pivot_data = cls.pivot_levels(highs, lows, closes)
+        volume_nodes = cls.volume_profile_levels(df, bins)
+
+        support_levels: List[float] = []
+        resistance_levels: List[float] = []
+
+        pivot_point = pivot_data.get("pivot") if pivot_data else None
+
+        if pivot_data:
+            support_levels.extend([pivot_data.get("s1"), pivot_data.get("s2")])
+            resistance_levels.extend([pivot_data.get("r1"), pivot_data.get("r2")])
+
+        support_levels.extend(rolling_support)
+        resistance_levels.extend(rolling_resistance)
+
+        # Split volume nodes around latest close
+        if volume_nodes:
+            last_close = closes.iloc[-1]
+            for level in volume_nodes:
+                if level <= last_close:
+                    support_levels.append(level)
+                else:
+                    resistance_levels.append(level)
+
+        support_clean = sorted({level for level in support_levels if level is not None})[:5]
+        resistance_clean = sorted({level for level in resistance_levels if level is not None}, reverse=True)[:5]
+        volume_clean = sorted({level for level in volume_nodes if level is not None})[:5]
 
         return {
-            "resistance": sorted(list(set(resistance_levels)), reverse=True)[:5],
-            "support": sorted(list(set(support_levels)))[:5],
+            "support": support_clean,
+            "resistance": resistance_clean,
+            "pivot": pivot_point,
+            "volume_nodes": volume_clean,
         }
 
     @classmethod
-    def calculate_all_indicators(cls, klines: List[List]) -> Dict[str, Any]:
+    def calculate_all_indicators(
+        cls,
+        klines: List[List],
+        sr_window: int = 20,
+        volume_bins: int = 24,
+    ) -> Dict[str, Any]:
         """
         Calculate all technical indicators for given klines data
 
@@ -269,8 +354,8 @@ class TechnicalIndicators:
                 indicators["williams_r"] = None
 
             # Support and Resistance
-            if len(df) >= 40:
-                sr_levels = cls.support_resistance(df["close"])
+            if len(df) >= sr_window * 2:
+                sr_levels = cls.support_resistance(df, window=sr_window, bins=volume_bins)
                 indicators["support_resistance"] = sr_levels
             else:
                 indicators["support_resistance"] = None

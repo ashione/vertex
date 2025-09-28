@@ -32,6 +32,10 @@ class TradingConfig:
     risk_percentage: float = 0.02
     stop_loss_percentage: float = 0.05
     take_profit_percentage: float = 0.10
+    slippage_buffer: float = 0.0005
+    max_order_notional: float = 5000.0
+    max_drawdown: float = 0.2
+    max_daily_loss: float = 200.0
 
 
 class CryptoTradingConfig:
@@ -102,6 +106,34 @@ class CryptoTradingConfig:
             except ValueError:
                 pass
 
+        slippage_buffer = os.getenv("SLIPPAGE_BUFFER")
+        if slippage_buffer:
+            try:
+                self.trading_config.slippage_buffer = float(slippage_buffer)
+            except ValueError:
+                pass
+
+        max_order_notional = os.getenv("MAX_ORDER_NOTIONAL")
+        if max_order_notional:
+            try:
+                self.trading_config.max_order_notional = float(max_order_notional)
+            except ValueError:
+                pass
+
+        max_drawdown = os.getenv("MAX_DRAWDOWN")
+        if max_drawdown:
+            try:
+                self.trading_config.max_drawdown = float(max_drawdown)
+            except ValueError:
+                pass
+
+        max_daily_loss = os.getenv("MAX_DAILY_LOSS")
+        if max_daily_loss:
+            try:
+                self.trading_config.max_daily_loss = float(max_daily_loss)
+            except ValueError:
+                pass
+
     def set_okx_config(self, api_key: str, secret_key: str, passphrase: str, sandbox: bool = False):
         """Set OKX configuration"""
         self.okx_config = ExchangeConfig(api_key=api_key, secret_key=secret_key, passphrase=passphrase, sandbox=sandbox)
@@ -116,4 +148,21 @@ class CryptoTradingConfig:
             "okx": self.okx_config.__dict__ if self.okx_config else None,
             "binance": self.binance_config.__dict__ if self.binance_config else None,
             "trading": self.trading_config.__dict__,
+        }
+
+    def get_sanitised_config(self) -> Dict[str, Any]:
+        """Return a copy of the configuration with secrets masked."""
+        def mask(value: Optional[ExchangeConfig]) -> Optional[Dict[str, Any]]:
+            if not value:
+                return None
+            data = value.__dict__.copy()
+            for key in ("api_key", "secret_key", "passphrase"):
+                if key in data and data[key]:
+                    data[key] = "***masked***"
+            return data
+
+        return {
+            "okx": mask(self.okx_config),
+            "binance": mask(self.binance_config),
+            "trading": self.trading_config.__dict__.copy(),
         }
